@@ -8,6 +8,9 @@ import { SummaryCards } from '@/components/summary-cards'
 import { ResultsTable } from '@/components/results-table'
 import type { ReconciliationResult } from '@/lib/types'
 
+const SYSTEM_TOTAL = MOCK_SYSTEM_RECORDS.length
+const CARD_TOTAL = MOCK_CARD_RECORDS.length
+
 export default function Index() {
   const [step, setStep] = useState<'upload' | 'processing' | 'results'>('upload')
   const [sysFile, setSysFile] = useState<File | null>(null)
@@ -110,7 +113,8 @@ export default function Index() {
             Resultado da Conciliação
           </h2>
           <p className="text-slate-500 mt-1">
-            Análise concluída. Verifique as divergências abaixo.
+            Análise concluída. {SYSTEM_TOTAL} registros do sistema e {CARD_TOTAL} da fatura
+            processados.
           </p>
         </div>
         <Button variant="outline" onClick={handleReset} className="bg-white dark:bg-slate-950">

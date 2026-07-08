@@ -5,103 +5,137 @@ export function reconcileData(
   cardRecords: CardRecord[],
 ): ReconciliationResult[] {
   const results: ReconciliationResult[] = []
-  let sysUnmatched = [...systemRecords]
-  let cardUnmatched = [...cardRecords]
 
-  const sysByVal = new Map<number, SystemRecord[]>()
-  sysUnmatched.forEach((r) => {
-    if (!sysByVal.has(r.valor)) sysByVal.set(r.valor, [])
-    sysByVal.get(r.valor)!.push(r)
+  const sysRemaining = [...systemRecords]
+  const cardRemaining = [...cardRecords]
+
+  const sysByValue = new Map<number, SystemRecord[]>()
+  sysRemaining.forEach((r) => {
+    const list = sysByValue.get(r.credito) || []
+    list.push(r)
+    sysByValue.set(r.credito, list)
   })
 
-  const cardByVal = new Map<number, CardRecord[]>()
-  cardUnmatched.forEach((r) => {
-    if (!cardByVal.has(r.valor)) cardByVal.set(r.valor, [])
-    cardByVal.get(r.valor)!.push(r)
+  const cardByValue = new Map<number, CardRecord[]>()
+  cardRemaining.forEach((r) => {
+    const list = cardByValue.get(r.valor) || []
+    list.push(r)
+    cardByValue.set(r.valor, list)
   })
 
-  for (const [val, sysList] of sysByVal.entries()) {
-    const cardList = cardByVal.get(val) || []
+  const allValues = new Set([...sysByValue.keys(), ...cardByValue.keys()])
 
-    while (sysList.length > 0 && cardList.length > 0) {
-      const s = sysList.shift()!
-      const c = cardList.shift()!
+  for (const val of allValues) {
+    const sysList = sysByValue.get(val) || []
+    const cardList = cardByValue.get(val) || []
 
-      results.push({
-        id: `match-${s.id}-${c.id}`,
-        data: s.data,
-        parceiro: s.parceiro,
-        estabelecimentoFatura: c.estabelecimento,
-        categoria: s.categoria,
-        parcela: s.parcela,
-        lancamentoDiario: s.lancamentoDiario,
-        valorSistema: s.valor,
-        valorFatura: c.valor,
-        diferenca: 0,
-        status: 'GREEN',
-      })
+    if (sysList.length > 0 && cardList.length > 0) {
+      const matchCount = Math.min(sysList.length, cardList.length)
 
-      sysUnmatched = sysUnmatched.filter((r) => r.id !== s.id)
-      cardUnmatched = cardUnmatched.filter((r) => r.id !== c.id)
+      for (let i = 0; i < matchCount; i++) {
+        const s = sysList[i]
+        const c = cardList[i]
+
+        results.push({
+          id: `match-${s.id}-${c.id}`,
+          data: s.data,
+          lancamentoDiario: s.lancamentoDiario,
+          parceiro: s.parceiro,
+          estabelecimento: c.estabelecimento,
+          categoria: s.categoria || c.categoria,
+          debito: s.debito,
+          credito: s.credito,
+          valorFatura: c.valor,
+          diferenca: 0,
+          status: 'GREEN',
+          origem: 'AMBOS',
+        })
+
+        sysRemaining.splice(sysRemaining.indexOf(s), 1)
+        cardRemaining.splice(cardRemaining.indexOf(c), 1)
+      }
     }
   }
 
-  for (let i = sysUnmatched.length - 1; i >= 0; i--) {
-    const s = sysUnmatched[i]
-    const cIndex = cardUnmatched.findIndex((c) => c.data === s.data)
+  const sysByDate = new Map<string, SystemRecord[]>()
+  sysRemaining.forEach((r) => {
+    const list = sysByDate.get(r.data) || []
+    list.push(r)
+    sysByDate.set(r.data, list)
+  })
 
-    if (cIndex !== -1) {
-      const c = cardUnmatched[cIndex]
+  const cardByDate = new Map<string, CardRecord[]>()
+  cardRemaining.forEach((r) => {
+    const list = cardByDate.get(r.data) || []
+    list.push(r)
+    cardByDate.set(r.data, list)
+  })
+
+  const allDates = new Set([...sysByDate.keys(), ...cardByDate.keys()])
+
+  for (const date of allDates) {
+    const sysList = sysByDate.get(date) || []
+    const cardList = cardByDate.get(date) || []
+
+    const matchCount = Math.min(sysList.length, cardList.length)
+
+    for (let i = 0; i < matchCount; i++) {
+      const s = sysList[i]
+      const c = cardList[i]
+
       results.push({
         id: `div-${s.id}-${c.id}`,
         data: s.data,
-        parceiro: s.parceiro,
-        estabelecimentoFatura: c.estabelecimento,
-        categoria: s.categoria,
-        parcela: s.parcela,
         lancamentoDiario: s.lancamentoDiario,
-        valorSistema: s.valor,
+        parceiro: s.parceiro,
+        estabelecimento: c.estabelecimento,
+        categoria: s.categoria || c.categoria,
+        debito: s.debito,
+        credito: s.credito,
         valorFatura: c.valor,
-        diferenca: s.valor - c.valor,
+        diferenca: s.credito - c.valor,
         status: 'YELLOW',
+        origem: 'AMBOS',
       })
-      sysUnmatched.splice(i, 1)
-      cardUnmatched.splice(cIndex, 1)
+
+      sysRemaining.splice(sysRemaining.indexOf(s), 1)
+      cardRemaining.splice(cardRemaining.indexOf(c), 1)
     }
   }
 
-  sysUnmatched.forEach((s) => {
+  sysRemaining.forEach((s) => {
     results.push({
       id: `sys-${s.id}`,
       data: s.data,
-      parceiro: s.parceiro,
-      estabelecimentoFatura: '-',
-      categoria: s.categoria,
-      parcela: s.parcela,
       lancamentoDiario: s.lancamentoDiario,
-      valorSistema: s.valor,
+      parceiro: s.parceiro,
+      estabelecimento: '-',
+      categoria: s.categoria,
+      debito: s.debito,
+      credito: s.credito,
       valorFatura: null,
       diferenca: null,
       status: 'RED',
+      origem: 'SISTEMA',
     })
   })
 
-  cardUnmatched.forEach((c) => {
+  cardRemaining.forEach((c) => {
     results.push({
       id: `card-${c.id}`,
       data: c.data,
-      parceiro: '-',
-      estabelecimentoFatura: c.estabelecimento,
-      categoria: '-',
-      parcela: '-',
       lancamentoDiario: '-',
-      valorSistema: null,
+      parceiro: '-',
+      estabelecimento: c.estabelecimento,
+      categoria: c.categoria,
+      debito: null,
+      credito: null,
       valorFatura: c.valor,
       diferenca: null,
       status: 'RED',
+      origem: 'FATURA',
     })
   })
 
-  results.sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
   return results
 }

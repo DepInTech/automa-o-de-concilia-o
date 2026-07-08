@@ -26,9 +26,11 @@ export function ResultsTable({ data }: { data: ReconciliationResult[] }) {
   const [filter, setFilter] = useState('ALL')
 
   const filtered = data.filter((r) => {
+    const q = search.toLowerCase()
     const matchSearch =
-      r.parceiro.toLowerCase().includes(search.toLowerCase()) ||
-      r.estabelecimentoFatura.toLowerCase().includes(search.toLowerCase())
+      r.parceiro.toLowerCase().includes(q) ||
+      r.estabelecimento.toLowerCase().includes(q) ||
+      r.lancamentoDiario.toLowerCase().includes(q)
     const matchFilter = filter === 'ALL' || r.status === filter
     return matchSearch && matchFilter
   })
@@ -46,38 +48,36 @@ export function ResultsTable({ data }: { data: ReconciliationResult[] }) {
     }
   }
 
+  const statusLabel = (s: string) =>
+    s === 'GREEN' ? 'Conciliado' : s === 'YELLOW' ? 'Divergente' : 'Não Encontrado'
+
   const handleDownload = () => {
     const header = [
       'Data',
-      'Parceiro (Sist.)',
-      'Estabelecimento (Fat.)',
+      'Lançamento Diário',
+      'Parceiro',
+      'Estabelecimento',
       'Categoria',
-      'Parcela',
-      'Lan. Diário',
-      'Valor Sist.',
-      'Valor Fat.',
+      'Débito',
+      'Crédito',
+      'Valor da Fatura',
       'Diferença',
       'Status',
     ].join(';')
     const rows = filtered.map((r) =>
       [
         r.data,
-        r.parceiro,
-        r.estabelecimentoFatura,
-        r.categoria,
-        r.parcela,
         r.lancamentoDiario,
-        r.valorSistema || '',
-        r.valorFatura || '',
-        r.diferenca || '',
-        r.status === 'GREEN'
-          ? 'Conciliado'
-          : r.status === 'YELLOW'
-            ? 'Divergente'
-            : 'Não Encontrado',
+        r.parceiro,
+        r.estabelecimento,
+        r.categoria,
+        r.debito ?? '',
+        r.credito ?? '',
+        r.valorFatura ?? '',
+        r.diferenca ?? '',
+        statusLabel(r.status),
       ].join(';'),
     )
-
     const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -127,10 +127,13 @@ export function ResultsTable({ data }: { data: ReconciliationResult[] }) {
             <TableHeader className="bg-slate-50 dark:bg-slate-900/50">
               <TableRow>
                 <TableHead className="whitespace-nowrap">Data</TableHead>
-                <TableHead className="whitespace-nowrap">Parceiro (Sist.)</TableHead>
-                <TableHead className="whitespace-nowrap">Estabelecimento (Fat.)</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Valor Sist.</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Valor Fat.</TableHead>
+                <TableHead className="whitespace-nowrap">Lançamento Diário</TableHead>
+                <TableHead className="whitespace-nowrap">Parceiro</TableHead>
+                <TableHead className="whitespace-nowrap">Estabelecimento</TableHead>
+                <TableHead className="whitespace-nowrap">Categoria</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Débito</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Crédito</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Valor Fatura</TableHead>
                 <TableHead className="text-right whitespace-nowrap">Diferença</TableHead>
                 <TableHead className="text-center">Status</TableHead>
               </TableRow>
@@ -139,10 +142,15 @@ export function ResultsTable({ data }: { data: ReconciliationResult[] }) {
               {filtered.map((r) => (
                 <TableRow key={r.id} className={`${getRowClass(r.status)} transition-colors`}>
                   <TableCell className="whitespace-nowrap font-medium">{r.data}</TableCell>
+                  <TableCell className="whitespace-nowrap">{r.lancamentoDiario}</TableCell>
                   <TableCell className="whitespace-nowrap">{r.parceiro}</TableCell>
-                  <TableCell className="whitespace-nowrap">{r.estabelecimentoFatura}</TableCell>
+                  <TableCell className="whitespace-nowrap">{r.estabelecimento}</TableCell>
+                  <TableCell className="whitespace-nowrap">{r.categoria}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap">
+                    {formatCurrency(r.debito)}
+                  </TableCell>
                   <TableCell className="text-right whitespace-nowrap font-medium">
-                    {formatCurrency(r.valorSistema)}
+                    {formatCurrency(r.credito)}
                   </TableCell>
                   <TableCell className="text-right whitespace-nowrap font-medium">
                     {formatCurrency(r.valorFatura)}
@@ -155,16 +163,14 @@ export function ResultsTable({ data }: { data: ReconciliationResult[] }) {
                       variant="outline"
                       className="bg-white/50 dark:bg-black/20 font-semibold border-current/20 shadow-none"
                     >
-                      {r.status === 'GREEN' && 'Conciliado'}
-                      {r.status === 'YELLOW' && 'Divergente'}
-                      {r.status === 'RED' && 'Não Encontrado'}
+                      {statusLabel(r.status)}
                     </Badge>
                   </TableCell>
                 </TableRow>
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center h-32 text-slate-500">
+                  <TableCell colSpan={10} className="text-center h-32 text-slate-500">
                     Nenhum registro encontrado para os filtros aplicados.
                   </TableCell>
                 </TableRow>
@@ -183,31 +189,41 @@ export function ResultsTable({ data }: { data: ReconciliationResult[] }) {
                 variant="outline"
                 className="bg-white/50 dark:bg-black/20 font-semibold border-current/20 shadow-none"
               >
-                {r.status === 'GREEN' && 'Conciliado'}
-                {r.status === 'YELLOW' && 'Divergente'}
-                {r.status === 'RED' && 'Ausente'}
+                {statusLabel(r.status)}
               </Badge>
             </div>
             <div className="space-y-2 text-sm">
               <p>
-                <span className="opacity-70">Parceiro (Sist.):</span>{' '}
+                <span className="opacity-70">Parceiro:</span>{' '}
                 <strong className="font-semibold">{r.parceiro}</strong>
               </p>
               <p>
-                <span className="opacity-70">Estabelecimento (Fat.):</span>{' '}
-                <strong className="font-semibold">{r.estabelecimentoFatura}</strong>
+                <span className="opacity-70">Estabelecimento:</span>{' '}
+                <strong className="font-semibold">{r.estabelecimento}</strong>
+              </p>
+              <p>
+                <span className="opacity-70">Lançamento:</span>{' '}
+                <strong className="font-semibold">{r.lancamentoDiario}</strong>
+              </p>
+              <p>
+                <span className="opacity-70">Categoria:</span>{' '}
+                <strong className="font-semibold">{r.categoria}</strong>
               </p>
               <div className="flex justify-between pt-3 border-t border-current/10 mt-3">
                 <div className="flex flex-col">
-                  <span className="text-[10px] uppercase font-bold opacity-60">Sist.</span>
-                  <span className="font-bold">{formatCurrency(r.valorSistema)}</span>
+                  <span className="text-[10px] uppercase font-bold opacity-60">Débito</span>
+                  <span className="font-bold">{formatCurrency(r.debito)}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase font-bold opacity-60">Crédito</span>
+                  <span className="font-bold">{formatCurrency(r.credito)}</span>
                 </div>
                 <div className="flex flex-col text-right">
                   <span className="text-[10px] uppercase font-bold opacity-60">Fatura</span>
                   <span className="font-bold">{formatCurrency(r.valorFatura)}</span>
                 </div>
               </div>
-              {r.diferenca !== null && r.diferenca !== 0 && (
+              {r.diferenca !== null && (
                 <div className="flex justify-between pt-2 mt-1">
                   <span className="text-[10px] uppercase font-bold opacity-60">Diferença</span>
                   <span className="font-bold">{formatCurrency(r.diferenca)}</span>
