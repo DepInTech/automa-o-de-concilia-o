@@ -28,7 +28,7 @@ function createMatchedResult(
     lancamentoDiario: s.lancamentoDiario,
     parceiro: s.parceiro,
     estabelecimento: c.estabelecimento,
-    categoria: s.categoria || c.categoria,
+    categoria: c.categoria || s.categoria,
     debito: s.debito,
     credito: s.credito,
     valorFatura: c.valor,
