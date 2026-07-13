@@ -1,24 +1,26 @@
 import { useState } from 'react'
-import { UploadCloud, FileSpreadsheet, Loader2, ArrowRight } from 'lucide-react'
+import { ArrowRight, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 import { reconcileData } from '@/lib/reconciliation'
 import { MOCK_SYSTEM_RECORDS, MOCK_CARD_RECORDS } from '@/lib/mock-data'
+import { parseCSV, mapSystemRecords, mapCardRecords } from '@/lib/csv-parser'
+import { generateSystemCSV, generateCardCSV, downloadCSV } from '@/lib/sample-csv'
 import { SummaryCards } from '@/components/summary-cards'
 import { ResultsTable } from '@/components/results-table'
-import type { ReconciliationResult } from '@/lib/types'
-
-const SYSTEM_TOTAL = MOCK_SYSTEM_RECORDS.length
-const CARD_TOTAL = MOCK_CARD_RECORDS.length
+import { UploadZone } from '@/components/upload-zone'
+import type { ReconciliationResult, SystemRecord, CardRecord } from '@/lib/types'
 
 export default function Index() {
   const [step, setStep] = useState<'upload' | 'processing' | 'results'>('upload')
   const [sysFile, setSysFile] = useState<File | null>(null)
   const [cardFile, setCardFile] = useState<File | null>(null)
   const [results, setResults] = useState<ReconciliationResult[]>([])
+  const [sysTotal, setSysTotal] = useState(0)
+  const [cardTotal, setCardTotal] = useState(0)
   const { toast } = useToast()
 
-  const handleProcess = () => {
+  const handleProcess = async () => {
     if (!sysFile || !cardFile) {
       toast({
         title: 'Atenção',
@@ -29,10 +31,38 @@ export default function Index() {
     }
     setStep('processing')
 
-    // Simulate processing time
+    let sysRecords: SystemRecord[] = MOCK_SYSTEM_RECORDS
+    let cardRecords: CardRecord[] = MOCK_CARD_RECORDS
+
+    try {
+      const sysText = await sysFile.text()
+      const cardText = await cardFile.text()
+      const sysParsed = parseCSV(sysText)
+      const cardParsed = parseCSV(cardText)
+      const mappedSys = mapSystemRecords(sysParsed)
+      const mappedCard = mapCardRecords(cardParsed)
+
+      if (mappedSys.length > 0 && mappedCard.length > 0) {
+        sysRecords = mappedSys
+        cardRecords = mappedCard
+      } else {
+        toast({
+          title: 'Aviso',
+          description: 'Arquivos CSV vazios ou ilegíveis. Usando dados de demonstração.',
+        })
+      }
+    } catch {
+      toast({
+        title: 'Aviso',
+        description: 'Erro ao ler arquivos. Verifique o formato CSV. Usando dados de demonstração.',
+      })
+    }
+
     setTimeout(() => {
-      const res = reconcileData(MOCK_SYSTEM_RECORDS, MOCK_CARD_RECORDS)
+      const res = reconcileData(sysRecords, cardRecords)
       setResults(res)
+      setSysTotal(sysRecords.length)
+      setCardTotal(cardRecords.length)
       setStep('results')
       toast({ title: 'Sucesso', description: 'Conciliação finalizada com sucesso.' })
     }, 2500)
@@ -57,22 +87,22 @@ export default function Index() {
             dados automaticamente.
           </p>
         </div>
-
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <UploadZone
             title="Registros do Sistema"
             id="sys-file"
             file={sysFile}
             onChange={setSysFile}
+            onDownloadSample={() => downloadCSV(generateSystemCSV(), 'modelo_sistema.csv')}
           />
           <UploadZone
             title="Fatura do Cartão"
             id="card-file"
             file={cardFile}
             onChange={setCardFile}
+            onDownloadSample={() => downloadCSV(generateCardCSV(), 'modelo_fatura.csv')}
           />
         </div>
-
         <div className="flex justify-end pt-4">
           <Button
             size="lg"
@@ -113,63 +143,15 @@ export default function Index() {
             Resultado da Conciliação
           </h2>
           <p className="text-slate-500 mt-1">
-            Análise concluída. {SYSTEM_TOTAL} registros do sistema e {CARD_TOTAL} da fatura
-            processados.
+            Análise concluída. {sysTotal} registros do sistema e {cardTotal} da fatura processados.
           </p>
         </div>
         <Button variant="outline" onClick={handleReset} className="bg-white dark:bg-slate-950">
           Nova Conciliação
         </Button>
       </div>
-
       <SummaryCards results={results} />
       <ResultsTable data={results} />
-    </div>
-  )
-}
-
-function UploadZone({
-  title,
-  id,
-  file,
-  onChange,
-}: {
-  title: string
-  id: string
-  file: File | null
-  onChange: (f: File) => void
-}) {
-  return (
-    <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded-2xl p-10 flex flex-col items-center justify-center text-center hover:bg-slate-50 dark:hover:bg-slate-900/50 hover:border-blue-400 transition-all relative group h-72 shadow-sm">
-      <input
-        type="file"
-        id={id}
-        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-        accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
-        onChange={(e) => e.target.files?.[0] && onChange(e.target.files[0])}
-      />
-      {file ? (
-        <div className="animate-fade-in flex flex-col items-center">
-          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-4 text-blue-600">
-            <FileSpreadsheet className="w-8 h-8" />
-          </div>
-          <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-1">Arquivo Pronto</h3>
-          <p className="text-sm text-slate-500 font-medium">{file.name}</p>
-          <p className="text-xs text-blue-500 font-semibold mt-4 opacity-0 group-hover:opacity-100 transition-opacity">
-            Clique para trocar
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col items-center opacity-80 group-hover:opacity-100 transition-opacity">
-          <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4 text-slate-400 group-hover:text-blue-500 group-hover:bg-blue-50 dark:group-hover:bg-blue-900/30 transition-colors">
-            <UploadCloud className="w-8 h-8" />
-          </div>
-          <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-2">{title}</h3>
-          <p className="text-sm text-slate-500 max-w-[200px]">
-            Arraste seu arquivo CSV ou Excel aqui ou clique para buscar
-          </p>
-        </div>
-      )}
     </div>
   )
 }
