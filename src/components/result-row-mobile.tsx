@@ -20,6 +20,7 @@ export function ResultRowMobile({ r, getRowClass, statusLabel }: ResultRowMobile
           {statusLabel(r.status)}
         </Badge>
       </div>
+
       <div className="space-y-2 text-sm">
         <p>
           <span className="opacity-70">Parceiro:</span>{' '}
@@ -37,13 +38,14 @@ export function ResultRowMobile({ r, getRowClass, statusLabel }: ResultRowMobile
           <span className="opacity-70">Categoria:</span>{' '}
           <strong className="font-semibold">{r.categoria}</strong>
         </p>
+
         <div className="flex justify-between pt-3 border-t border-current/10 mt-3">
           <div className="flex flex-col">
-            <span className="text-[10px] uppercase font-bold opacity-60">Debito</span>
+            <span className="text-[10px] uppercase font-bold opacity-60">Débito</span>
             <span className="font-bold">{formatCurrency(r.debito)}</span>
           </div>
           <div className="flex flex-col">
-            <span className="text-[10px] uppercase font-bold opacity-60">Credito</span>
+            <span className="text-[10px] uppercase font-bold opacity-60">Crédito</span>
             <span className="font-bold">{formatCurrency(r.credito)}</span>
           </div>
           <div className="flex flex-col text-right">
@@ -51,9 +53,11 @@ export function ResultRowMobile({ r, getRowClass, statusLabel }: ResultRowMobile
             <span className="font-bold">{formatCurrency(r.valorFatura)}</span>
           </div>
         </div>
-        {r.diferenca !== null && (
+
+        {/* 🟢 CORRIGIDO: Oculta completamente a linha de diferença se o status for RED (Vermelho) */}
+        {r.status !== 'RED' && r.diferenca !== null && (
           <div className="flex justify-between pt-2 mt-1">
-            <span className="text-[10px] uppercase font-bold opacity-60">Diferenca</span>
+            <span className="text-[10px] uppercase font-bold opacity-60">Diferença</span>
             <span className="font-bold">{formatCurrency(r.diferenca)}</span>
           </div>
         )}

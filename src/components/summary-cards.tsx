@@ -25,16 +25,29 @@ interface MetricConfig {
 export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
   const conciliated = results.filter((r) => r.status === 'GREEN')
   const divergent = results.filter((r) => r.status === 'YELLOW')
-  const onlySystem = results.filter((r) => r.status === 'RED' && r.origem === 'SISTEMA')
-  const onlyInvoice = results.filter((r) => r.status === 'RED' && r.origem === 'FATURA')
 
-  const totalSystem = results.filter((r) => r.origem !== 'FATURA').length
-  const totalInvoice = results.filter((r) => r.origem !== 'SISTEMA').length
+  // 🟢 CORRIGIDO: Identifica "Somente Sistema" se não tiver Estabelecimento atribuído
+  const onlySystem = results.filter(
+    (r) => r.status === 'RED' && (!r.estabelecimento || r.estabelecimento === '-'),
+  )
+  // 🟢 CORRIGIDO: Identifica "Somente Fatura" se não tiver Parceiro atribuído
+  const onlyInvoice = results.filter(
+    (r) => r.status === 'RED' && (!r.parceiro || r.parceiro === '-'),
+  )
+
+  // Contadores baseados na existência real dos dados
+  const totalSystem = results.filter((r) => r.parceiro && r.parceiro !== '-').length
+  const totalInvoice = results.filter((r) => r.estabelecimento && r.estabelecimento !== '-').length
 
   const totalCreditoSistema = results.reduce((acc, r) => acc + (r.credito || 0), 0)
   const totalValorFatura = results.reduce((acc, r) => acc + (r.valorFatura || 0), 0)
+
+  // 🟢 CORRIGIDO: Soma a diferença APENAS dos registros Amarelos (Divergentes)
   const diferencaTotal =
-    Math.round(results.reduce((acc, r) => acc + (r.diferenca || 0), 0) * 100) / 100
+    Math.round(
+      results.filter((r) => r.status === 'YELLOW').reduce((acc, r) => acc + (r.diferenca || 0), 0) *
+        100,
+    ) / 100
 
   const percentual = results.length > 0 ? (conciliated.length / results.length) * 100 : 0
 
@@ -58,28 +71,28 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
       value: conciliated.length.toString(),
       icon: CheckCircle2,
       color: 'text-emerald-600',
-      bg: 'bg-emerald-50 dark:bg-emerald-950/30',
+      bg: 'bg-emerald-50 dark:bg-emerald-500/10',
     },
     {
       label: 'Divergentes (Amarelo)',
       value: divergent.length.toString(),
       icon: AlertTriangle,
       color: 'text-amber-600',
-      bg: 'bg-amber-50 dark:bg-amber-950/30',
+      bg: 'bg-amber-50 dark:bg-amber-500/10',
     },
     {
       label: 'Somente Sistema',
       value: onlySystem.length.toString(),
       icon: Building2,
       color: 'text-rose-600',
-      bg: 'bg-rose-50 dark:bg-rose-950/30',
+      bg: 'bg-rose-50 dark:bg-rose-500/10',
     },
     {
       label: 'Somente Fatura',
       value: onlyInvoice.length.toString(),
       icon: XCircle,
       color: 'text-rose-600',
-      bg: 'bg-rose-50 dark:bg-rose-950/30',
+      bg: 'bg-rose-50 dark:bg-rose-500/10',
     },
     {
       label: 'Total Crédito Sistema',
