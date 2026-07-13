@@ -49,7 +49,7 @@ export function validateExport(
     if (r.status === 'GREEN' && r.diferenca !== 0) {
       errors.push(`Registro GREEN com diferença diferente de zero: ${r.id}`)
     }
-    if (r.status === 'YELLOW' && (r.diferenca === null || r.diferenca === 0)) {
+    if (r.status === 'YELLOW' && r.diferenca === null) {
       errors.push(`Registro YELLOW sem diferença calculada: ${r.id}`)
     }
   }

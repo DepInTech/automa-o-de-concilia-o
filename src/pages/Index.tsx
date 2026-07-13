@@ -10,10 +10,13 @@ import { generateSystemCSV, generateCardCSV, downloadCSV } from '@/lib/sample-cs
 import { SummaryCards } from '@/components/summary-cards'
 import { ResultsTable } from '@/components/results-table'
 import { UploadZone } from '@/components/upload-zone'
+import { ImportStats } from '@/components/import-stats'
 import type { ReconciliationResult, SystemRecord, CardRecord } from '@/lib/types'
 
+type Step = 'upload' | 'stats' | 'processing' | 'results'
+
 export default function Index() {
-  const [step, setStep] = useState<'upload' | 'processing' | 'results'>('upload')
+  const [step, setStep] = useState<Step>('upload')
   const [sysFile, setSysFile] = useState<File | null>(null)
   const [cardFile, setCardFile] = useState<File | null>(null)
   const [results, setResults] = useState<ReconciliationResult[]>([])
@@ -21,21 +24,22 @@ export default function Index() {
   const [cardTotal, setCardTotal] = useState(0)
   const [sourceSysRecords, setSourceSysRecords] = useState<SystemRecord[]>([])
   const [sourceCardRecords, setSourceCardRecords] = useState<CardRecord[]>([])
+  const [parseWarning, setParseWarning] = useState<string | null>(null)
   const { toast } = useToast()
 
-  const handleProcess = async () => {
+  const handleParse = async () => {
     if (!sysFile || !cardFile) {
       toast({
         title: 'Atenção',
-        description: 'Faça o upload dos dois arquivos para iniciar a conciliação.',
+        description: 'Faça o upload dos dois arquivos para iniciar.',
         variant: 'destructive',
       })
       return
     }
-    setStep('processing')
 
     let sysRecords: SystemRecord[] = MOCK_SYSTEM_RECORDS
     let cardRecords: CardRecord[] = MOCK_CARD_RECORDS
+    let warning: string | null = null
 
     try {
       const sysParsed = await parseFile(sysFile)
@@ -47,25 +51,29 @@ export default function Index() {
         sysRecords = mappedSys
         cardRecords = mappedCard
       } else {
-        toast({
-          title: 'Aviso',
-          description: 'Arquivos CSV vazios ou ilegíveis. Usando dados de demonstração.',
-        })
+        warning = 'Arquivos vazios ou ilegíveis. Usando dados de demonstração.'
       }
     } catch {
-      toast({
-        title: 'Aviso',
-        description: 'Erro ao ler arquivos. Verifique o formato CSV. Usando dados de demonstração.',
-      })
+      warning = 'Erro ao ler arquivos. Verifique o formato. Usando dados de demonstração.'
     }
 
+    setSourceSysRecords(sysRecords)
+    setSourceCardRecords(cardRecords)
+    setSysTotal(sysRecords.length)
+    setCardTotal(cardRecords.length)
+    setParseWarning(warning)
+    setStep('stats')
+
+    if (warning) {
+      toast({ title: 'Aviso', description: warning })
+    }
+  }
+
+  const handleReconcile = () => {
+    setStep('processing')
     setTimeout(() => {
-      const res = reconcileData(sysRecords, cardRecords)
+      const res = reconcileData(sourceSysRecords, sourceCardRecords)
       setResults(res)
-      setSysTotal(sysRecords.length)
-      setCardTotal(cardRecords.length)
-      setSourceSysRecords(sysRecords)
-      setSourceCardRecords(cardRecords)
       setStep('results')
       toast({ title: 'Sucesso', description: 'Conciliação finalizada com sucesso.' })
     }, 2500)
@@ -78,6 +86,7 @@ export default function Index() {
     setResults([])
     setSourceSysRecords([])
     setSourceCardRecords([])
+    setParseWarning(null)
   }
 
   if (step === 'upload') {
@@ -111,14 +120,28 @@ export default function Index() {
         <div className="flex justify-end pt-4">
           <Button
             size="lg"
-            onClick={handleProcess}
+            onClick={handleParse}
             disabled={!sysFile || !cardFile}
             className="w-full sm:w-auto h-12 px-8 text-base shadow-lg bg-blue-600 hover:bg-blue-700 text-white"
           >
-            Iniciar Cruzamento <ArrowRight className="w-5 h-5 ml-2" />
+            Iniciar Importação <ArrowRight className="w-5 h-5 ml-2" />
           </Button>
         </div>
       </div>
+    )
+  }
+
+  if (step === 'stats') {
+    return (
+      <ImportStats
+        sysTotal={sysTotal}
+        cardTotal={cardTotal}
+        sysFileName={sysFile?.name || ''}
+        cardFileName={cardFile?.name || ''}
+        warning={parseWarning}
+        onConfirm={handleReconcile}
+        onBack={handleReset}
+      />
     )
   }
 
@@ -133,8 +156,8 @@ export default function Index() {
           Analisando Valores...
         </h2>
         <p className="text-slate-500 max-w-sm text-center">
-          Cruzando dados por valor, identificando divergências e separando os registros
-          perfeitamente casados.
+          Cruzando dados por Data, Parceiro/Estabelecimento e Crédito/Valor, identificando
+          divergências e separando os registros perfeitamente casados.
         </p>
       </div>
     )

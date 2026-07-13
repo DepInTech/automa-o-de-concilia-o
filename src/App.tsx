@@ -14,8 +14,6 @@ const App = () => (
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Index />} />
-          <Route path="/history" element={<Index />} />
-          <Route path="/settings" element={<Index />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Routes>

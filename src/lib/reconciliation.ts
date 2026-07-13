@@ -1,107 +1,85 @@
 import type { SystemRecord, CardRecord, ReconciliationResult } from './types'
 
+function normalizeStr(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+}
+
+function valuesMatch(a: number, b: number): boolean {
+  return Math.abs(a - b) < 0.01
+}
+
+function computeScore(s: SystemRecord, c: CardRecord): number {
+  let score = 0
+  if (s.data && c.data && s.data === c.data) score++
+  if (
+    s.parceiro &&
+    c.estabelecimento &&
+    s.parceiro !== '-' &&
+    c.estabelecimento !== '-' &&
+    normalizeStr(s.parceiro) === normalizeStr(c.estabelecimento)
+  )
+    score++
+  if (valuesMatch(s.credito, c.valor)) score++
+  return score
+}
+
+function createMatchedResult(
+  s: SystemRecord,
+  c: CardRecord,
+  status: 'GREEN' | 'YELLOW',
+): ReconciliationResult {
+  return {
+    id: status === 'GREEN' ? `match-${s.id}-${c.id}` : `div-${s.id}-${c.id}`,
+    data: s.data,
+    lancamentoDiario: s.lancamentoDiario,
+    parceiro: s.parceiro,
+    estabelecimento: c.estabelecimento,
+    categoria: s.categoria || c.categoria,
+    debito: s.debito,
+    credito: s.credito,
+    valorFatura: c.valor,
+    diferenca: status === 'GREEN' ? 0 : s.credito - c.valor,
+    status,
+    origem: 'AMBOS',
+  }
+}
+
+function matchByScore(
+  sysRemaining: SystemRecord[],
+  cardRemaining: CardRecord[],
+  results: ReconciliationResult[],
+  targetScore: number,
+  status: 'GREEN' | 'YELLOW',
+): void {
+  for (let i = sysRemaining.length - 1; i >= 0; i--) {
+    const s = sysRemaining[i]
+    for (let j = 0; j < cardRemaining.length; j++) {
+      if (computeScore(s, cardRemaining[j]) === targetScore) {
+        results.push(createMatchedResult(s, cardRemaining[j], status))
+        sysRemaining.splice(i, 1)
+        cardRemaining.splice(j, 1)
+        break
+      }
+    }
+  }
+}
+
 export function reconcileData(
   systemRecords: SystemRecord[],
   cardRecords: CardRecord[],
 ): ReconciliationResult[] {
   const results: ReconciliationResult[] = []
-
   const sysRemaining = [...systemRecords]
   const cardRemaining = [...cardRecords]
 
-  const sysByValue = new Map<number, SystemRecord[]>()
-  sysRemaining.forEach((r) => {
-    const list = sysByValue.get(r.credito) || []
-    list.push(r)
-    sysByValue.set(r.credito, list)
-  })
-
-  const cardByValue = new Map<number, CardRecord[]>()
-  cardRemaining.forEach((r) => {
-    const list = cardByValue.get(r.valor) || []
-    list.push(r)
-    cardByValue.set(r.valor, list)
-  })
-
-  const allValues = new Set([...sysByValue.keys(), ...cardByValue.keys()])
-
-  for (const val of allValues) {
-    const sysList = sysByValue.get(val) || []
-    const cardList = cardByValue.get(val) || []
-
-    if (sysList.length > 0 && cardList.length > 0) {
-      const matchCount = Math.min(sysList.length, cardList.length)
-
-      for (let i = 0; i < matchCount; i++) {
-        const s = sysList[i]
-        const c = cardList[i]
-
-        results.push({
-          id: `match-${s.id}-${c.id}`,
-          data: s.data,
-          lancamentoDiario: s.lancamentoDiario,
-          parceiro: s.parceiro,
-          estabelecimento: c.estabelecimento,
-          categoria: s.categoria || c.categoria,
-          debito: s.debito,
-          credito: s.credito,
-          valorFatura: c.valor,
-          diferenca: 0,
-          status: 'GREEN',
-          origem: 'AMBOS',
-        })
-
-        sysRemaining.splice(sysRemaining.indexOf(s), 1)
-        cardRemaining.splice(cardRemaining.indexOf(c), 1)
-      }
-    }
-  }
-
-  const sysByDate = new Map<string, SystemRecord[]>()
-  sysRemaining.forEach((r) => {
-    const list = sysByDate.get(r.data) || []
-    list.push(r)
-    sysByDate.set(r.data, list)
-  })
-
-  const cardByDate = new Map<string, CardRecord[]>()
-  cardRemaining.forEach((r) => {
-    const list = cardByDate.get(r.data) || []
-    list.push(r)
-    cardByDate.set(r.data, list)
-  })
-
-  const allDates = new Set([...sysByDate.keys(), ...cardByDate.keys()])
-
-  for (const date of allDates) {
-    const sysList = sysByDate.get(date) || []
-    const cardList = cardByDate.get(date) || []
-
-    const matchCount = Math.min(sysList.length, cardList.length)
-
-    for (let i = 0; i < matchCount; i++) {
-      const s = sysList[i]
-      const c = cardList[i]
-
-      results.push({
-        id: `div-${s.id}-${c.id}`,
-        data: s.data,
-        lancamentoDiario: s.lancamentoDiario,
-        parceiro: s.parceiro,
-        estabelecimento: c.estabelecimento,
-        categoria: s.categoria || c.categoria,
-        debito: s.debito,
-        credito: s.credito,
-        valorFatura: c.valor,
-        diferenca: s.credito - c.valor,
-        status: 'YELLOW',
-        origem: 'AMBOS',
-      })
-
-      sysRemaining.splice(sysRemaining.indexOf(s), 1)
-      cardRemaining.splice(cardRemaining.indexOf(c), 1)
-    }
-  }
+  matchByScore(sysRemaining, cardRemaining, results, 3, 'GREEN')
+  matchByScore(sysRemaining, cardRemaining, results, 2, 'YELLOW')
+  matchByScore(sysRemaining, cardRemaining, results, 1, 'YELLOW')
 
   sysRemaining.forEach((s) => {
     results.push({

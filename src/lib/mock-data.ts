@@ -1,192 +1,133 @@
 import type { SystemRecord, CardRecord } from './types'
 
-export const MOCK_SYSTEM_RECORDS: SystemRecord[] = [
-  {
-    id: 'S1',
-    data: '01/10/2023',
-    lancamentoDiario: 'L-1001',
-    parceiro: 'Amazon AWS',
-    debito: null,
-    credito: 1500.0,
-    categoria: 'Infraestrutura',
-  },
-  {
-    id: 'S2',
-    data: '02/10/2023',
-    lancamentoDiario: 'L-1002',
-    parceiro: 'Google Workspace',
-    debito: null,
-    credito: 350.0,
-    categoria: 'Software',
-  },
-  {
-    id: 'S3',
-    data: '03/10/2023',
-    lancamentoDiario: 'L-1003',
-    parceiro: 'Facebook Ads',
-    debito: null,
-    credito: 2500.0,
-    categoria: 'Marketing',
-  },
-  {
-    id: 'S4',
-    data: '03/10/2023',
-    lancamentoDiario: 'L-1004',
-    parceiro: 'Uber',
-    debito: null,
-    credito: 45.5,
-    categoria: 'Transporte',
-  },
-  {
-    id: 'S5',
-    data: '04/10/2023',
-    lancamentoDiario: 'L-1005',
-    parceiro: 'Restaurante Esquina',
-    debito: null,
-    credito: 85.0,
-    categoria: 'Alimentação',
-  },
-  {
-    id: 'S6',
-    data: '05/10/2023',
-    lancamentoDiario: 'L-1006',
-    parceiro: 'Posto Ipiranga',
-    debito: null,
-    credito: 200.0,
-    categoria: 'Combustível',
-  },
-  {
-    id: 'S7',
-    data: '06/10/2023',
-    lancamentoDiario: 'L-1007',
-    parceiro: 'Kalunga',
-    debito: 50.0,
-    credito: 150.0,
-    categoria: 'Escritório',
-  },
-  {
-    id: 'S8',
-    data: '07/10/2023',
-    lancamentoDiario: 'L-1008',
-    parceiro: 'Latam',
-    debito: null,
-    credito: 1200.0,
-    categoria: 'Viagens',
-  },
-  {
-    id: 'S9',
-    data: '10/10/2023',
-    lancamentoDiario: 'L-1009',
-    parceiro: 'Mailchimp',
-    debito: null,
-    credito: 250.0,
-    categoria: 'Marketing',
-  },
-  {
-    id: 'S10',
-    data: '12/10/2023',
-    lancamentoDiario: 'L-1010',
-    parceiro: 'Slack',
-    debito: null,
-    credito: 400.0,
-    categoria: 'Software',
-  },
-  {
-    id: 'S11',
-    data: '15/10/2023',
-    lancamentoDiario: 'L-1011',
-    parceiro: 'Fornecedor Local',
-    debito: null,
-    credito: 99.9,
-    categoria: 'Serviços',
-  },
-  {
-    id: 'S12',
-    data: '18/10/2023',
-    lancamentoDiario: 'L-1012',
-    parceiro: 'Casa do Pão',
-    debito: null,
-    credito: 35.0,
-    categoria: 'Alimentação',
-  },
+const partners = [
+  'AMAZON WEB SERVICES',
+  'MICROSOFT BRASIL LTDA',
+  'GOOGLE CLOUD BRASIL',
+  'NESTLE BRASIL LTDA',
+  'AMBEV COMERCIAL LTDA',
+  'VALE DO RIO DOCE SA',
+  'PETROBRAS DISTRIBUIDORA',
+  'BR DISTRIBUIDORA SA',
+  'CLARO TELECOM',
+  'VIVO TELECOMUNICACOES',
+  'TIM CELULAR SA',
+  'MAGAZINE LUIZA SA',
+  'MERCADO LIVRE BRASIL',
+  'B2W DIGITAL LTDA',
+  'CARREFOUR COMERCIO',
+  'PAO DE ACUCAR SA',
+  'ASSAI ATACADISTA',
+  'COCA COLA FEMSA',
+  'JBS FRIBOI SA',
+  'MARFRIG ALIMENTOS',
+  'RADIX ENGENHARIA',
+  'TOTVS S.A.',
+  'SAP BRASIL',
+  'ORACLE BRASIL',
+  'DELL COMPUTADORES',
+  'HP BRASIL LTDA',
+  'IBM BRASIL',
+  'CISCO SYSTEMS',
+  'FORTINET BRASIL',
+  'KASPERSKY LAB',
 ]
 
-export const MOCK_CARD_RECORDS: CardRecord[] = [
-  {
-    id: 'C1',
-    data: '01/10/2023',
-    estabelecimento: 'AWS EMEA',
-    categoria: 'Infraestrutura',
-    valor: 1500.0,
-  },
-  {
-    id: 'C2',
-    data: '02/10/2023',
-    estabelecimento: 'GOOGLE *WORKSPACE',
-    categoria: 'Software',
-    valor: 350.0,
-  },
-  {
-    id: 'C3',
-    data: '03/10/2023',
-    estabelecimento: 'FACEBOOK ADS',
-    categoria: 'Marketing',
-    valor: 2700.0,
-  },
-  {
-    id: 'C4',
-    data: '03/10/2023',
-    estabelecimento: 'UBER DO BRASIL',
-    categoria: 'Transporte',
-    valor: 45.5,
-  },
-  {
-    id: 'C5',
-    data: '05/10/2023',
-    estabelecimento: 'AUTO POSTO IPIRANGA',
-    categoria: 'Combustível',
-    valor: 200.0,
-  },
-  {
-    id: 'C6',
-    data: '06/10/2023',
-    estabelecimento: 'KALUNGA COMERCIO',
-    categoria: 'Escritório',
-    valor: 150.0,
-  },
-  {
-    id: 'C7',
-    data: '08/10/2023',
-    estabelecimento: 'HOTEL IBIS',
-    categoria: 'Hospedagem',
-    valor: 1200.0,
-  },
-  {
-    id: 'C8',
-    data: '08/10/2023',
-    estabelecimento: 'RESTAURANTE MADALENA',
-    categoria: 'Alimentação',
-    valor: 85.0,
-  },
-  {
-    id: 'C9',
-    data: '10/10/2023',
-    estabelecimento: 'MAILCHIMP *MONTHLY',
-    categoria: 'Marketing',
-    valor: 250.0,
-  },
-  {
-    id: 'C10',
-    data: '12/10/2023',
-    estabelecimento: 'SLACK TECH',
-    categoria: 'Software',
-    valor: 420.0,
-  },
-  {
-    id: 'C11',
-    data: '20/10/2023',
-    estabelecimento: 'PADARIA CENTRAL',
-    categoria: 'Alimentação',
-    valor: 60.0,
-  },
-]
+function formatDate(day: number, month: number): string {
+  return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/2024`
+}
+
+function generateMockData(): { system: SystemRecord[]; card: CardRecord[] } {
+  const system: SystemRecord[] = []
+  const card: CardRecord[] = []
+
+  for (let i = 0; i < 42; i++) {
+    const day = (i % 28) + 1
+    const month = Math.floor(i / 28) + 1
+    const partner = partners[i % partners.length]
+    const value = 150 + i * 37 + (i % 7) * 13
+
+    system.push({
+      id: `sys-${i}`,
+      data: formatDate(day, month),
+      lancamentoDiario: `LD-${String(i + 1).padStart(5, '0')}`,
+      parceiro: partner,
+      debito: i % 6 === 0 ? Math.round(value * 0.05 * 100) / 100 : null,
+      credito: value,
+      categoria: i % 3 === 0 ? 'Servicos' : i % 3 === 1 ? 'Suprimentos' : 'Operacional',
+    })
+  }
+
+  for (let i = 0; i < 35; i++) {
+    const s = system[i]
+    card.push({
+      id: `card-${i}`,
+      data: s.data,
+      estabelecimento: s.parceiro,
+      categoria: s.categoria,
+      valor: s.credito,
+    })
+  }
+
+  for (let i = 35; i < 38; i++) {
+    const s = system[i]
+    card.push({
+      id: `card-${i}`,
+      data: s.data,
+      estabelecimento: s.parceiro,
+      categoria: s.categoria,
+      valor: Math.round((s.credito + 25.5) * 100) / 100,
+    })
+  }
+
+  for (let i = 38; i < 40; i++) {
+    const s = system[i]
+    card.push({
+      id: `card-${i}`,
+      data: s.data,
+      estabelecimento: 'FORNECEDOR DIVERGENTE',
+      categoria: s.categoria,
+      valor: s.credito,
+    })
+  }
+
+  card.push({
+    id: 'card-40',
+    data: '20/02/2024',
+    estabelecimento: 'DESPESA NAO CATALOGADA',
+    categoria: 'Outros',
+    valor: 350.75,
+  })
+  card.push({
+    id: 'card-41',
+    data: '21/02/2024',
+    estabelecimento: 'COMPRAS UTEIS',
+    categoria: 'Outros',
+    valor: 89.9,
+  })
+
+  system.push({
+    id: 'sys-42',
+    data: '22/02/2024',
+    lancamentoDiario: 'LD-00043',
+    parceiro: 'LANCAMENTO SEM FATURA',
+    debito: null,
+    credito: 450,
+    categoria: 'Operacional',
+  })
+  system.push({
+    id: 'sys-43',
+    data: '23/02/2024',
+    lancamentoDiario: 'LD-00044',
+    parceiro: 'REGISTRO ORFAO',
+    debito: null,
+    credito: 220,
+    categoria: 'Suprimentos',
+  })
+
+  return { system, card }
+}
+
+const mockData = generateMockData()
+export const MOCK_SYSTEM_RECORDS: SystemRecord[] = mockData.system
+export const MOCK_CARD_RECORDS: CardRecord[] = mockData.card
