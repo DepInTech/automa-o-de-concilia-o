@@ -1,18 +1,32 @@
 import type { SystemRecord, CardRecord, ReconciliationResult } from './types'
 
-function normalize(text: string) {
+function normalize(text: string): string {
   return (text || '')
     .toLowerCase()
-    .trim()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, '')
+    .replace(/\bltda\b/g, '')
+    .replace(/\bsa\b/g, '')
+    .replace(/\bs\/a\b/g, '')
+    .replace(/\beireli\b/g, '')
+    .replace(/\bme\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
-function valuesMatch(a: number, b: number) {
+function samePartner(system: string, card: string): boolean {
+  const a = normalize(system)
+  const b = normalize(card)
+
+  return a.includes(b) || b.includes(a)
+}
+
+function valuesMatch(a: number, b: number): boolean {
   return Math.abs(a - b) < 0.01
 }
 
-function roundCurrency(value: number) {
+function roundCurrency(value: number): number {
   return Math.round(value * 100) / 100
 }
 
@@ -113,13 +127,10 @@ export function reconcileData(
   const usedSystem = new Set<number>()
   const usedCard = new Set<number>()
 
-  //
-  // ===========================
+  // =====================================================
   // VERDE
-  // mesmo estabelecimento
-  // mesmo valor
-  // ===========================
-  //
+  // Mesmo parceiro + mesmo valor
+  // =====================================================
 
   for (let i = 0; i < systemRecords.length; i++) {
     if (usedSystem.has(i)) continue
@@ -131,13 +142,9 @@ export function reconcileData(
 
       const c = cardRecords[j]
 
-      if (normalize(s.parceiro) !== normalize(c.estabelecimento)) {
-        continue
-      }
+      if (!samePartner(s.parceiro, c.estabelecimento)) continue
 
-      if (!valuesMatch(s.credito, c.valor)) {
-        continue
-      }
+      if (!valuesMatch(s.credito, c.valor)) continue
 
       results.push(createMatchedResult(s, c, 'GREEN'))
 
@@ -148,13 +155,11 @@ export function reconcileData(
     }
   }
 
-  //
-  // ===========================
+  // =====================================================
   // AMARELO
-  // mesmo estabelecimento
-  // valor diferente
-  // ===========================
-  //
+  // Mesmo parceiro
+  // Valor diferente
+  // =====================================================
 
   for (let i = 0; i < systemRecords.length; i++) {
     if (usedSystem.has(i)) continue
@@ -166,9 +171,7 @@ export function reconcileData(
 
       const c = cardRecords[j]
 
-      if (normalize(s.parceiro) !== normalize(c.estabelecimento)) {
-        continue
-      }
+      if (!samePartner(s.parceiro, c.estabelecimento)) continue
 
       results.push(createMatchedResult(s, c, 'YELLOW'))
 
@@ -179,12 +182,9 @@ export function reconcileData(
     }
   }
 
-  //
-  // ===========================
-  // VERMELHO
-  // somente sistema
-  // ===========================
-  //
+  // =====================================================
+  // SOMENTE SISTEMA
+  // =====================================================
 
   for (let i = 0; i < systemRecords.length; i++) {
     if (!usedSystem.has(i)) {
@@ -192,18 +192,25 @@ export function reconcileData(
     }
   }
 
-  //
-  // ===========================
-  // VERMELHO
-  // somente fatura
-  // ===========================
-  //
+  // =====================================================
+  // SOMENTE FATURA
+  // =====================================================
 
   for (let j = 0; j < cardRecords.length; j++) {
     if (!usedCard.has(j)) {
       results.push(createCardOnlyResult(cardRecords[j]))
     }
   }
+
+  // =====================================================
+  // Ordenação por data
+  // =====================================================
+
+  results.sort((a, b) => {
+    const da = new Date(a.data.split('/').reverse().join('-')).getTime()
+    const db = new Date(b.data.split('/').reverse().join('-')).getTime()
+    return da - db
+  })
 
   return results
 }
