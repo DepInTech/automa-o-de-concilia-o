@@ -1,53 +1,5 @@
 import type { ParsedCSV } from './csv-parser'
-
-async function decompress(data: Uint8Array): Promise<Uint8Array> {
-  const ds = new DecompressionStream('deflate-raw')
-  const stream = new Blob([data]).stream().pipeThrough(ds)
-  const reader = stream.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    chunks.push(value!)
-    total += value!.length
-  }
-  const result = new Uint8Array(total)
-  let pos = 0
-  for (const chunk of chunks) {
-    result.set(chunk, pos)
-    pos += chunk.length
-  }
-  return result
-}
-
-async function extractZip(data: ArrayBuffer): Promise<Map<string, Uint8Array>> {
-  const files = new Map<string, Uint8Array>()
-  const view = new DataView(data)
-  let offset = 0
-  while (offset < data.byteLength - 4) {
-    if (view.getUint32(offset, true) !== 0x04034b50) break
-    const method = view.getUint16(offset + 6, true)
-    const compSize = view.getUint32(offset + 18, true)
-    const uncompSize = view.getUint32(offset + 22, true)
-    const nameLen = view.getUint16(offset + 26, true)
-    const extraLen = view.getUint16(offset + 28, true)
-    const name = new TextDecoder().decode(new Uint8Array(data, offset + 30, nameLen))
-    const dataStart = offset + 30 + nameLen + extraLen
-    let fileData: Uint8Array
-    if (method === 0) {
-      fileData = new Uint8Array(data, dataStart, uncompSize)
-    } else if (method === 8) {
-      fileData = await decompress(new Uint8Array(data, dataStart, compSize))
-    } else {
-      offset = dataStart + compSize
-      continue
-    }
-    files.set(name, fileData)
-    offset = dataStart + compSize
-  }
-  return files
-}
+import { extractZip } from './zip-reader'
 
 function colToIndex(col: string): number {
   let r = 0
@@ -55,8 +7,9 @@ function colToIndex(col: string): number {
   return r - 1
 }
 
-function serialToDate(serial: number): string {
-  const date = new Date(Date.UTC(1899, 11, 30) + serial * 86400000)
+function serialToDate(serial: number, date1904: boolean): string {
+  const epoch = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 30)
+  const date = new Date(epoch + serial * 86400000)
   const d = String(date.getUTCDate()).padStart(2, '0')
   const m = String(date.getUTCMonth() + 1).padStart(2, '0')
   return `${d}/${m}/${date.getUTCFullYear()}`
@@ -67,11 +20,40 @@ const BUILTIN_DATE_FORMATS = new Set([
   52, 53, 54, 55, 56, 57, 58,
 ])
 
+function isDate1904(files: Map<string, Uint8Array>): boolean {
+  const wbFile = files.get('xl/workbook.xml')
+  if (!wbFile) return false
+  const doc = new DOMParser().parseFromString(new TextDecoder().decode(wbFile), 'text/xml')
+  const wbPr = doc.getElementsByTagName('workbookPr')[0]
+  const val = wbPr?.getAttribute('date1904')
+  return val === '1' || val === 'true'
+}
+
+function findFirstSheetPath(files: Map<string, Uint8Array>): string | null {
+  const wbFile = files.get('xl/workbook.xml')
+  const relsFile = files.get('xl/_rels/workbook.xml.rels')
+  if (!wbFile || !relsFile) return null
+  const wbDoc = new DOMParser().parseFromString(new TextDecoder().decode(wbFile), 'text/xml')
+  const firstSheet = wbDoc.getElementsByTagName('sheet')[0]
+  const rid = firstSheet?.getAttribute('r:id')
+  if (!rid) return null
+  const relsDoc = new DOMParser().parseFromString(new TextDecoder().decode(relsFile), 'text/xml')
+  for (const rel of Array.from(relsDoc.getElementsByTagName('Relationship'))) {
+    if (rel.getAttribute('Id') === rid) {
+      const target = rel.getAttribute('Target') || ''
+      if (target.startsWith('/')) return target.slice(1).toLowerCase()
+      return 'xl/' + target.toLowerCase()
+    }
+  }
+  return null
+}
+
 export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
   const files = await extractZip(data)
+  const date1904 = isDate1904(files)
 
   let sharedStrings: string[] = []
-  const ssFile = files.get('xl/sharedStrings.xml')
+  const ssFile = files.get('xl/sharedstrings.xml')
   if (ssFile) {
     const doc = new DOMParser().parseFromString(new TextDecoder().decode(ssFile), 'text/xml')
     sharedStrings = Array.from(doc.getElementsByTagName('si')).map((si) =>
@@ -102,11 +84,10 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
   }
 
   let sheetXml = ''
-  for (const [name, fd] of files) {
-    if (/^xl\/worksheets\/sheet1\.xml$/.test(name)) {
-      sheetXml = new TextDecoder().decode(fd)
-      break
-    }
+  const firstSheetPath = findFirstSheetPath(files)
+  if (firstSheetPath) {
+    const sheetFile = files.get(firstSheetPath)
+    if (sheetFile) sheetXml = new TextDecoder().decode(sheetFile)
   }
   if (!sheetXml) {
     for (const [name, fd] of files) {
@@ -150,7 +131,7 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
         const fmtId = cellXfNumFmts[styleId] || 0
         const fmt = numFmtMap.get(fmtId)
         if (fmt && (fmt === 'date' || /[dDmMyY]/.test(fmt.replace(/\\./g, '')))) {
-          display = serialToDate(parseFloat(value))
+          display = serialToDate(parseFloat(value), date1904)
         } else {
           display = value
         }
@@ -159,7 +140,7 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
     }
   }
 
-  if (maxRow < 0) return { headers: [], rows: [], detectedRows: 0 }
+  if (grid.size === 0) return { headers: [], rows: [], detectedRows: 0 }
 
   const headers: string[] = []
   for (let c = 0; c <= maxCol; c++) headers.push(grid.get(`0,${c}`) || '')
