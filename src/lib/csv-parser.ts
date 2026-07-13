@@ -47,12 +47,12 @@ export function parseCSV(text: string): ParsedCSV {
 
 export function parseBrazilianNumber(value: string): number | null {
   if (!value || value.trim() === '') return null
-  const cleaned = value
-    .trim()
-    .replace(/R\$/g, '')
-    .replace(/\s/g, '')
-    .replace(/\./g, '')
-    .replace(',', '.')
+  const cleaned = value.trim().replace(/R\$/g, '').replace(/\s/g, '')
+  if (cleaned.includes(',')) {
+    const withoutThousand = cleaned.replace(/\./g, '')
+    const num = parseFloat(withoutThousand.replace(',', '.'))
+    return isNaN(num) ? null : num
+  }
   const num = parseFloat(cleaned)
   return isNaN(num) ? null : num
 }

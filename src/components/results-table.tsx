@@ -17,13 +17,30 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Download, Search } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import { Download, Search, XCircle } from 'lucide-react'
 import { formatCurrency } from '@/lib/format'
-import type { ReconciliationResult } from '@/lib/types'
+import { validateExport, generateExportCSV } from '@/lib/validation'
+import { downloadCSV } from '@/lib/sample-csv'
+import { ResultRowMobile } from '@/components/result-row-mobile'
+import type { ReconciliationResult, SystemRecord, CardRecord } from '@/lib/types'
 
-export function ResultsTable({ data }: { data: ReconciliationResult[] }) {
+interface ResultsTableProps {
+  data: ReconciliationResult[]
+  systemRecords: SystemRecord[]
+  cardRecords: CardRecord[]
+}
+
+export function ResultsTable({ data, systemRecords, cardRecords }: ResultsTableProps) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('ALL')
+  const [validationErrors, setValidationErrors] = useState<string[] | null>(null)
 
   const filtered = data.filter((r) => {
     const q = search.toLowerCase()
@@ -31,8 +48,7 @@ export function ResultsTable({ data }: { data: ReconciliationResult[] }) {
       r.parceiro.toLowerCase().includes(q) ||
       r.estabelecimento.toLowerCase().includes(q) ||
       r.lancamentoDiario.toLowerCase().includes(q)
-    const matchFilter = filter === 'ALL' || r.status === filter
-    return matchSearch && matchFilter
+    return matchSearch && (filter === 'ALL' || r.status === filter)
   })
 
   const getRowClass = (status: string) => {
@@ -52,40 +68,13 @@ export function ResultsTable({ data }: { data: ReconciliationResult[] }) {
     s === 'GREEN' ? 'Conciliado' : s === 'YELLOW' ? 'Divergente' : 'Não Encontrado'
 
   const handleDownload = () => {
-    const header = [
-      'Data',
-      'Lançamento Diário',
-      'Parceiro',
-      'Estabelecimento',
-      'Categoria',
-      'Débito',
-      'Crédito',
-      'Valor da Fatura',
-      'Diferença',
-      'Status',
-    ].join(';')
-    const rows = filtered.map((r) =>
-      [
-        r.data,
-        r.lancamentoDiario,
-        r.parceiro,
-        r.estabelecimento,
-        r.categoria,
-        r.debito ?? '',
-        r.credito ?? '',
-        r.valorFatura ?? '',
-        r.diferenca ?? '',
-        statusLabel(r.status),
-      ].join(';'),
-    )
-    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', 'relatorio_conciliacao.csv')
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    const validation = validateExport(data, systemRecords, cardRecords)
+    if (!validation.isValid) {
+      setValidationErrors(validation.errors)
+      return
+    }
+    const csv = generateExportCSV(data)
+    downloadCSV(csv, 'relatorio_conciliacao.csv')
   }
 
   return (
@@ -182,55 +171,7 @@ export function ResultsTable({ data }: { data: ReconciliationResult[] }) {
 
       <div className="md:hidden space-y-4">
         {filtered.map((r) => (
-          <div key={r.id} className={`p-4 rounded-xl border ${getRowClass(r.status)} shadow-sm`}>
-            <div className="flex justify-between items-center mb-3">
-              <span className="font-bold">{r.data}</span>
-              <Badge
-                variant="outline"
-                className="bg-white/50 dark:bg-black/20 font-semibold border-current/20 shadow-none"
-              >
-                {statusLabel(r.status)}
-              </Badge>
-            </div>
-            <div className="space-y-2 text-sm">
-              <p>
-                <span className="opacity-70">Parceiro:</span>{' '}
-                <strong className="font-semibold">{r.parceiro}</strong>
-              </p>
-              <p>
-                <span className="opacity-70">Estabelecimento:</span>{' '}
-                <strong className="font-semibold">{r.estabelecimento}</strong>
-              </p>
-              <p>
-                <span className="opacity-70">Lançamento:</span>{' '}
-                <strong className="font-semibold">{r.lancamentoDiario}</strong>
-              </p>
-              <p>
-                <span className="opacity-70">Categoria:</span>{' '}
-                <strong className="font-semibold">{r.categoria}</strong>
-              </p>
-              <div className="flex justify-between pt-3 border-t border-current/10 mt-3">
-                <div className="flex flex-col">
-                  <span className="text-[10px] uppercase font-bold opacity-60">Débito</span>
-                  <span className="font-bold">{formatCurrency(r.debito)}</span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[10px] uppercase font-bold opacity-60">Crédito</span>
-                  <span className="font-bold">{formatCurrency(r.credito)}</span>
-                </div>
-                <div className="flex flex-col text-right">
-                  <span className="text-[10px] uppercase font-bold opacity-60">Fatura</span>
-                  <span className="font-bold">{formatCurrency(r.valorFatura)}</span>
-                </div>
-              </div>
-              {r.diferenca !== null && (
-                <div className="flex justify-between pt-2 mt-1">
-                  <span className="text-[10px] uppercase font-bold opacity-60">Diferença</span>
-                  <span className="font-bold">{formatCurrency(r.diferenca)}</span>
-                </div>
-              )}
-            </div>
-          </div>
+          <ResultRowMobile key={r.id} r={r} getRowClass={getRowClass} statusLabel={statusLabel} />
         ))}
         {filtered.length === 0 && (
           <div className="text-center p-8 bg-white dark:bg-slate-950 rounded-xl border text-slate-500">
@@ -238,6 +179,27 @@ export function ResultsTable({ data }: { data: ReconciliationResult[] }) {
           </div>
         )}
       </div>
+
+      <Dialog
+        open={validationErrors !== null}
+        onOpenChange={(open) => !open && setValidationErrors(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Erro de Validação</DialogTitle>
+            <DialogDescription>
+              A exportação foi interrompida. Foram encontradas as seguintes inconsistências:
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="space-y-2 text-sm text-rose-600 max-h-60 overflow-y-auto">
+            {validationErrors?.map((err, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <XCircle className="w-4 h-4 mt-0.5 shrink-0" /> {err}
+              </li>
+            ))}
+          </ul>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

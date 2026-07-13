@@ -36,7 +36,7 @@ export function UploadZone({ title, id, file, onChange, onDownloadSample }: Uplo
           </div>
           <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-2">{title}</h3>
           <p className="text-sm text-slate-500 max-w-[200px]">
-            Arraste seu arquivo CSV ou Excel aqui ou clique para buscar
+            Arraste seu arquivo Excel (.xlsx) ou CSV aqui ou clique para buscar
           </p>
           {onDownloadSample && (
             <button

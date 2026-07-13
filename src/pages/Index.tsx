@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 import { reconcileData } from '@/lib/reconciliation'
 import { MOCK_SYSTEM_RECORDS, MOCK_CARD_RECORDS } from '@/lib/mock-data'
-import { parseCSV, mapSystemRecords, mapCardRecords } from '@/lib/csv-parser'
+import { mapSystemRecords, mapCardRecords } from '@/lib/csv-parser'
+import { parseFile } from '@/lib/file-parser'
 import { generateSystemCSV, generateCardCSV, downloadCSV } from '@/lib/sample-csv'
 import { SummaryCards } from '@/components/summary-cards'
 import { ResultsTable } from '@/components/results-table'
@@ -18,6 +19,8 @@ export default function Index() {
   const [results, setResults] = useState<ReconciliationResult[]>([])
   const [sysTotal, setSysTotal] = useState(0)
   const [cardTotal, setCardTotal] = useState(0)
+  const [sourceSysRecords, setSourceSysRecords] = useState<SystemRecord[]>([])
+  const [sourceCardRecords, setSourceCardRecords] = useState<CardRecord[]>([])
   const { toast } = useToast()
 
   const handleProcess = async () => {
@@ -35,10 +38,8 @@ export default function Index() {
     let cardRecords: CardRecord[] = MOCK_CARD_RECORDS
 
     try {
-      const sysText = await sysFile.text()
-      const cardText = await cardFile.text()
-      const sysParsed = parseCSV(sysText)
-      const cardParsed = parseCSV(cardText)
+      const sysParsed = await parseFile(sysFile)
+      const cardParsed = await parseFile(cardFile)
       const mappedSys = mapSystemRecords(sysParsed)
       const mappedCard = mapCardRecords(cardParsed)
 
@@ -63,6 +64,8 @@ export default function Index() {
       setResults(res)
       setSysTotal(sysRecords.length)
       setCardTotal(cardRecords.length)
+      setSourceSysRecords(sysRecords)
+      setSourceCardRecords(cardRecords)
       setStep('results')
       toast({ title: 'Sucesso', description: 'Conciliação finalizada com sucesso.' })
     }, 2500)
@@ -73,6 +76,8 @@ export default function Index() {
     setSysFile(null)
     setCardFile(null)
     setResults([])
+    setSourceSysRecords([])
+    setSourceCardRecords([])
   }
 
   if (step === 'upload') {
@@ -151,7 +156,11 @@ export default function Index() {
         </Button>
       </div>
       <SummaryCards results={results} />
-      <ResultsTable data={results} />
+      <ResultsTable
+        data={results}
+        systemRecords={sourceSysRecords}
+        cardRecords={sourceCardRecords}
+      />
     </div>
   )
 }
