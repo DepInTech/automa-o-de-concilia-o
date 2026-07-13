@@ -3,214 +3,76 @@ import type { SystemRecord, CardRecord, ReconciliationResult } from './types'
 function normalize(text: string): string {
   return (text || '')
     .toLowerCase()
+    .trim()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^\w\s]/g, '')
-    .replace(/\bltda\b/g, '')
-    .replace(/\bsa\b/g, '')
-    .replace(/\bs\/a\b/g, '')
-    .replace(/\beireli\b/g, '')
-    .replace(/\bme\b/g, '')
     .replace(/\s+/g, ' ')
-    .trim()
 }
 
-function samePartner(system: string, card: string): boolean {
-  const a = normalize(system)
-  const b = normalize(card)
-
-  return a.includes(b) || b.includes(a)
+function samePartner(parceiro: string, estabelecimento: string): boolean {
+  return normalize(parceiro) === normalize(estabelecimento)
 }
 
-function valuesMatch(a: number, b: number): boolean {
-  return Math.abs(a - b) < 0.01
+function sameValue(credito: number, valor: number): boolean {
+  return Math.abs(credito - valor) < 0.01
 }
 
-function roundCurrency(value: number): number {
-  return Math.round(value * 100) / 100
+function calcDifference(credito: number, valor: number): number {
+  return Math.round((valor - credito) * 100) / 100
 }
 
-function createMatchedResult(
-  s: SystemRecord,
-  c: CardRecord,
-  status: 'GREEN' | 'YELLOW',
-): ReconciliationResult {
+function createGreen(sistema: SystemRecord, fatura: CardRecord): ReconciliationResult {
   return {
-    id: `${status}-${s.id}-${c.id}`,
+    id: `GREEN-${sistema.id}-${fatura.id}`,
 
-    data: s.data,
+    data: sistema.data || fatura.data,
 
-    lancamentoDiario: s.lancamentoDiario,
+    lancamentoDiario: sistema.lancamentoDiario,
 
-    parceiro: s.parceiro,
+    parceiro: sistema.parceiro,
 
-    estabelecimento: c.estabelecimento,
+    estabelecimento: fatura.estabelecimento,
 
-    categoria: c.categoria || s.categoria,
+    categoria: fatura.categoria || sistema.categoria,
 
-    debito: s.debito,
+    debito: sistema.debito,
 
-    credito: s.credito,
+    credito: sistema.credito,
 
-    valorFatura: c.valor,
+    valorFatura: fatura.valor,
 
-    diferenca: status === 'GREEN' ? 0 : roundCurrency(c.valor - s.credito),
+    diferenca: 0,
 
-    status,
+    status: 'GREEN',
 
     origem: 'AMBOS',
   }
 }
 
-function createSystemOnlyResult(s: SystemRecord): ReconciliationResult {
+function createYellow(sistema: SystemRecord, fatura: CardRecord): ReconciliationResult {
   return {
-    id: `SYS-${s.id}`,
+    id: `YELLOW-${sistema.id}-${fatura.id}`,
 
-    data: s.data,
+    data: sistema.data || fatura.data,
 
-    lancamentoDiario: s.lancamentoDiario,
+    lancamentoDiario: sistema.lancamentoDiario,
 
-    parceiro: s.parceiro,
+    parceiro: sistema.parceiro,
 
-    estabelecimento: '-',
+    estabelecimento: fatura.estabelecimento,
 
-    categoria: s.categoria,
+    categoria: fatura.categoria || sistema.categoria,
 
-    debito: s.debito,
+    debito: sistema.debito,
 
-    credito: s.credito,
+    credito: sistema.credito,
 
-    valorFatura: null,
+    valorFatura: fatura.valor,
 
-    diferenca: null,
+    diferenca: calcDifference(sistema.credito, fatura.valor),
 
-    status: 'RED',
+    status: 'YELLOW',
 
-    origem: 'SISTEMA',
+    origem: 'AMBOS',
   }
-}
-
-function createCardOnlyResult(c: CardRecord): ReconciliationResult {
-  return {
-    id: `CARD-${c.id}`,
-
-    data: c.data,
-
-    lancamentoDiario: '-',
-
-    parceiro: '-',
-
-    estabelecimento: c.estabelecimento,
-
-    categoria: c.categoria,
-
-    debito: null,
-
-    credito: null,
-
-    valorFatura: c.valor,
-
-    diferenca: null,
-
-    status: 'RED',
-
-    origem: 'FATURA',
-  }
-}
-
-export function reconcileData(
-  systemRecords: SystemRecord[],
-  cardRecords: CardRecord[],
-): ReconciliationResult[] {
-  const results: ReconciliationResult[] = []
-
-  const usedSystem = new Set<number>()
-  const usedCard = new Set<number>()
-
-  // =====================================================
-  // VERDE
-  // Mesmo parceiro + mesmo valor
-  // =====================================================
-
-  for (let i = 0; i < systemRecords.length; i++) {
-    if (usedSystem.has(i)) continue
-
-    const s = systemRecords[i]
-
-    for (let j = 0; j < cardRecords.length; j++) {
-      if (usedCard.has(j)) continue
-
-      const c = cardRecords[j]
-
-      if (!samePartner(s.parceiro, c.estabelecimento)) continue
-
-      if (!valuesMatch(s.credito, c.valor)) continue
-
-      results.push(createMatchedResult(s, c, 'GREEN'))
-
-      usedSystem.add(i)
-      usedCard.add(j)
-
-      break
-    }
-  }
-
-  // =====================================================
-  // AMARELO
-  // Mesmo parceiro
-  // Valor diferente
-  // =====================================================
-
-  for (let i = 0; i < systemRecords.length; i++) {
-    if (usedSystem.has(i)) continue
-
-    const s = systemRecords[i]
-
-    for (let j = 0; j < cardRecords.length; j++) {
-      if (usedCard.has(j)) continue
-
-      const c = cardRecords[j]
-
-      if (!samePartner(s.parceiro, c.estabelecimento)) continue
-
-      results.push(createMatchedResult(s, c, 'YELLOW'))
-
-      usedSystem.add(i)
-      usedCard.add(j)
-
-      break
-    }
-  }
-
-  // =====================================================
-  // SOMENTE SISTEMA
-  // =====================================================
-
-  for (let i = 0; i < systemRecords.length; i++) {
-    if (!usedSystem.has(i)) {
-      results.push(createSystemOnlyResult(systemRecords[i]))
-    }
-  }
-
-  // =====================================================
-  // SOMENTE FATURA
-  // =====================================================
-
-  for (let j = 0; j < cardRecords.length; j++) {
-    if (!usedCard.has(j)) {
-      results.push(createCardOnlyResult(cardRecords[j]))
-    }
-  }
-
-  // =====================================================
-  // Ordenação por data
-  // =====================================================
-
-  results.sort((a, b) => {
-    const da = new Date(a.data.split('/').reverse().join('-')).getTime()
-    const db = new Date(b.data.split('/').reverse().join('-')).getTime()
-    return da - db
-  })
-
-  return results
 }
