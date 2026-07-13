@@ -18,12 +18,14 @@ function normalizeHeader(text: string): string {
 export function parseBrazilianNumber(value: string): number | null {
   if (!value) return null
 
-  const cleaned = value
-    .replace(/[R$\s]/g, '')
-    .replace(/\.(?=\d{3})/g, '')
-    .replace(',', '.')
+  let v = value.trim()
 
-  const n = Number(cleaned)
+  v = v.replace('R$', '').replace(/\s/g, '')
+
+  // Brasileiro
+  if (v.includes(',')) v = v.replace(/\./g, '').replace(',', '.')
+
+  const n = Number(v)
 
   return isNaN(n) ? null : n
 }
