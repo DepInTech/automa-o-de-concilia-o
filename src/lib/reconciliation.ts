@@ -1,10 +1,18 @@
 import type { SystemRecord, CardRecord, ReconciliationResult } from './types'
 
-function valuesMatch(a: number, b: number): boolean {
+function normalize(text: string) {
+  return (text || '')
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
+function valuesMatch(a: number, b: number) {
   return Math.abs(a - b) < 0.01
 }
 
-function roundCurrency(value: number): number {
+function roundCurrency(value: number) {
   return Math.round(value * 100) / 100
 }
 
@@ -14,19 +22,25 @@ function createMatchedResult(
   status: 'GREEN' | 'YELLOW',
 ): ReconciliationResult {
   return {
-    id: `match-${s.id}-${c.id}`,
+    id: `${status}-${s.id}-${c.id}`,
+
     data: s.data,
+
     lancamentoDiario: s.lancamentoDiario,
+
     parceiro: s.parceiro,
+
     estabelecimento: c.estabelecimento,
+
     categoria: c.categoria || s.categoria,
 
     debito: s.debito,
 
     credito: s.credito,
+
     valorFatura: c.valor,
 
-    diferenca: status === 'YELLOW' ? roundCurrency(c.valor - s.credito) : 0,
+    diferenca: status === 'GREEN' ? 0 : roundCurrency(c.valor - s.credito),
 
     status,
 
@@ -36,7 +50,7 @@ function createMatchedResult(
 
 function createSystemOnlyResult(s: SystemRecord): ReconciliationResult {
   return {
-    id: `sys-only-${s.id}`,
+    id: `SYS-${s.id}`,
 
     data: s.data,
 
@@ -64,7 +78,7 @@ function createSystemOnlyResult(s: SystemRecord): ReconciliationResult {
 
 function createCardOnlyResult(c: CardRecord): ReconciliationResult {
   return {
-    id: `card-only-${c.id}`,
+    id: `CARD-${c.id}`,
 
     data: c.data,
 
@@ -99,22 +113,31 @@ export function reconcileData(
   const usedSystem = new Set<number>()
   const usedCard = new Set<number>()
 
-  // =====================================================
+  //
+  // ===========================
   // VERDE
-  // VALOR ENCONTRADO NAS DUAS BASES
-  // =====================================================
+  // mesmo estabelecimento
+  // mesmo valor
+  // ===========================
+  //
 
   for (let i = 0; i < systemRecords.length; i++) {
-    const s = systemRecords[i]
-
     if (usedSystem.has(i)) continue
 
-    for (let j = 0; j < cardRecords.length; j++) {
-      const c = cardRecords[j]
+    const s = systemRecords[i]
 
+    for (let j = 0; j < cardRecords.length; j++) {
       if (usedCard.has(j)) continue
 
-      if (!valuesMatch(s.credito, c.valor)) continue
+      const c = cardRecords[j]
+
+      if (normalize(s.parceiro) !== normalize(c.estabelecimento)) {
+        continue
+      }
+
+      if (!valuesMatch(s.credito, c.valor)) {
+        continue
+      }
 
       results.push(createMatchedResult(s, c, 'GREEN'))
 
@@ -125,24 +148,61 @@ export function reconcileData(
     }
   }
 
-  // =====================================================
-  // VERMELHO - SOMENTE SISTEMA
-  // =====================================================
+  //
+  // ===========================
+  // AMARELO
+  // mesmo estabelecimento
+  // valor diferente
+  // ===========================
+  //
 
   for (let i = 0; i < systemRecords.length; i++) {
     if (usedSystem.has(i)) continue
 
-    results.push(createSystemOnlyResult(systemRecords[i]))
+    const s = systemRecords[i]
+
+    for (let j = 0; j < cardRecords.length; j++) {
+      if (usedCard.has(j)) continue
+
+      const c = cardRecords[j]
+
+      if (normalize(s.parceiro) !== normalize(c.estabelecimento)) {
+        continue
+      }
+
+      results.push(createMatchedResult(s, c, 'YELLOW'))
+
+      usedSystem.add(i)
+      usedCard.add(j)
+
+      break
+    }
   }
 
-  // =====================================================
-  // VERMELHO - SOMENTE FATURA
-  // =====================================================
+  //
+  // ===========================
+  // VERMELHO
+  // somente sistema
+  // ===========================
+  //
+
+  for (let i = 0; i < systemRecords.length; i++) {
+    if (!usedSystem.has(i)) {
+      results.push(createSystemOnlyResult(systemRecords[i]))
+    }
+  }
+
+  //
+  // ===========================
+  // VERMELHO
+  // somente fatura
+  // ===========================
+  //
 
   for (let j = 0; j < cardRecords.length; j++) {
-    if (usedCard.has(j)) continue
-
-    results.push(createCardOnlyResult(cardRecords[j]))
+    if (!usedCard.has(j)) {
+      results.push(createCardOnlyResult(cardRecords[j]))
+    }
   }
 
   return results
