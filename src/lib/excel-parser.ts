@@ -116,7 +116,7 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
       }
     }
   }
-  if (!sheetXml) return { headers: [], rows: [] }
+  if (!sheetXml) return { headers: [], rows: [], detectedRows: 0 }
 
   const doc = new DOMParser().parseFromString(sheetXml, 'text/xml')
   const grid = new Map<string, string>()
@@ -159,7 +159,7 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
     }
   }
 
-  if (maxRow < 0) return { headers: [], rows: [] }
+  if (maxRow < 0) return { headers: [], rows: [], detectedRows: 0 }
 
   const headers: string[] = []
   for (let c = 0; c <= maxCol; c++) headers.push(grid.get(`0,${c}`) || '')
@@ -177,5 +177,5 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
     if (hasData) rows.push(row)
   }
 
-  return { headers, rows }
+  return { headers, rows, detectedRows: rows.length }
 }

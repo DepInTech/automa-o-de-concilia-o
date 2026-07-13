@@ -3,6 +3,7 @@ import type { SystemRecord, CardRecord } from './types'
 export interface ParsedCSV {
   headers: string[]
   rows: Record<string, string>[]
+  detectedRows: number
 }
 
 function normalizeHeader(h: string): string {
@@ -75,7 +76,7 @@ function parseLineWithDelimiter(line: string, delimiter: string): string[] {
 
 export function parseCSV(text: string): ParsedCSV {
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
-  if (lines.length === 0) return { headers: [], rows: [] }
+  if (lines.length === 0) return { headers: [], rows: [], detectedRows: 0 }
 
   const delimiter = detectDelimiter(lines[0])
   const headerCells = parseLineWithDelimiter(lines[0], delimiter)
@@ -95,7 +96,7 @@ export function parseCSV(text: string): ParsedCSV {
     if (hasData) rows.push(row)
   }
 
-  return { headers, rows }
+  return { headers, rows, detectedRows: rows.length }
 }
 
 export function mapSystemRecords(parsed: ParsedCSV): SystemRecord[] {

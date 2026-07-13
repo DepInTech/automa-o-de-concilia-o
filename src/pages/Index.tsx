@@ -25,6 +25,9 @@ export default function Index() {
   const [sourceSysRecords, setSourceSysRecords] = useState<SystemRecord[]>([])
   const [sourceCardRecords, setSourceCardRecords] = useState<CardRecord[]>([])
   const [parseWarning, setParseWarning] = useState<string | null>(null)
+  const [sysDetected, setSysDetected] = useState(0)
+  const [cardDetected, setCardDetected] = useState(0)
+  const [importError, setImportError] = useState<string | null>(null)
   const { toast } = useToast()
 
   const handleParse = async () => {
@@ -40,6 +43,9 @@ export default function Index() {
     let sysRecords: SystemRecord[] = MOCK_SYSTEM_RECORDS
     let cardRecords: CardRecord[] = MOCK_CARD_RECORDS
     let warning: string | null = null
+    let sysDetectedCount = 0
+    let cardDetectedCount = 0
+    let importErrorMsg: string | null = null
 
     try {
       const sysParsed = await parseFile(sysFile)
@@ -47,9 +53,27 @@ export default function Index() {
       const mappedSys = mapSystemRecords(sysParsed)
       const mappedCard = mapCardRecords(cardParsed)
 
+      sysDetectedCount = sysParsed.detectedRows
+      cardDetectedCount = cardParsed.detectedRows
+
       if (mappedSys.length > 0 && mappedCard.length > 0) {
         sysRecords = mappedSys
         cardRecords = mappedCard
+
+        const errors: string[] = []
+        if (mappedSys.length < sysDetectedCount) {
+          errors.push(
+            `Sistema: ${sysDetectedCount} registros detectados, mas apenas ${mappedSys.length} foram importados.`,
+          )
+        }
+        if (mappedCard.length < cardDetectedCount) {
+          errors.push(
+            `Fatura: ${cardDetectedCount} registros detectados, mas apenas ${mappedCard.length} foram importados.`,
+          )
+        }
+        if (errors.length > 0) {
+          importErrorMsg = errors.join(' ')
+        }
       } else {
         warning = 'Arquivos vazios ou ilegíveis. Usando dados de demonstração.'
       }
@@ -61,11 +85,17 @@ export default function Index() {
     setSourceCardRecords(cardRecords)
     setSysTotal(sysRecords.length)
     setCardTotal(cardRecords.length)
+    setSysDetected(sysDetectedCount || sysRecords.length)
+    setCardDetected(cardDetectedCount || cardRecords.length)
+    setImportError(importErrorMsg)
     setParseWarning(warning)
     setStep('stats')
 
     if (warning) {
       toast({ title: 'Aviso', description: warning })
+    }
+    if (importErrorMsg) {
+      toast({ title: 'Erro de Importação', description: importErrorMsg, variant: 'destructive' })
     }
   }
 
@@ -87,6 +117,9 @@ export default function Index() {
     setSourceSysRecords([])
     setSourceCardRecords([])
     setParseWarning(null)
+    setSysDetected(0)
+    setCardDetected(0)
+    setImportError(null)
   }
 
   if (step === 'upload') {
@@ -136,9 +169,12 @@ export default function Index() {
       <ImportStats
         sysTotal={sysTotal}
         cardTotal={cardTotal}
+        sysDetected={sysDetected}
+        cardDetected={cardDetected}
         sysFileName={sysFile?.name || ''}
         cardFileName={cardFile?.name || ''}
         warning={parseWarning}
+        importError={importError}
         onConfirm={handleReconcile}
         onBack={handleReset}
       />
