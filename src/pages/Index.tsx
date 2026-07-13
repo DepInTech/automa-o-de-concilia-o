@@ -214,7 +214,7 @@ export default function Index() {
           Nova Conciliação
         </Button>
       </div>
-      <div className="sticky top-0 z-20 py-4 -mx-4 lg:-mx-8 px-4 lg:px-8 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-sm">
+      <div className="sticky top-0 z-30 py-4 -mx-4 lg:-mx-8 px-4 lg:px-8 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm border-b border-slate-200 dark:border-slate-800">
         <SummaryCards results={results} />
       </div>
       <div className="mt-6">

@@ -13,6 +13,10 @@ function valuesMatch(a: number, b: number): boolean {
   return Math.abs(a - b) < 0.01
 }
 
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
 function createMatchedResult(
   s: SystemRecord,
   c: CardRecord,
@@ -28,7 +32,7 @@ function createMatchedResult(
     debito: s.debito,
     credito: s.credito,
     valorFatura: c.valor,
-    diferenca: status === 'GREEN' ? 0 : Math.round((c.valor - s.credito) * 100) / 100,
+    diferenca: status === 'GREEN' ? 0 : roundCurrency(c.valor - s.credito),
     status,
     origem: 'AMBOS',
   }
@@ -62,12 +66,21 @@ export function reconcileData(
     const partnerNorm = normalizeStr(s.parceiro)
     if (!partnerNorm || partnerNorm === '-') continue
 
-    const j = cardRemaining.findIndex((c) => normalizeStr(c.estabelecimento) === partnerNorm)
-    if (j === -1) continue
+    let bestJ = -1
+    let bestDiff = Infinity
+    for (let j = 0; j < cardRemaining.length; j++) {
+      if (normalizeStr(cardRemaining[j].estabelecimento) !== partnerNorm) continue
+      const diff = Math.abs(cardRemaining[j].valor - s.credito)
+      if (diff < bestDiff) {
+        bestDiff = diff
+        bestJ = j
+      }
+    }
+    if (bestJ === -1) continue
 
-    results.push(createMatchedResult(s, cardRemaining[j], 'YELLOW'))
+    results.push(createMatchedResult(s, cardRemaining[bestJ], 'YELLOW'))
     sysRemaining.splice(i, 1)
-    cardRemaining.splice(j, 1)
+    cardRemaining.splice(bestJ, 1)
   }
 
   sysRemaining.forEach((s) => {
