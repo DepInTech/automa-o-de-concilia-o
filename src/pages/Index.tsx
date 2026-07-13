@@ -200,8 +200,8 @@ export default function Index() {
   }
 
   return (
-    <div className="space-y-8 animate-fade-in-up pb-12">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+    <div className="animate-fade-in-up pb-12">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-4 mb-6">
         <div>
           <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
             Resultado da Conciliação
@@ -214,12 +214,16 @@ export default function Index() {
           Nova Conciliação
         </Button>
       </div>
-      <SummaryCards results={results} />
-      <ResultsTable
-        data={results}
-        systemRecords={sourceSysRecords}
-        cardRecords={sourceCardRecords}
-      />
+      <div className="sticky top-0 z-20 py-4 -mx-4 lg:-mx-8 px-4 lg:px-8 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-sm">
+        <SummaryCards results={results} />
+      </div>
+      <div className="mt-6">
+        <ResultsTable
+          data={results}
+          systemRecords={sourceSysRecords}
+          cardRecords={sourceCardRecords}
+        />
+      </div>
     </div>
   )
 }

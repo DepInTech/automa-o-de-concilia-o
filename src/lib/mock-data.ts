@@ -40,90 +40,85 @@ function formatDate(day: number, month: number): string {
 function generateMockData(): { system: SystemRecord[]; card: CardRecord[] } {
   const system: SystemRecord[] = []
   const card: CardRecord[] = []
+  let sysId = 0
+  let cardId = 0
 
-  for (let i = 0; i < 42; i++) {
+  for (let i = 0; i < 70; i++) {
     const day = (i % 28) + 1
     const month = Math.floor(i / 28) + 1
     const partner = partners[i % partners.length]
     const value = 150 + i * 37 + (i % 7) * 13
+    const cat = ['Servicos', 'Suprimentos', 'Operacional'][i % 3]
 
     system.push({
-      id: `sys-${i}`,
+      id: `sys-${sysId}`,
       data: formatDate(day, month),
-      lancamentoDiario: `LD-${String(i + 1).padStart(5, '0')}`,
+      lancamentoDiario: `LD-${String(sysId + 1).padStart(5, '0')}`,
       parceiro: partner,
       debito: i % 6 === 0 ? Math.round(value * 0.05 * 100) / 100 : null,
       credito: value,
-      categoria: i % 3 === 0 ? 'Servicos' : i % 3 === 1 ? 'Suprimentos' : 'Operacional',
+      categoria: cat,
     })
-  }
-
-  for (let i = 0; i < 35; i++) {
-    const s = system[i]
     card.push({
-      id: `card-${i}`,
-      data: s.data,
-      estabelecimento: s.parceiro,
-      categoria: s.categoria,
-      valor: s.credito,
+      id: `card-${cardId}`,
+      data: formatDate(day, month),
+      estabelecimento: partner,
+      categoria: cat,
+      valor: value,
     })
+    sysId++
+    cardId++
   }
 
-  for (let i = 35; i < 38; i++) {
-    const s = system[i]
+  for (let i = 0; i < 10; i++) {
+    const day = (i % 28) + 1
+    const partner = partners[(70 + i) % partners.length]
+    const sysValue = 500 + i * 45
+    const cardValue = Math.round((sysValue + 25.5) * 100) / 100
+
+    system.push({
+      id: `sys-${sysId}`,
+      data: formatDate(day, 4),
+      lancamentoDiario: `LD-${String(sysId + 1).padStart(5, '0')}`,
+      parceiro: partner,
+      debito: null,
+      credito: sysValue,
+      categoria: 'Divergente',
+    })
     card.push({
-      id: `card-${i}`,
-      data: s.data,
-      estabelecimento: s.parceiro,
-      categoria: s.categoria,
-      valor: Math.round((s.credito + 25.5) * 100) / 100,
+      id: `card-${cardId}`,
+      data: formatDate(day, 4),
+      estabelecimento: partner,
+      categoria: 'Divergente',
+      valor: cardValue,
     })
+    sysId++
+    cardId++
   }
 
-  for (let i = 38; i < 40; i++) {
-    const s = system[i]
+  for (let i = 0; i < 8; i++) {
+    system.push({
+      id: `sys-${sysId}`,
+      data: formatDate((i % 28) + 1, 5),
+      lancamentoDiario: `LD-${String(sysId + 1).padStart(5, '0')}`,
+      parceiro: `FORNECEDOR EXCLUSIVO SISTEMA ${i + 1}`,
+      debito: null,
+      credito: 300 + i * 20,
+      categoria: 'Operacional',
+    })
+    sysId++
+  }
+
+  for (let i = 0; i < 5; i++) {
     card.push({
-      id: `card-${i}`,
-      data: s.data,
-      estabelecimento: 'FORNECEDOR DIVERGENTE',
-      categoria: s.categoria,
-      valor: s.credito,
+      id: `card-${cardId}`,
+      data: formatDate((i % 28) + 1, 5),
+      estabelecimento: `FORNECEDOR EXCLUSIVO FATURA ${i + 1}`,
+      categoria: 'Outros',
+      valor: 250 + i * 15,
     })
+    cardId++
   }
-
-  card.push({
-    id: 'card-40',
-    data: '20/02/2024',
-    estabelecimento: 'DESPESA NAO CATALOGADA',
-    categoria: 'Outros',
-    valor: 350.75,
-  })
-  card.push({
-    id: 'card-41',
-    data: '21/02/2024',
-    estabelecimento: 'COMPRAS UTEIS',
-    categoria: 'Outros',
-    valor: 89.9,
-  })
-
-  system.push({
-    id: 'sys-42',
-    data: '22/02/2024',
-    lancamentoDiario: 'LD-00043',
-    parceiro: 'LANCAMENTO SEM FATURA',
-    debito: null,
-    credito: 450,
-    categoria: 'Operacional',
-  })
-  system.push({
-    id: 'sys-43',
-    data: '23/02/2024',
-    lancamentoDiario: 'LD-00044',
-    parceiro: 'REGISTRO ORFAO',
-    debito: null,
-    credito: 220,
-    categoria: 'Suprimentos',
-  })
 
   return { system, card }
 }

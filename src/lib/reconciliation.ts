@@ -13,21 +13,6 @@ function valuesMatch(a: number, b: number): boolean {
   return Math.abs(a - b) < 0.01
 }
 
-function computeScore(s: SystemRecord, c: CardRecord): number {
-  let score = 0
-  if (s.data && c.data && s.data === c.data) score++
-  if (
-    s.parceiro &&
-    c.estabelecimento &&
-    s.parceiro !== '-' &&
-    c.estabelecimento !== '-' &&
-    normalizeStr(s.parceiro) === normalizeStr(c.estabelecimento)
-  )
-    score++
-  if (valuesMatch(s.credito, c.valor)) score++
-  return score
-}
-
 function createMatchedResult(
   s: SystemRecord,
   c: CardRecord,
@@ -43,29 +28,9 @@ function createMatchedResult(
     debito: s.debito,
     credito: s.credito,
     valorFatura: c.valor,
-    diferenca: status === 'GREEN' ? 0 : s.credito - c.valor,
+    diferenca: status === 'GREEN' ? 0 : Math.round((s.credito - c.valor) * 100) / 100,
     status,
     origem: 'AMBOS',
-  }
-}
-
-function matchByScore(
-  sysRemaining: SystemRecord[],
-  cardRemaining: CardRecord[],
-  results: ReconciliationResult[],
-  targetScore: number,
-  status: 'GREEN' | 'YELLOW',
-): void {
-  for (let i = sysRemaining.length - 1; i >= 0; i--) {
-    const s = sysRemaining[i]
-    for (let j = 0; j < cardRemaining.length; j++) {
-      if (computeScore(s, cardRemaining[j]) === targetScore) {
-        results.push(createMatchedResult(s, cardRemaining[j], status))
-        sysRemaining.splice(i, 1)
-        cardRemaining.splice(j, 1)
-        break
-      }
-    }
   }
 }
 
@@ -77,13 +42,37 @@ export function reconcileData(
   const sysRemaining = [...systemRecords]
   const cardRemaining = [...cardRecords]
 
-  matchByScore(sysRemaining, cardRemaining, results, 3, 'GREEN')
-  matchByScore(sysRemaining, cardRemaining, results, 2, 'YELLOW')
-  matchByScore(sysRemaining, cardRemaining, results, 1, 'YELLOW')
+  for (let i = sysRemaining.length - 1; i >= 0; i--) {
+    const s = sysRemaining[i]
+    const partnerNorm = normalizeStr(s.parceiro)
+    if (!partnerNorm || partnerNorm === '-') continue
+
+    const j = cardRemaining.findIndex(
+      (c) => normalizeStr(c.estabelecimento) === partnerNorm && valuesMatch(s.credito, c.valor),
+    )
+    if (j === -1) continue
+
+    results.push(createMatchedResult(s, cardRemaining[j], 'GREEN'))
+    sysRemaining.splice(i, 1)
+    cardRemaining.splice(j, 1)
+  }
+
+  for (let i = sysRemaining.length - 1; i >= 0; i--) {
+    const s = sysRemaining[i]
+    const partnerNorm = normalizeStr(s.parceiro)
+    if (!partnerNorm || partnerNorm === '-') continue
+
+    const j = cardRemaining.findIndex((c) => normalizeStr(c.estabelecimento) === partnerNorm)
+    if (j === -1) continue
+
+    results.push(createMatchedResult(s, cardRemaining[j], 'YELLOW'))
+    sysRemaining.splice(i, 1)
+    cardRemaining.splice(j, 1)
+  }
 
   sysRemaining.forEach((s) => {
     results.push({
-      id: `sys-${s.id}`,
+      id: `sys-only-${s.id}`,
       data: s.data,
       lancamentoDiario: s.lancamentoDiario,
       parceiro: s.parceiro,
@@ -100,7 +89,7 @@ export function reconcileData(
 
   cardRemaining.forEach((c) => {
     results.push({
-      id: `card-${c.id}`,
+      id: `card-only-${c.id}`,
       data: c.data,
       lancamentoDiario: '-',
       parceiro: '-',
