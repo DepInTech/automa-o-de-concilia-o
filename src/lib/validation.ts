@@ -60,7 +60,10 @@ export function validateExport(
     .map((r) => r.credito || 0)
     .sort((a, b) => a - b)
   for (let i = 0; i < systemValues.length; i++) {
-    if (i >= resultSystemValues.length || systemValues[i] !== resultSystemValues[i]) {
+    if (
+      i >= resultSystemValues.length ||
+      Math.abs(systemValues[i] - resultSystemValues[i]) > 0.01
+    ) {
       errors.push('Valores monetários do sistema não conferem com a origem')
       break
     }

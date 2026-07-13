@@ -33,7 +33,8 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
 
   const totalCreditoSistema = results.reduce((acc, r) => acc + (r.credito || 0), 0)
   const totalValorFatura = results.reduce((acc, r) => acc + (r.valorFatura || 0), 0)
-  const diferencaTotal = Math.round((totalCreditoSistema - totalValorFatura) * 100) / 100
+  const diferencaTotal =
+    Math.round(results.reduce((acc, r) => acc + (r.diferenca || 0), 0) * 100) / 100
 
   const percentual = results.length > 0 ? (conciliated.length / results.length) * 100 : 0
 

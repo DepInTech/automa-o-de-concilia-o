@@ -28,7 +28,7 @@ function createMatchedResult(
     debito: s.debito,
     credito: s.credito,
     valorFatura: c.valor,
-    diferenca: status === 'GREEN' ? 0 : Math.round((s.credito - c.valor) * 100) / 100,
+    diferenca: status === 'GREEN' ? 0 : Math.round((c.valor - s.credito) * 100) / 100,
     status,
     origem: 'AMBOS',
   }
