@@ -2,12 +2,12 @@ import type { SystemRecord, CardRecord } from './types'
 
 export interface ParsedCSV {
   headers: string[]
-  rows: Record<string, string>[]
+  rows: Record<string, string>
   detectedRows: number
 }
 
-function normalizeHeader(h: string): string {
-  return h
+function normalizeHeader(text: string): string {
+  return text
     .toLowerCase()
     .trim()
     .normalize('NFD')
@@ -16,138 +16,176 @@ function normalizeHeader(h: string): string {
 }
 
 export function parseBrazilianNumber(value: string): number | null {
-  if (!value || !value.trim()) return null
+  if (!value) return null
+
   const cleaned = value
-    .replace(/[^\d,.-]/g, '')
-    .replace(/\.(?=\d{3}(\D|$))/g, '')
+    .replace(/[R$\s]/g, '')
+    .replace(/\.(?=\d{3})/g, '')
     .replace(',', '.')
-  const num = parseFloat(cleaned)
-  return isNaN(num) ? null : num
+
+  const n = Number(cleaned)
+
+  return isNaN(n) ? null : n
 }
 
-function findColumn(headers: string[], candidates: string[]): string | null {
-  const normalized = headers.map((h) => ({ original: h, norm: normalizeHeader(h) }))
-  for (const candidate of candidates) {
-    const normCandidate = normalizeHeader(candidate)
-    const found = normalized.find((h) => h.norm === normCandidate)
-    if (found) return found.original
-  }
-  for (const candidate of candidates) {
-    const normCandidate = normalizeHeader(candidate)
-    const found = normalized.find(
-      (h) => h.norm.includes(normCandidate) || normCandidate.includes(h.norm),
-    )
-    if (found) return found.original
-  }
-  return null
+function detectDelimiter(line: string) {
+  const semicolon = (line.match(/;/g) || []).length
+  const comma = (line.match(/,/g) || []).length
+  const tab = (line.match(/\t/g) || []).length
+
+  if (tab > semicolon && tab > comma) return '\t'
+
+  return semicolon >= comma ? ';' : ','
 }
 
-function detectDelimiter(line: string): string {
-  const semis = (line.match(/;/g) || []).length
-  const commas = (line.match(/,/g) || []).length
-  const tabs = (line.match(/\t/g) || []).length
-  if (tabs > semis && tabs > commas) return '\t'
-  return semis >= commas ? ';' : ','
-}
+function splitCSV(line: string, delimiter: string) {
+  const cells: string[] = []
 
-function parseLineWithDelimiter(line: string, delimiter: string): string[] {
-  const result: string[] = []
   let current = ''
-  let inQuotes = false
+  let quoted = false
+
   for (let i = 0; i < line.length; i++) {
-    const char = line[i]
-    if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"'
-        i++
-      } else {
-        inQuotes = !inQuotes
-      }
-    } else if (char === delimiter && !inQuotes) {
-      result.push(current.trim())
+    const c = line[i]
+
+    if (c === '"') {
+      quoted = !quoted
+      continue
+    }
+
+    if (c === delimiter && !quoted) {
+      cells.push(current.trim())
       current = ''
     } else {
-      current += char
+      current += c
     }
   }
-  result.push(current.trim())
-  return result
+
+  cells.push(current.trim())
+
+  return cells
 }
 
 export function parseCSV(text: string): ParsedCSV {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
-  if (lines.length === 0) return { headers: [], rows: [], detectedRows: 0 }
+  const lines = text
+    .replace(/\r/g, '')
+    .split('\n')
+    .filter((l) => l.trim() !== '')
+
+  if (!lines.length)
+    return {
+      headers: [],
+      rows: [],
+      detectedRows: 0,
+    }
 
   const delimiter = detectDelimiter(lines[0])
-  const headerCells = parseLineWithDelimiter(lines[0], delimiter)
-  const headers = headerCells
+
+  const headers = splitCSV(lines[0], delimiter)
 
   const rows: Record<string, string>[] = []
+
   for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue
-    const cells = parseLineWithDelimiter(lines[i], delimiter)
+    const values = splitCSV(lines[i], delimiter)
+
     const row: Record<string, string> = {}
-    let hasData = false
-    for (let j = 0; j < headers.length; j++) {
-      const val = cells[j] ?? ''
-      row[headers[j]] = val
-      if (val) hasData = true
-    }
-    if (hasData) rows.push(row)
+
+    headers.forEach((header, index) => {
+      row[header] = values[index] ?? ''
+    })
+
+    rows.push(row)
   }
 
-  return { headers, rows, detectedRows: rows.length }
+  return {
+    headers,
+    rows,
+    detectedRows: rows.length,
+  }
+}
+
+function findColumn(headers: string[], aliases: string[]) {
+  const normalized = headers.map((h) => ({
+    original: h,
+    normalized: normalizeHeader(h),
+  }))
+
+  for (const alias of aliases) {
+    const a = normalizeHeader(alias)
+
+    const exact = normalized.find((c) => c.normalized === a)
+
+    if (exact) return exact.original
+  }
+
+  for (const alias of aliases) {
+    const a = normalizeHeader(alias)
+
+    const partial = normalized.find((c) => c.normalized.includes(a) || a.includes(c.normalized))
+
+    if (partial) return partial.original
+  }
+
+  return null
 }
 
 export function mapSystemRecords(parsed: ParsedCSV): SystemRecord[] {
-  const dataCol = findColumn(parsed.headers, ['Data', 'Date', 'Data Movimento', 'Data Mov'])
-  const lancamentoCol = findColumn(parsed.headers, [
+  const data = findColumn(parsed.headers, ['Data'])
+
+  const parceiro = findColumn(parsed.headers, ['Parceiro', 'Fornecedor', 'Partner'])
+
+  const lancamento = findColumn(parsed.headers, [
     'Lançamento Diário',
     'Lancamento Diario',
-    'Lançamento',
     'Lancamento',
-    'Diário',
     'Diario',
   ])
-  const parceiroCol = findColumn(parsed.headers, [
-    'Parceiro',
-    'Partner',
-    'Razão Social',
-    'Razao Social',
-    'Nome',
-  ])
-  const debitoCol = findColumn(parsed.headers, ['Débito', 'Debito', 'Debit'])
-  const creditoCol = findColumn(parsed.headers, ['Crédito', 'Credito', 'Credit'])
-  const categoriaCol = findColumn(parsed.headers, ['Categoria', 'Category', 'Conta'])
 
-  return parsed.rows.map((row, i) => ({
-    id: `sys-${i}`,
-    data: dataCol ? (row[dataCol] ?? '') : '',
-    lancamentoDiario: lancamentoCol ? (row[lancamentoCol] ?? '') : '',
-    parceiro: parceiroCol ? (row[parceiroCol] ?? '') : '',
-    debito: debitoCol ? parseBrazilianNumber(row[debitoCol] ?? '') : null,
-    credito: creditoCol ? (parseBrazilianNumber(row[creditoCol] ?? '') ?? 0) : 0,
-    categoria: categoriaCol ? (row[categoriaCol] ?? '') : '',
+  const debito = findColumn(parsed.headers, ['Débito', 'Debito'])
+
+  const credito = findColumn(parsed.headers, ['Crédito', 'Credito', 'Valor'])
+
+  const categoria = findColumn(parsed.headers, ['Categoria'])
+
+  return parsed.rows.map((row, index) => ({
+    id: String(index),
+
+    data: data ? row[data] : '',
+
+    parceiro: parceiro ? row[parceiro] : '',
+
+    lancamentoDiario: lancamento ? row[lancamento] : '',
+
+    categoria: categoria ? row[categoria] : '',
+
+    debito: debito ? parseBrazilianNumber(row[debito]) : null,
+
+    credito: credito ? (parseBrazilianNumber(row[credito]) ?? 0) : 0,
   }))
 }
 
 export function mapCardRecords(parsed: ParsedCSV): CardRecord[] {
-  const dataCol = findColumn(parsed.headers, ['Data', 'Date', 'Data Compra', 'Data Transação'])
-  const estabelecimentoCol = findColumn(parsed.headers, [
-    'Estabelecimento',
-    'Establishment',
-    'Razão Social',
-    'Razao Social',
-    'Nome do Estabelecimento',
-  ])
-  const categoriaCol = findColumn(parsed.headers, ['Categoria', 'Category', 'Tipo'])
-  const valorCol = findColumn(parsed.headers, ['Valor', 'Value', 'Amount', 'Valor Total'])
+  const data = findColumn(parsed.headers, ['Data'])
 
-  return parsed.rows.map((row, i) => ({
-    id: `card-${i}`,
-    data: dataCol ? (row[dataCol] ?? '') : '',
-    estabelecimento: estabelecimentoCol ? (row[estabelecimentoCol] ?? '') : '',
-    categoria: categoriaCol ? (row[categoriaCol] ?? '') : '',
-    valor: valorCol ? (parseBrazilianNumber(row[valorCol] ?? '') ?? 0) : 0,
+  const estabelecimento = findColumn(parsed.headers, [
+    'Estabelecimento',
+    'Parceiro',
+    'Fornecedor',
+    'Nome',
+  ])
+
+  const categoria = findColumn(parsed.headers, ['Categoria'])
+
+  const valor = findColumn(parsed.headers, ['Valor', 'Crédito', 'Credito'])
+
+  return parsed.rows.map((row, index) => ({
+    id: String(index),
+
+    data: data ? row[data] : '',
+
+    estabelecimento: estabelecimento ? row[estabelecimento] : '',
+
+    categoria: categoria ? row[categoria] : '',
+
+    valor: valor ? (parseBrazilianNumber(row[valor]) ?? 0) : 0,
   }))
 }
