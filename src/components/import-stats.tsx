@@ -35,10 +35,10 @@ export function ImportStats({
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pb-12">
       <div>
         <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-          Confirmação de Importação
+          Confirmacao de Importacao
         </h1>
         <p className="text-slate-500 text-lg">
-          Revise os dados importados antes de iniciar a conciliação.
+          Revise os dados importados antes de iniciar a conciliacao.
         </p>
       </div>
 
@@ -46,7 +46,7 @@ export function ImportStats({
         <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900">
           <AlertTriangle className="h-4 w-4 text-amber-600" />
           <AlertTitle className="text-amber-800 dark:text-amber-400">
-            Aviso de Importação
+            Aviso de Importacao
           </AlertTitle>
           <AlertDescription className="text-amber-700 dark:text-amber-500">
             {warning}
@@ -57,7 +57,7 @@ export function ImportStats({
       {hasError && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Erro de Importação</AlertTitle>
+          <AlertTitle>Erro de Importacao</AlertTitle>
           <AlertDescription>
             Um ou mais arquivos não puderam ser importados. Verifique os arquivos e tente novamente.
           </AlertDescription>
@@ -102,7 +102,7 @@ export function ImportStats({
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-semibold text-slate-600 dark:text-slate-400">
-              Fatura do Cartão
+              Fatura do Cartao
             </CardTitle>
             <FileSpreadsheet className="h-5 w-5 text-emerald-600" />
           </CardHeader>
@@ -136,7 +136,7 @@ export function ImportStats({
           disabled={hasError || hasImportError}
           className="h-12 px-8 text-base shadow-lg bg-blue-600 hover:bg-blue-700 text-white"
         >
-          Confirmar Conciliação <ArrowRight className="w-5 h-5 ml-2" />
+          Confirmar Conciliacao <ArrowRight className="w-5 h-5 ml-2" />
         </Button>
       </div>
     </div>
