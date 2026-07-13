@@ -39,11 +39,11 @@ export function ResultRowMobile({ r, getRowClass, statusLabel }: ResultRowMobile
         </p>
         <div className="flex justify-between pt-3 border-t border-current/10 mt-3">
           <div className="flex flex-col">
-            <span className="text-[10px] uppercase font-bold opacity-60">Débito</span>
+            <span className="text-[10px] uppercase font-bold opacity-60">Debito</span>
             <span className="font-bold">{formatCurrency(r.debito)}</span>
           </div>
           <div className="flex flex-col">
-            <span className="text-[10px] uppercase font-bold opacity-60">Crédito</span>
+            <span className="text-[10px] uppercase font-bold opacity-60">Credito</span>
             <span className="font-bold">{formatCurrency(r.credito)}</span>
           </div>
           <div className="flex flex-col text-right">
@@ -53,7 +53,7 @@ export function ResultRowMobile({ r, getRowClass, statusLabel }: ResultRowMobile
         </div>
         {r.diferenca !== null && (
           <div className="flex justify-between pt-2 mt-1">
-            <span className="text-[10px] uppercase font-bold opacity-60">Diferença</span>
+            <span className="text-[10px] uppercase font-bold opacity-60">Diferenca</span>
             <span className="font-bold">{formatCurrency(r.diferenca)}</span>
           </div>
         )}

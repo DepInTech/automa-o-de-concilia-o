@@ -59,7 +59,7 @@ export function ImportStats({
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Erro de Importacao</AlertTitle>
           <AlertDescription>
-            Um ou mais arquivos não puderam ser importados. Verifique os arquivos e tente novamente.
+            Um ou mais arquivos nao puderam ser importados. Verifique os arquivos e tente novamente.
           </AlertDescription>
         </Alert>
       )}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState } from 'react' // Separado corretamente
 import {
   Table,
   TableBody,
@@ -44,10 +44,12 @@ export function ResultsTable({ data, systemRecords, cardRecords }: ResultsTableP
 
   const filtered = data.filter((r) => {
     const q = search.toLowerCase()
+    // Adicionado fallback para string vazia "" prevenindo quebras por valores nulos
     const matchSearch =
-      r.parceiro.toLowerCase().includes(q) ||
-      r.estabelecimento.toLowerCase().includes(q) ||
-      r.lancamentoDiario.toLowerCase().includes(q)
+      (r.parceiro ?? '').toLowerCase().includes(q) ||
+      (r.estabelecimento ?? '').toLowerCase().includes(q) ||
+      (r.lancamentoDiario ?? '').toLowerCase().includes(q)
+
     return matchSearch && (filter === 'ALL' || r.status === filter)
   })
 
@@ -110,20 +112,21 @@ export function ResultsTable({ data, systemRecords, cardRecords }: ResultsTableP
         </Button>
       </div>
 
+      {/* Desktop Table */}
       <div className="hidden md:block rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-slate-50 dark:bg-slate-900/50">
               <TableRow>
                 <TableHead className="whitespace-nowrap">Data</TableHead>
-                <TableHead className="whitespace-nowrap">Lançamento Diário</TableHead>
+                <TableHead className="whitespace-nowrap">Lancamento Diario</TableHead>
                 <TableHead className="whitespace-nowrap">Parceiro</TableHead>
                 <TableHead className="whitespace-nowrap">Estabelecimento</TableHead>
                 <TableHead className="whitespace-nowrap">Categoria</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Débito</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Crédito</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Debito</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Credito</TableHead>
                 <TableHead className="text-right whitespace-nowrap">Valor Fatura</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Diferença</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Diferenca</TableHead>
                 <TableHead className="text-center">Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -169,6 +172,7 @@ export function ResultsTable({ data, systemRecords, cardRecords }: ResultsTableP
         </div>
       </div>
 
+      {/* Mobile Cards */}
       <div className="md:hidden space-y-4">
         {filtered.map((r) => (
           <ResultRowMobile key={r.id} r={r} getRowClass={getRowClass} statusLabel={statusLabel} />
@@ -180,21 +184,24 @@ export function ResultsTable({ data, systemRecords, cardRecords }: ResultsTableP
         )}
       </div>
 
+      {/* Validation Errors Modal */}
       <Dialog
         open={validationErrors !== null}
         onOpenChange={(open) => !open && setValidationErrors(null)}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Erro de Validação</DialogTitle>
+            <DialogTitle>Erro de Validacao</DialogTitle>
             <DialogDescription>
-              A exportação foi interrompida. Foram encontradas as seguintes inconsistências:
+              A exportacao foi interrompida. Foram encontradas as seguintes inconsistencias:
             </DialogDescription>
           </DialogHeader>
-          <ul className="space-y-2 text-sm text-rose-600 max-h-60 overflow-y-auto">
+          {/* Removido o <ul /> de dentro do <DialogDescription /> para respeitar o DOM do HTML */}
+          <ul className="space-y-2 text-sm text-rose-600 max-h-60 overflow-y-auto mt-2">
             {validationErrors?.map((err, i) => (
               <li key={i} className="flex items-start gap-2">
-                <XCircle className="w-4 h-4 mt-0.5 shrink-0" /> {err}
+                <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                {err}
               </li>
             ))}
           </ul>

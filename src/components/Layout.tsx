@@ -26,7 +26,7 @@ export default function Layout() {
               </BreadcrumbItem>
               <BreadcrumbSeparator />
               <BreadcrumbItem>
-                <BreadcrumbPage>Nova Conciliação</BreadcrumbPage>
+                <BreadcrumbPage>Nova Conciliacao</BreadcrumbPage>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
