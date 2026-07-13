@@ -38,84 +38,98 @@ function createMatchedResult(
   }
 }
 
+function createSystemOnlyResult(s: SystemRecord): ReconciliationResult {
+  return {
+    id: `sys-only-${s.id}`,
+    data: s.data,
+    lancamentoDiario: s.lancamentoDiario,
+    parceiro: s.parceiro,
+    estabelecimento: '-',
+    categoria: s.categoria,
+    debito: s.debito,
+    credito: s.credito,
+    valorFatura: null,
+    diferenca: null,
+    status: 'RED',
+    origem: 'SISTEMA',
+  }
+}
+
+function createCardOnlyResult(c: CardRecord): ReconciliationResult {
+  return {
+    id: `card-only-${c.id}`,
+    data: c.data,
+    lancamentoDiario: '-',
+    parceiro: '-',
+    estabelecimento: c.estabelecimento,
+    categoria: c.categoria,
+    debito: null,
+    credito: null,
+    valorFatura: c.valor,
+    diferenca: null,
+    status: 'RED',
+    origem: 'FATURA',
+  }
+}
+
 export function reconcileData(
   systemRecords: SystemRecord[],
   cardRecords: CardRecord[],
 ): ReconciliationResult[] {
   const results: ReconciliationResult[] = []
-  const sysRemaining = [...systemRecords]
-  const cardRemaining = [...cardRecords]
+  const sysMatched = new Set<number>()
+  const cardMatched = new Set<number>()
 
-  for (let i = sysRemaining.length - 1; i >= 0; i--) {
-    const s = sysRemaining[i]
+  for (let i = 0; i < systemRecords.length; i++) {
+    if (sysMatched.has(i)) continue
+    const s = systemRecords[i]
     const partnerNorm = normalizeStr(s.parceiro)
     if (!partnerNorm || partnerNorm === '-') continue
 
-    const j = cardRemaining.findIndex(
-      (c) => normalizeStr(c.estabelecimento) === partnerNorm && valuesMatch(s.credito, c.valor),
-    )
-    if (j === -1) continue
+    for (let j = 0; j < cardRecords.length; j++) {
+      if (cardMatched.has(j)) continue
+      const c = cardRecords[j]
+      if (normalizeStr(c.estabelecimento) !== partnerNorm) continue
+      if (!valuesMatch(s.credito, c.valor)) continue
 
-    results.push(createMatchedResult(s, cardRemaining[j], 'GREEN'))
-    sysRemaining.splice(i, 1)
-    cardRemaining.splice(j, 1)
-  }
-
-  for (let i = sysRemaining.length - 1; i >= 0; i--) {
-    const s = sysRemaining[i]
-    const partnerNorm = normalizeStr(s.parceiro)
-    if (!partnerNorm || partnerNorm === '-') continue
-
-    let bestJ = -1
-    let bestDiff = Infinity
-    for (let j = 0; j < cardRemaining.length; j++) {
-      if (normalizeStr(cardRemaining[j].estabelecimento) !== partnerNorm) continue
-      const diff = Math.abs(cardRemaining[j].valor - s.credito)
-      if (diff < bestDiff) {
-        bestDiff = diff
-        bestJ = j
-      }
+      results.push(createMatchedResult(s, c, 'GREEN'))
+      sysMatched.add(i)
+      cardMatched.add(j)
+      break
     }
-    if (bestJ === -1) continue
-
-    results.push(createMatchedResult(s, cardRemaining[bestJ], 'YELLOW'))
-    sysRemaining.splice(i, 1)
-    cardRemaining.splice(bestJ, 1)
   }
 
-  sysRemaining.forEach((s) => {
-    results.push({
-      id: `sys-only-${s.id}`,
-      data: s.data,
-      lancamentoDiario: s.lancamentoDiario,
-      parceiro: s.parceiro,
-      estabelecimento: '-',
-      categoria: s.categoria,
-      debito: s.debito,
-      credito: s.credito,
-      valorFatura: null,
-      diferenca: null,
-      status: 'RED',
-      origem: 'SISTEMA',
-    })
-  })
+  const yellowCandidates: { sysIdx: number; cardIdx: number; diff: number }[] = []
+  for (let i = 0; i < systemRecords.length; i++) {
+    if (sysMatched.has(i)) continue
+    const s = systemRecords[i]
+    const partnerNorm = normalizeStr(s.parceiro)
+    if (!partnerNorm || partnerNorm === '-') continue
 
-  cardRemaining.forEach((c) => {
-    results.push({
-      id: `card-only-${c.id}`,
-      data: c.data,
-      lancamentoDiario: '-',
-      parceiro: '-',
-      estabelecimento: c.estabelecimento,
-      categoria: c.categoria,
-      debito: null,
-      credito: null,
-      valorFatura: c.valor,
-      diferenca: null,
-      status: 'RED',
-      origem: 'FATURA',
-    })
-  })
+    for (let j = 0; j < cardRecords.length; j++) {
+      if (cardMatched.has(j)) continue
+      const c = cardRecords[j]
+      if (normalizeStr(c.estabelecimento) !== partnerNorm) continue
+      yellowCandidates.push({ sysIdx: i, cardIdx: j, diff: Math.abs(c.valor - s.credito) })
+    }
+  }
+
+  yellowCandidates.sort((a, b) => a.diff - b.diff)
+
+  for (const { sysIdx, cardIdx } of yellowCandidates) {
+    if (sysMatched.has(sysIdx) || cardMatched.has(cardIdx)) continue
+    results.push(createMatchedResult(systemRecords[sysIdx], cardRecords[cardIdx], 'YELLOW'))
+    sysMatched.add(sysIdx)
+    cardMatched.add(cardIdx)
+  }
+
+  for (let i = 0; i < systemRecords.length; i++) {
+    if (!sysMatched.has(i)) results.push(createSystemOnlyResult(systemRecords[i]))
+  }
+
+  for (let j = 0; j < cardRecords.length; j++) {
+    if (!cardMatched.has(j)) results.push(createCardOnlyResult(cardRecords[j]))
+  }
 
   return results
 }

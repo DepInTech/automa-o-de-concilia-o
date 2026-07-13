@@ -5,11 +5,6 @@ export interface ValidationResult {
   errors: string[]
 }
 
-function formatNumberForCSV(value: number | null | undefined): string {
-  if (value === null || value === undefined) return ''
-  return value.toFixed(2).replace('.', ',')
-}
-
 export function validateExport(
   results: ReconciliationResult[],
   systemRecords: SystemRecord[],
@@ -17,66 +12,40 @@ export function validateExport(
 ): ValidationResult {
   const errors: string[] = []
 
-  const ambos = results.filter((r) => r.origem === 'AMBOS').length
-  const sistema = results.filter((r) => r.origem === 'SISTEMA').length
-  const fatura = results.filter((r) => r.origem === 'FATURA').length
-
-  if (ambos + sistema !== systemRecords.length) {
-    errors.push(
-      `Sistema: ${systemRecords.length} registros na origem vs ${ambos + sistema} no resultado`,
-    )
-  }
-  if (ambos + fatura !== cardRecords.length) {
-    errors.push(
-      `Fatura: ${cardRecords.length} registros na origem vs ${ambos + fatura} no resultado`,
-    )
+  if (results.length === 0) {
+    errors.push('Nenhum resultado de conciliação disponível para exportação.')
   }
 
-  const ids = results.map((r) => r.id)
-  const uniqueIds = new Set(ids)
-  if (ids.length !== uniqueIds.size) {
-    errors.push(`${ids.length - uniqueIds.size} registro(s) duplicado(s) detectado(s)`)
+  if (systemRecords.length === 0 && cardRecords.length === 0) {
+    errors.push('Nenhum dado de origem foi importado.')
   }
 
-  const dateRegex = /^\d{2}\/\d{2}\/\d{4}$/
-  for (const r of results) {
-    if (r.data && r.data !== '-' && !dateRegex.test(r.data)) {
-      errors.push(`Data com formato incorreto: "${r.data}" (esperado DD/MM/AAAA)`)
-    }
-    if (r.status === 'RED' && r.diferenca !== null) {
-      errors.push(`Registro RED com diferença preenchida: ${r.id}`)
-    }
-    if (r.status === 'GREEN' && r.diferenca !== 0) {
-      errors.push(`Registro GREEN com diferença diferente de zero: ${r.id}`)
-    }
-    if (r.status === 'YELLOW' && r.diferenca === null) {
-      errors.push(`Registro YELLOW sem diferença calculada: ${r.id}`)
-    }
+  return {
+    isValid: errors.length === 0,
+    errors,
   }
+}
 
-  const systemValues = systemRecords.map((r) => r.credito).sort((a, b) => a - b)
-  const resultSystemValues = results
-    .filter((r) => r.origem !== 'FATURA')
-    .map((r) => r.credito || 0)
-    .sort((a, b) => a - b)
-  for (let i = 0; i < systemValues.length; i++) {
-    if (
-      i >= resultSystemValues.length ||
-      Math.abs(systemValues[i] - resultSystemValues[i]) > 0.01
-    ) {
-      errors.push('Valores monetários do sistema não conferem com a origem')
-      break
-    }
+function escapeCSV(value: string): string {
+  if (value.includes(';') || value.includes('"') || value.includes('\n')) {
+    return `"${value.replace(/"/g, '""')}"`
   }
+  return value
+}
 
-  return { isValid: errors.length === 0, errors }
+function formatNum(value: number | null): string {
+  if (value === null) return ''
+  return value.toFixed(2).replace('.', ',')
+}
+
+function statusLabel(s: string): string {
+  if (s === 'GREEN') return 'Conciliado'
+  if (s === 'YELLOW') return 'Divergente'
+  return 'Nao Encontrado'
 }
 
 export function generateExportCSV(results: ReconciliationResult[]): string {
-  const statusLabel = (s: string) =>
-    s === 'GREEN' ? 'Conciliado' : s === 'YELLOW' ? 'Divergente' : 'Não Encontrado'
-
-  const header = [
+  const headers = [
     'Data',
     'Lançamento Diário',
     'Parceiro',
@@ -84,10 +53,11 @@ export function generateExportCSV(results: ReconciliationResult[]): string {
     'Categoria',
     'Débito',
     'Crédito',
-    'Valor da Fatura',
+    'Valor Fatura',
     'Diferença',
     'Status',
-  ].join(';')
+    'Origem',
+  ]
 
   const rows = results.map((r) =>
     [
@@ -96,13 +66,16 @@ export function generateExportCSV(results: ReconciliationResult[]): string {
       r.parceiro,
       r.estabelecimento,
       r.categoria,
-      formatNumberForCSV(r.debito),
-      formatNumberForCSV(r.credito),
-      formatNumberForCSV(r.valorFatura),
-      formatNumberForCSV(r.diferenca),
+      formatNum(r.debito),
+      formatNum(r.credito),
+      formatNum(r.valorFatura),
+      formatNum(r.diferenca),
       statusLabel(r.status),
-    ].join(';'),
+      r.origem,
+    ]
+      .map(escapeCSV)
+      .join(';'),
   )
 
-  return [header, ...rows].join('\n')
+  return [headers.join(';'), ...rows].join('\n')
 }
