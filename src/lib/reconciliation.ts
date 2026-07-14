@@ -61,7 +61,6 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
   return common.length > 0
 }
 
-// Margem de até R$ 2,00 para tolerar variações de centavos (ex: Uber) no status VERDE
 function isWithinGreenTolerance(a: number, b: number): boolean {
   return Math.abs(a - b) <= 2.0
 }
@@ -74,7 +73,7 @@ export function reconcileData(
   systemRecords: SystemRecord[],
   cardRecords: CardRecord[],
 ): ReconciliationResult[] {
-  // ---- NOVO BLOCO DE TESTE DETALHADO ----
+  // ---- TESTE DETALHADO SEM VARIÁVEIS DUPLICADAS ----
   const todosSistema = systemRecords
     .filter((s) => normalize(s.parceiro).includes('valvolandia'))
     .map((s) => s.credito)
@@ -84,20 +83,17 @@ export function reconcileData(
     .map((c) => c.valor)
 
   alert(
-    `BUSCA COMPLETA POR VALVOLANDIA:\n\n` +
-      `No Sistema encontrei estes valores: [${todosSistema.join(', ')}]\n` +
-      `Na Fatura de Cartão encontrei estes valores: [${todosCartao.join(', ')}]`,
+    `DIAGNÓSTICO VALVOLANDIA:\n\n` +
+      `No Sistema encontramos: [${todosSistema.join(', ')}]\n` +
+      `No Cartão (Fatura) encontramos: [${todosCartao.join(', ')}]`,
   )
-  // ----------------------------------------
+  // --------------------------------------------------
 
   const results: ReconciliationResult[] = []
   const matchedSystem = new Set<string>()
-  // ... resto do código igual ao anterior
-  const results: ReconciliationResult[] = []
-  const matchedSystem = new Set<string>()
-  // ... resto do código igual ao anterior
+  const matchedCard = new Set<string>()
 
-  // 1. Varre os registros do sistema
+  // 1. Processa matches com o Sistema
   for (const sys of systemRecords) {
     if (matchedSystem.has(sys.id)) continue
 
@@ -110,7 +106,7 @@ export function reconcileData(
       continue
     }
 
-    // Busca primeiro correspondência idêntica (ou com tolerância de até R$ 2,00 do Uber) -> VERDE
+    // Match de Nome + Valor Igual/Uber -> VERDE
     const exactMatch = candidates.find((card) => isWithinGreenTolerance(sys.credito, card.valor))
 
     if (exactMatch) {
@@ -134,8 +130,7 @@ export function reconcileData(
       continue
     }
 
-    // Se o nome bate mas os valores são diferentes (como a Valvolândia de R$ 99,80 vs R$ 291,88) -> AMARELO
-    // Escolhe o candidato do mesmo estabelecimento com a menor diferença de valor para ser preciso.
+    // Match de Nome + Valor Divergente -> AMARELO
     let yellowMatch = candidates[0]
     let menorDiferenca = Math.abs(sys.credito - yellowMatch.valor)
 
@@ -158,15 +153,15 @@ export function reconcileData(
       estabelecimento: yellowMatch.estabelecimento,
       categoria: yellowMatch.categoria || sys.categoria,
       debito: sys.debito,
-      credito: sys.credito, // R$ 99,80 do Sistema
-      valorFatura: yellowMatch.valor, // R$ 291,88 da Fatura
-      diferenca: calcDifference(sys.credito, yellowMatch.valor), // Fará a diferença exata na tela
+      credito: sys.credito,
+      valorFatura: yellowMatch.valor,
+      diferenca: calcDifference(sys.credito, yellowMatch.valor),
       status: 'YELLOW',
       origem: 'AMBOS',
     })
   }
 
-  // 2. Lançamentos que ficaram apenas no Sistema -> RED
+  // 2. Apenas no Sistema -> RED
   for (const sys of systemRecords) {
     if (matchedSystem.has(sys.id)) continue
 
@@ -186,7 +181,7 @@ export function reconcileData(
     })
   }
 
-  // 3. Lançamentos que ficaram apenas na Fatura -> RED
+  // 3. Apenas na Fatura -> RED
   for (const card of cardRecords) {
     if (matchedCard.has(card.id)) continue
 
