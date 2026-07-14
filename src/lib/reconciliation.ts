@@ -1,5 +1,6 @@
 import type { SystemRecord, CardRecord, ReconciliationResult } from './types'
 
+// Normaliza o texto removendo acentos, espaços extras e deixando em minúsculo
 function normalize(text: string): string {
   return (text || '')
     .toLowerCase()
@@ -10,20 +11,20 @@ function normalize(text: string): string {
 }
 
 /**
- * Validação de nomes inteligente e estrita.
- * Retorna true se houver uma correspondência clara de nome próprio entre as partes.
+ * Validação de nomes estrita para garantir que o parceiro (Sistema)
+ * e o estabelecimento (Fatura) são de fato a mesma entidade comercial.
  */
 function isSameEstablishment(parceiro: string, estabelecimento: string): boolean {
   const p = normalize(parceiro)
   const e = normalize(estabelecimento)
   if (!p || !e) return false
 
-  // 1. Caso simples: nomes idênticos ou um contido inteiramente no outro (ex: "vindi *swiftrecorren" vs "swift recorrente")
+  // 1. Caso simples: nomes idênticos ou um contido inteiramente no outro
   if (p === e || p.includes(e) || e.includes(p)) {
     return true
   }
 
-  // 2. Lista de termos genéricos ignorados para focar no nome real da empresa
+  // 2. Lista de palavras comuns que devem ser ignoradas para focar no nome principal
   const ignoreWords = new Set([
     'ltda',
     'servicos',
@@ -57,7 +58,7 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
   const wordsP = p.split(/[\s*-]+/).filter((w) => w.length > 3 && !ignoreWords.has(w))
   const wordsE = e.split(/[\s*-]+/).filter((w) => w.length > 3 && !ignoreWords.has(w))
 
-  // 3. Comparação Estrita de Palavras
+  // 3. Comparação de termos principais
   return wordsP.some((wp) => {
     return wordsE.some((we) => {
       if (wp.length >= 8 || we.length >= 8) {
@@ -77,7 +78,7 @@ function calcDifference(credito: number, valor: number): number {
 }
 
 /**
- * Janela de tempo lógica máxima entre a compra e o registro no sistema (padrão 45 dias)
+ * Valida se a janela temporal entre a transação da fatura e o lançamento do sistema faz sentido (até 45 dias)
  */
 function isPaymentWindowValid(dataCompraStr?: string, dataPagamentoStr?: string): boolean {
   if (!dataCompraStr || !dataPagamentoStr) return true
@@ -168,7 +169,7 @@ export function reconcileData(
   const matchedCardIds = new Set<string>()
 
   for (const sys of systemRecords) {
-    // REGRA 1: Match de Nome + Mesmo Valor + Janela de Tempo -> VERDE (Conciliado Perfeitamente)
+    // REGRA 1: Estabelecimento/Parceiro Iguais + Valor Igual -> VERDE
     let cardMatch = cardRecords.find(
       (card) =>
         !matchedCardIds.has(card.id) &&
@@ -177,7 +178,7 @@ export function reconcileData(
         isPaymentWindowValid(card.data, sys.data),
     )
 
-    // REGRA 2: Match de Nome + Janela de Tempo (Valor é diferente! Ex: Swift R$ 1475,25 vs R$ 1484,23) -> AMARELO
+    // REGRA 2: Estabelecimento/Parceiro Iguais + Valor Diferente -> AMARELO
     if (!cardMatch) {
       cardMatch = cardRecords.find(
         (card) =>
@@ -187,7 +188,7 @@ export function reconcileData(
       )
     }
 
-    // REGRA 3: Match de Nome (Qualquer data - Fallback de segurança para atrasos de conciliação) -> AMARELO/VERDE
+    // REGRA 3: Fallback de segurança para prazos estendidos (Apenas se o Estabelecimento/Parceiro coincidir) -> AMARELO/VERDE
     if (!cardMatch) {
       cardMatch = cardRecords.find(
         (card) =>
@@ -195,21 +196,21 @@ export function reconcileData(
       )
     }
 
-    // Se encontramos correspondência pelo nome do estabelecimento:
+    // Processamento da correspondência
     if (cardMatch) {
       matchedCardIds.add(cardMatch.id)
       if (sameValue(sys.credito, cardMatch.valor)) {
         results.push(createGreen(sys, cardMatch))
       } else {
-        results.push(createYellow(sys, cardMatch)) // Vira amarelo mostrando a diferença de valor calculada!
+        results.push(createYellow(sys, cardMatch))
       }
     } else {
-      // Se não houver correspondência nenhuma do nome, vai separado para Vermelho no painel
+      // REGRA 3 (Vermelho): Encontrado apenas no Sistema (sem par de nome correspondente)
       results.push(createRedSystem(sys))
     }
   }
 
-  // Tudo o que sobrou na fatura sem nenhum match de nome vai para Vermelho
+  // REGRA 3 (Vermelho): Encontrado apenas na Fatura (sem par de nome correspondente)
   for (const card of cardRecords) {
     if (!matchedCardIds.has(card.id)) {
       results.push(createRedCard(card))
