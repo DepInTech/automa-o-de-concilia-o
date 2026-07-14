@@ -9,7 +9,6 @@ function normalize(text: string): string {
     .replace(/\s+/g, ' ')
 }
 
-// Melhoria: Verifica se há correspondência parcial para evitar que pequenas diferenças textuais quebrem a busca
 function samePartner(parceiro: string, estabelecimento: string): boolean {
   const p = normalize(parceiro)
   const e = normalize(estabelecimento)
@@ -25,24 +24,35 @@ function calcDifference(credito: number, valor: number): number {
   return Math.round((valor - credito) * 100) / 100
 }
 
-// Auxiliar para verificar se as datas estão próximas (ex: até 5 dias de diferença por atrasos de processamento da fatura)
-function datesAreClose(dateStr1?: string, dateStr2?: string, maxDays = 5): boolean {
-  if (!dateStr1 || !dateStr2) return true // Se um não tiver data, ignora o filtro de proximidade
+/**
+ * Valida se a data de pagamento (Sistema) faz sentido em relação à data de compra (Fatura).
+ * A data de pagamento deve ser posterior à data de compra, tipicamente em até 45 dias.
+ */
+function isPaymentWindowValid(dataCompraStr?: string, dataPagamentoStr?: string): boolean {
+  if (!dataCompraStr || !dataPagamentoStr) return true // Se um dos lados não tiver data, não bloqueia
+
   try {
-    const d1 = new Date(dateStr1).getTime()
-    const d2 = new Date(dateStr2).getTime()
-    const diffTime = Math.abs(d1 - d2)
+    const dataCompra = new Date(dataCompraStr).getTime()
+    const dataPagamento = new Date(dataPagamentoStr).getTime()
+
+    // O pagamento não pode acontecer ANTES da compra
+    if (dataPagamento < dataCompra) return false
+
+    // Calcula a diferença em dias
+    const diffTime = dataPagamento - dataCompra
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-    return diffDays <= maxDays
+
+    // Retorna true se o pagamento ocorreu dentro do ciclo esperado de faturamento (até 45 dias)
+    return diffDays <= 45
   } catch {
-    return true // Caso ocorra erro de parse na data
+    return true // Fallback em caso de erro de parse de data
   }
 }
 
 function createGreen(sistema: SystemRecord, fatura: CardRecord): ReconciliationResult {
   return {
     id: `GREEN-${sistema.id}-${fatura.id}`,
-    data: sistema.data || fatura.data,
+    data: sistema.data || fatura.data, // Prioriza a data de lançamento ou compra
     lancamentoDiario: sistema.lancamentoDiario,
     parceiro: sistema.parceiro,
     estabelecimento: fatura.estabelecimento,
@@ -115,15 +125,28 @@ export function reconcileData(
   const matchedCardIds = new Set<string>()
 
   for (const sys of systemRecords) {
-    // 1ª Tentativa de busca: Mesma empresa E mesma faixa de data (Evita falsos amarelos quando há compras recorrentes)
+    // 1ª Tentativa: Procura transações do mesmo parceiro, cujo valor seja igual
+    // E onde o pagamento ocorra em até 45 dias após a data da compra.
     let cardMatch = cardRecords.find(
       (card) =>
         !matchedCardIds.has(card.id) &&
         samePartner(sys.parceiro, card.estabelecimento) &&
-        datesAreClose(sys.data, card.data, 5),
+        sameValue(sys.credito, card.valor) &&
+        isPaymentWindowValid(card.data, sys.data),
     )
 
-    // 2ª Tentativa (fallback): Apenas mesma empresa, caso a compra tenha demorado mais de 5 dias para cair na fatura
+    // 2ª Tentativa (Se não achou o valor perfeito): Procura apenas o mesmo parceiro na mesma janela de datas
+    // (Isso gerará o alerta Amarelo para diferença de valor na mesma transação temporal)
+    if (!cardMatch) {
+      cardMatch = cardRecords.find(
+        (card) =>
+          !matchedCardIds.has(card.id) &&
+          samePartner(sys.parceiro, card.estabelecimento) &&
+          isPaymentWindowValid(card.data, sys.data),
+      )
+    }
+
+    // 3ª Tentativa (Último recurso): Se não houver correspondência temporal, tenta achar apenas pelo nome
     if (!cardMatch) {
       cardMatch = cardRecords.find(
         (card) => !matchedCardIds.has(card.id) && samePartner(sys.parceiro, card.estabelecimento),
@@ -142,6 +165,7 @@ export function reconcileData(
     }
   }
 
+  // Registros sobressalentes da fatura que não foram mapeados vão para Vermelho
   for (const card of cardRecords) {
     if (!matchedCardIds.has(card.id)) {
       results.push(createRedCard(card))
