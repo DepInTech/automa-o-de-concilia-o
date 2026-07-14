@@ -1,6 +1,5 @@
 import type { SystemRecord, CardRecord, ReconciliationResult } from './types'
 
-// Normaliza o texto removendo acentos, espaços extras e deixando em minúsculo
 function normalize(text: string): string {
   return (text || '')
     .toLowerCase()
@@ -58,7 +57,7 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
   const wordsP = p.split(/[\s*-]+/).filter((w) => w.length > 3 && !ignoreWords.has(w))
   const wordsE = e.split(/[\s*-]+/).filter((w) => w.length > 3 && !ignoreWords.has(w))
 
-  // 3. Comparação de termos principais
+  // 3. Comparação estrita de termos principais (evita matches por termos curtos/genéricos)
   return wordsP.some((wp) => {
     return wordsE.some((we) => {
       if (wp.length >= 8 || we.length >= 8) {
@@ -75,22 +74,6 @@ function sameValue(credito: number, valor: number): boolean {
 
 function calcDifference(credito: number, valor: number): number {
   return Math.round((valor - credito) * 100) / 100
-}
-
-/**
- * Valida se a janela temporal entre a transação da fatura e o lançamento do sistema faz sentido (até 45 dias)
- */
-function isPaymentWindowValid(dataCompraStr?: string, dataPagamentoStr?: string): boolean {
-  if (!dataCompraStr || !dataPagamentoStr) return true
-  try {
-    const dataCompra = new Date(dataCompraStr).getTime()
-    const dataPagamento = new Date(dataPagamentoStr).getTime()
-    if (dataPagamento < dataCompra) return false
-    const diffDays = Math.ceil((dataPagamento - dataCompra) / (1000 * 60 * 60 * 24))
-    return diffDays <= 45
-  } catch {
-    return true
-  }
 }
 
 function createGreen(sistema: SystemRecord, fatura: CardRecord): ReconciliationResult {
@@ -169,48 +152,30 @@ export function reconcileData(
   const matchedCardIds = new Set<string>()
 
   for (const sys of systemRecords) {
-    // REGRA 1: Estabelecimento/Parceiro Iguais + Valor Igual -> VERDE
-    let cardMatch = cardRecords.find(
+    // Busca na fatura se existe o MESMO estabelecimento (independente de valor)
+    const cardMatch = cardRecords.find(
       (card) =>
-        !matchedCardIds.has(card.id) &&
-        isSameEstablishment(sys.parceiro, card.estabelecimento) &&
-        sameValue(sys.credito, card.valor) &&
-        isPaymentWindowValid(card.data, sys.data),
+        !matchedCardIds.has(card.id) && isSameEstablishment(sys.parceiro, card.estabelecimento),
     )
 
-    // REGRA 2: Estabelecimento/Parceiro Iguais + Valor Diferente -> AMARELO
-    if (!cardMatch) {
-      cardMatch = cardRecords.find(
-        (card) =>
-          !matchedCardIds.has(card.id) &&
-          isSameEstablishment(sys.parceiro, card.estabelecimento) &&
-          isPaymentWindowValid(card.data, sys.data),
-      )
-    }
-
-    // REGRA 3: Fallback de segurança para prazos estendidos (Apenas se o Estabelecimento/Parceiro coincidir) -> AMARELO/VERDE
-    if (!cardMatch) {
-      cardMatch = cardRecords.find(
-        (card) =>
-          !matchedCardIds.has(card.id) && isSameEstablishment(sys.parceiro, card.estabelecimento),
-      )
-    }
-
-    // Processamento da correspondência
     if (cardMatch) {
       matchedCardIds.add(cardMatch.id)
+
+      // Se achou o nome correspondente:
       if (sameValue(sys.credito, cardMatch.valor)) {
+        // REGRA 1: Estabelecimento igual + Valor igual -> VERDE
         results.push(createGreen(sys, cardMatch))
       } else {
+        // REGRA 2: Estabelecimento igual + Valor diferente -> AMARELO
         results.push(createYellow(sys, cardMatch))
       }
     } else {
-      // REGRA 3 (Vermelho): Encontrado apenas no Sistema (sem par de nome correspondente)
+      // REGRA 3: Sem correspondência de nome -> VERMELHO (Só no Sistema)
       results.push(createRedSystem(sys))
     }
   }
 
-  // REGRA 3 (Vermelho): Encontrado apenas na Fatura (sem par de nome correspondente)
+  // REGRA 3: O que sobrou na fatura sem correspondência de nome -> VERMELHO (Só na Fatura)
   for (const card of cardRecords) {
     if (!matchedCardIds.has(card.id)) {
       results.push(createRedCard(card))
