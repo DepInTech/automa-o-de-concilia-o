@@ -10,20 +10,17 @@ function normalize(text: string): string {
 }
 
 /**
- * Validação de nomes estrita para garantir que o parceiro (Sistema)
- * e o estabelecimento (Fatura) são de fato a mesma entidade comercial.
+ * Validação de nomes estrita.
  */
 function isSameEstablishment(parceiro: string, estabelecimento: string): boolean {
   const p = normalize(parceiro)
   const e = normalize(estabelecimento)
   if (!p || !e) return false
 
-  // 1. Caso simples: nomes idênticos ou um contido inteiramente no outro
   if (p === e || p.includes(e) || e.includes(p)) {
     return true
   }
 
-  // 2. Lista de palavras comuns que devem ser ignoradas para focar no nome principal
   const ignoreWords = new Set([
     'ltda',
     'servicos',
@@ -57,7 +54,6 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
   const wordsP = p.split(/[\s*-]+/).filter((w) => w.length > 3 && !ignoreWords.has(w))
   const wordsE = e.split(/[\s*-]+/).filter((w) => w.length > 3 && !ignoreWords.has(w))
 
-  // 3. Comparação estrita de termos principais (evita matches por termos curtos/genéricos)
   return wordsP.some((wp) => {
     return wordsE.some((we) => {
       if (wp.length >= 8 || we.length >= 8) {
@@ -76,71 +72,19 @@ function calcDifference(credito: number, valor: number): number {
   return Math.round((valor - credito) * 100) / 100
 }
 
-function createGreen(sistema: SystemRecord, fatura: CardRecord): ReconciliationResult {
-  return {
-    id: `GREEN-${sistema.id}-${fatura.id}`,
-    data: sistema.data || fatura.data,
-    lancamentoDiario: sistema.lancamentoDiario,
-    parceiro: sistema.parceiro,
-    estabelecimento: fatura.estabelecimento,
-    categoria: fatura.categoria || sistema.categoria,
-    debito: sistema.debito,
-    credito: sistema.credito,
-    valorFatura: fatura.valor,
-    diferenca: 0,
-    status: 'GREEN',
-    origem: 'AMBOS',
-  }
-}
-
-function createYellow(sistema: SystemRecord, fatura: CardRecord): ReconciliationResult {
-  return {
-    id: `YELLOW-${sistema.id}-${fatura.id}`,
-    data: sistema.data || fatura.data,
-    lancamentoDiario: sistema.lancamentoDiario,
-    parceiro: sistema.parceiro,
-    estabelecimento: fatura.estabelecimento,
-    categoria: fatura.categoria || sistema.categoria,
-    debito: sistema.debito,
-    credito: sistema.credito,
-    valorFatura: fatura.valor,
-    diferenca: calcDifference(sistema.credito, fatura.valor),
-    status: 'YELLOW',
-    origem: 'AMBOS',
-  }
-}
-
-function createRedSystem(sistema: SystemRecord): ReconciliationResult {
-  return {
-    id: `RED-SYS-${sistema.id}`,
-    data: sistema.data,
-    lancamentoDiario: sistema.lancamentoDiario,
-    parceiro: sistema.parceiro,
-    estabelecimento: '-',
-    categoria: sistema.categoria,
-    debito: sistema.debito,
-    credito: sistema.credito,
-    valorFatura: null,
-    diferenca: null,
-    status: 'RED',
-    origem: 'SISTEMA',
-  }
-}
-
-function createRedCard(fatura: CardRecord): ReconciliationResult {
-  return {
-    id: `RED-CARD-${fatura.id}`,
-    data: fatura.data,
-    lancamentoDiario: '-',
-    parceiro: '-',
-    estabelecimento: fatura.estabelecimento,
-    categoria: fatura.categoria,
-    debito: null,
-    credito: null,
-    valorFatura: fatura.valor,
-    diferenca: null,
-    status: 'RED',
-    origem: 'FATURA',
+/**
+ * Valida se as datas estão próximas (tolerância máxima de 15 dias)
+ * para evitar cruzar compras de meses diferentes.
+ */
+function isDateMatchValid(dataCompraStr?: string, dataPagamentoStr?: string): boolean {
+  if (!dataCompraStr || !dataPagamentoStr) return true
+  try {
+    const d1 = new Date(dataCompraStr).getTime()
+    const d2 = new Date(dataPagamentoStr).getTime()
+    const diffDays = Math.abs(d2 - d1) / (1000 * 60 * 60 * 24)
+    return diffDays <= 15 // Ajuste para até 15 dias de diferença
+  } catch {
+    return true
   }
 }
 
@@ -152,33 +96,81 @@ export function reconcileData(
   const matchedCardIds = new Set<string>()
 
   for (const sys of systemRecords) {
-    // Busca na fatura se existe o MESMO estabelecimento (independente de valor)
-    const cardMatch = cardRecords.find(
+    // 1. Procurar correspondente de Nome + Valor Exato + Proximidade de Data -> VERDE
+    let cardMatch = cardRecords.find(
       (card) =>
-        !matchedCardIds.has(card.id) && isSameEstablishment(sys.parceiro, card.estabelecimento),
+        !matchedCardIds.has(card.id) &&
+        isSameEstablishment(sys.parceiro, card.estabelecimento) &&
+        sameValue(sys.credito, card.valor) &&
+        isDateMatchValid(card.data, sys.data),
     )
+
+    // 2. Se não achou, procurar correspondente de Nome + Proximidade de Data (mas valor diferente) -> AMARELO
+    if (!cardMatch) {
+      cardMatch = cardRecords.find(
+        (card) =>
+          !matchedCardIds.has(card.id) &&
+          isSameEstablishment(sys.parceiro, card.estabelecimento) &&
+          isDateMatchValid(card.data, sys.data),
+      )
+    }
 
     if (cardMatch) {
       matchedCardIds.add(cardMatch.id)
 
-      // Se achou o nome correspondente:
-      if (sameValue(sys.credito, cardMatch.valor)) {
-        // REGRA 1: Estabelecimento igual + Valor igual -> VERDE
-        results.push(createGreen(sys, cardMatch))
-      } else {
-        // REGRA 2: Estabelecimento igual + Valor diferente -> AMARELO
-        results.push(createYellow(sys, cardMatch))
-      }
+      const isGreen = sameValue(sys.credito, cardMatch.valor)
+
+      results.push({
+        id: `${isGreen ? 'GREEN' : 'YELLOW'}-${sys.id}-${cardMatch.id}`,
+        data: sys.data || cardMatch.data,
+        lancamentoDiario: sys.lancamentoDiario,
+        // Exibe de forma transparente os dois nomes na tela para você ver o cruzamento:
+        parceiro: `[SYS] ${sys.parceiro}`,
+        estabelecimento: `[CARD] ${cardMatch.estabelecimento}`,
+        categoria: cardMatch.categoria || sys.categoria,
+        debito: sys.debito,
+        credito: sys.credito,
+        valorFatura: cardMatch.valor,
+        diferenca: isGreen ? 0 : calcDifference(sys.credito, cardMatch.valor),
+        status: isGreen ? 'GREEN' : 'YELLOW',
+        origem: 'AMBOS',
+      })
     } else {
-      // REGRA 3: Sem correspondência de nome -> VERMELHO (Só no Sistema)
-      results.push(createRedSystem(sys))
+      // Vermelho: Apenas no Sistema
+      results.push({
+        id: `RED-SYS-${sys.id}`,
+        data: sys.data,
+        lancamentoDiario: sys.lancamentoDiario,
+        parceiro: `[SYS] ${sys.parceiro}`,
+        estabelecimento: '-',
+        categoria: sys.categoria,
+        debito: sys.debito,
+        credito: sys.credito,
+        valorFatura: null,
+        diferenca: null,
+        status: 'RED',
+        origem: 'SISTEMA',
+      })
     }
   }
 
-  // REGRA 3: O que sobrou na fatura sem correspondência de nome -> VERMELHO (Só na Fatura)
+  // Vermelho: Apenas na Fatura
   for (const card of cardRecords) {
     if (!matchedCardIds.has(card.id)) {
-      results.push(createRedCard(card))
+      results.push({
+        id: `RED-CARD-${card.id}`,
+        data: card.data,
+        lancamentoDiario: '-',
+        parceiro: '-',
+        estabelecimento: `[CARD] ${card.estabelecimento}`,
+        categoria: card.categoria,
+        debito: null,
+        credito: null,
+        valorFatura: card.valor,
+        diferenca: null,
+        status: 'RED',
+        origem: 'FATURA',
+      })
     }
   }
 
