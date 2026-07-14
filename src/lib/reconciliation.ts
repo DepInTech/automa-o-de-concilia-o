@@ -1,6 +1,5 @@
 import type { SystemRecord, CardRecord, ReconciliationResult } from './types'
 
-// Normaliza o texto removendo acentos, espaços extras e deixando em minúsculo
 function normalize(text: string): string {
   return (text || '')
     .toLowerCase()
@@ -11,23 +10,18 @@ function normalize(text: string): string {
 }
 
 /**
- * Valida de forma altamente segura se o parceiro do sistema e o estabelecimento da fatura são o mesmo.
- * Evita matches falsos limpando palavras comerciais genéricas e aplicando regras estritas para palavras curtas.
+ * Validação de nomes (usada para matches perfeitos)
  */
 function isSameEstablishment(parceiro: string, estabelecimento: string): boolean {
   const p = normalize(parceiro)
   const e = normalize(estabelecimento)
   if (!p || !e) return false
 
-  // 1. Caso simples: nomes idênticos ou um contido inteiramente no outro
   if (p === e || p.includes(e) || e.includes(p)) {
     return true
   }
 
-  // 2. Lista robusta de palavras comuns que NÃO devem causar matches (Stopwords)
-  // Isso impede que "NETLAB EQUIPAMENTOS..." case com "BIOCENTRIX MATERIA" (por causa de "Material/Materia")
   const ignoreWords = new Set([
-    // Termos societários / operacionais de cartões
     'ltda',
     'servicos',
     'equipamentos',
@@ -38,7 +32,6 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
     'vindi',
     'pag',
     'recorrente',
-    // Palavras comerciais genéricas que causavam falsos positivos
     'material',
     'materia',
     'laboratorios',
@@ -58,18 +51,14 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
     'industria',
   ])
 
-  // Divide o texto por espaços, asteriscos ou hífens
   const wordsP = p.split(/[\s*-]+/).filter((w) => w.length > 3 && !ignoreWords.has(w))
   const wordsE = e.split(/[\s*-]+/).filter((w) => w.length > 3 && !ignoreWords.has(w))
 
-  // 3. Comparação Estrita de Palavras (Exige correspondência exata para nomes próprios médios/curtos)
   return wordsP.some((wp) => {
     return wordsE.some((we) => {
-      // Se for uma palavra muito grande (ex: 8+ letras, como "biocentrix"), permite variação parcial leve
       if (wp.length >= 8 || we.length >= 8) {
         return wp.includes(we) || we.includes(wp)
       }
-      // Se for palavra de tamanho normal (ex: "netlab", "muddar"), exige correspondência 100% exata
       return wp === we
     })
   })
@@ -84,17 +73,20 @@ function calcDifference(credito: number, valor: number): number {
 }
 
 /**
- * Valida a janela temporal: a data de pagamento (Sistema) deve ser posterior à data de compra (Fatura),
- * aceitando uma janela realista de ciclo de cartão de até 45 dias.
+ * Janela de tempo aceitável para conciliação automática por valor único (ex: até 10 dias)
  */
-function isPaymentWindowValid(dataCompraStr?: string, dataPagamentoStr?: string): boolean {
+function isPaymentWindowValid(
+  dataCompraStr?: string,
+  dataPagamentoStr?: string,
+  maxDays = 10,
+): boolean {
   if (!dataCompraStr || !dataPagamentoStr) return true
   try {
     const dataCompra = new Date(dataCompraStr).getTime()
     const dataPagamento = new Date(dataPagamentoStr).getTime()
     if (dataPagamento < dataCompra) return false
     const diffDays = Math.ceil((dataPagamento - dataCompra) / (1000 * 60 * 60 * 24))
-    return diffDays <= 45
+    return diffDays <= maxDays
   } catch {
     return true
   }
@@ -117,12 +109,16 @@ function createGreen(sistema: SystemRecord, fatura: CardRecord): ReconciliationR
   }
 }
 
-function createYellow(sistema: SystemRecord, fatura: CardRecord): ReconciliationResult {
+function createYellow(
+  sistema: SystemRecord,
+  fatura: CardRecord,
+  motivo: string,
+): ReconciliationResult {
   return {
     id: `YELLOW-${sistema.id}-${fatura.id}`,
     data: sistema.data || fatura.data,
     lancamentoDiario: sistema.lancamentoDiario,
-    parceiro: sistema.parceiro,
+    parceiro: `${sistema.parceiro} (${motivo})`,
     estabelecimento: fatura.estabelecimento,
     categoria: fatura.categoria || sistema.categoria,
     debito: sistema.debito,
@@ -175,47 +171,70 @@ export function reconcileData(
   const results: ReconciliationResult[] = []
   const matchedCardIds = new Set<string>()
 
+  // Para cada registro do sistema
   for (const sys of systemRecords) {
-    // 1ª Tentativa (Prioridade Máxima): Mesmo estabelecimento + Mesma Janela de Datas + Valor Idêntico (Vira VERDE)
+    // REGRA 1: Match Perfeito (Mesmo estabelecimento + Mesmo valor + Janela lógica) -> VERDE
     let cardMatch = cardRecords.find(
       (card) =>
         !matchedCardIds.has(card.id) &&
         isSameEstablishment(sys.parceiro, card.estabelecimento) &&
         sameValue(sys.credito, card.valor) &&
-        isPaymentWindowValid(card.data, sys.data),
+        isPaymentWindowValid(card.data, sys.data, 45),
     )
 
-    // 2ª Tentativa: Mesmo estabelecimento + Mesma Janela de Datas (Mesmo que com valor divergente, vira AMARELO)
+    // REGRA 2: Mesmo Estabelecimento, mas com Valor Diferente -> AMARELO (Divergência de Preço)
     if (!cardMatch) {
       cardMatch = cardRecords.find(
         (card) =>
           !matchedCardIds.has(card.id) &&
           isSameEstablishment(sys.parceiro, card.estabelecimento) &&
-          isPaymentWindowValid(card.data, sys.data),
+          isPaymentWindowValid(card.data, sys.data, 45),
       )
+      if (cardMatch) {
+        matchedCardIds.add(cardMatch.id)
+        results.push(createYellow(sys, cardMatch, 'Valor Divergente'))
+        continue
+      }
     }
 
-    // 3ª Tentativa (Fallback de atraso): Apenas mesmo estabelecimento em qualquer data
+    // REGRA 3: Valores Iguais + Janela de tempo curta (máx 10 dias) + O valor deve ser ÚNICO
+    // Se os nomes não batem de jeito nenhum, só juntamos se esse valor não se repetir na fatura nem no sistema
     if (!cardMatch) {
-      cardMatch = cardRecords.find(
-        (card) =>
-          !matchedCardIds.has(card.id) && isSameEstablishment(sys.parceiro, card.estabelecimento),
+      const valorProcurado = sys.credito
+
+      // Conta quantas vezes esse valor aparece nas faturas restantes disponíveis
+      const faturasComMesmoValor = cardRecords.filter(
+        (c) => !matchedCardIds.has(c.id) && sameValue(valorProcurado, c.valor),
       )
+
+      // Conta quantas vezes esse valor aparece no sistema
+      const sistemasComMesmoValor = systemRecords.filter((s) =>
+        sameValue(valorProcurado, s.credito),
+      )
+
+      // Só concilia se for estritamente um registro único de cada lado para este valor
+      if (faturasComMesmoValor.length === 1 && sistemasComMesmoValor.length === 1) {
+        const candidata = faturasComMesmoValor[0]
+
+        if (isPaymentWindowValid(candidata.data, sys.data, 10)) {
+          cardMatch = candidata
+          matchedCardIds.add(cardMatch.id)
+          results.push(createYellow(sys, cardMatch, 'Nomes Incompatíveis'))
+          continue
+        }
+      }
     }
 
+    // Se passou por todas as regras e não achou par seguro
     if (cardMatch) {
       matchedCardIds.add(cardMatch.id)
-      if (sameValue(sys.credito, cardMatch.valor)) {
-        results.push(createGreen(sys, cardMatch))
-      } else {
-        results.push(createYellow(sys, cardMatch))
-      }
+      results.push(createGreen(sys, cardMatch))
     } else {
       results.push(createRedSystem(sys))
     }
   }
 
-  // Registros que ficaram órfãos na fatura vão para Vermelho
+  // O que sobrou na fatura sem nenhum vínculo seguro vira Vermelho
   for (const card of cardRecords) {
     if (!matchedCardIds.has(card.id)) {
       results.push(createRedCard(card))
