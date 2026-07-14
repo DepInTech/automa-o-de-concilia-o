@@ -63,10 +63,6 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
   return common.length > 0
 }
 
-function isWithinGreenTolerance(credito: number, valor: number): boolean {
-  return Math.abs(credito - valor) <= 2
-}
-
 function calcDifference(credito: number, valor: number): number {
   return Number((valor - credito).toFixed(2))
 }
