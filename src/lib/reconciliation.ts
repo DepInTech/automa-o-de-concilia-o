@@ -6,12 +6,10 @@ function normalize(text: string): string {
     .trim()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[*]/g, ' ')
     .replace(/\s+/g, ' ')
 }
 
-/**
- * Validação de nomes de estabelecimentos.
- */
 function isSameEstablishment(parceiro: string, estabelecimento: string): boolean {
   const p = normalize(parceiro)
   const e = normalize(estabelecimento)
@@ -64,7 +62,6 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
   })
 }
 
-// Tolerância estrita de R$ 2,00 para o VERDE (apenas para Uber e taxas de centavos)
 function isWithinGreenTolerance(credito: number, valor: number): boolean {
   return Math.abs(credito - valor) <= 2.0
 }
@@ -79,8 +76,8 @@ export function reconcileData(
 ): ReconciliationResult[] {
   const results: ReconciliationResult[] = []
   const matchedCardIds = new Set<string>()
+  const matchedSysIds = new Set<string>()
 
-  // PASSO 1: Match de Nome + Valor Praticamente Igual (Tolerância máx de R$ 2,00) -> VERDE
   for (const sys of systemRecords) {
     const cardMatch = cardRecords.find(
       (card) =>
@@ -91,6 +88,7 @@ export function reconcileData(
 
     if (cardMatch) {
       matchedCardIds.add(cardMatch.id)
+      matchedSysIds.add(sys.id)
       results.push({
         id: `GREEN-${sys.id}-${cardMatch.id}`,
         data: sys.data || cardMatch.data,
@@ -108,13 +106,8 @@ export function reconcileData(
     }
   }
 
-  // PASSO 2: Match de Nome + Qualquer outro valor diferente -> AMARELO
-  // (Qualquer diferença maior que R$ 2,00 cai obrigatoriamente aqui!)
   for (const sys of systemRecords) {
-    const jáConciliado = results.some(
-      (r) => r.id.includes(`-${sys.id}-`) || r.id.includes(`-${sys.id}`),
-    )
-    if (jáConciliado) continue
+    if (matchedSysIds.has(sys.id)) continue
 
     const cardMatch = cardRecords.find(
       (card) =>
@@ -123,6 +116,7 @@ export function reconcileData(
 
     if (cardMatch) {
       matchedCardIds.add(cardMatch.id)
+      matchedSysIds.add(sys.id)
       results.push({
         id: `YELLOW-${sys.id}-${cardMatch.id}`,
         data: sys.data || cardMatch.data,
@@ -140,12 +134,8 @@ export function reconcileData(
     }
   }
 
-  // PASSO 3: Somente no Sistema -> VERMELHO
   for (const sys of systemRecords) {
-    const jáConciliado = results.some(
-      (r) => r.id.includes(`-${sys.id}-`) || r.id.includes(`-${sys.id}`),
-    )
-    if (jáConciliado) continue
+    if (matchedSysIds.has(sys.id)) continue
 
     results.push({
       id: `RED-SYS-${sys.id}`,
@@ -163,7 +153,6 @@ export function reconcileData(
     })
   }
 
-  // PASSO 4: Somente na Fatura -> VERMELHO
   for (const card of cardRecords) {
     if (!matchedCardIds.has(card.id)) {
       results.push({
