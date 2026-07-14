@@ -16,8 +16,6 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
 
   if (!p || !e) return false
 
-  if (p === e) return true
-
   const ignoreWords = new Set([
     'ltda',
     'servicos',
@@ -63,6 +61,11 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
   return common.length > 0
 }
 
+// Margem de até R$ 2,00 para tolerar variações de centavos (ex: Uber) no status VERDE
+function isWithinGreenTolerance(a: number, b: number): boolean {
+  return Math.abs(a - b) <= 2.0
+}
+
 function calcDifference(credito: number, valor: number): number {
   return Number((valor - credito).toFixed(2))
 }
@@ -72,11 +75,13 @@ export function reconcileData(
   cardRecords: CardRecord[],
 ): ReconciliationResult[] {
   const results: ReconciliationResult[] = []
-
   const matchedSystem = new Set<string>()
   const matchedCard = new Set<string>()
 
+  // 1. Varre os registros do sistema
   for (const sys of systemRecords) {
+    if (matchedSystem.has(sys.id)) continue
+
     const candidates = cardRecords.filter(
       (card) =>
         !matchedCard.has(card.id) && isSameEstablishment(sys.parceiro, card.estabelecimento),
@@ -86,38 +91,63 @@ export function reconcileData(
       continue
     }
 
-    let cardMatch = candidates.find((card) => isWithinGreenTolerance(sys.credito, card.valor))
+    // Busca primeiro correspondência idêntica (ou com tolerância de até R$ 2,00 do Uber) -> VERDE
+    const exactMatch = candidates.find((card) => isWithinGreenTolerance(sys.credito, card.valor))
 
-    let status: 'GREEN' | 'YELLOW'
+    if (exactMatch) {
+      matchedSystem.add(sys.id)
+      matchedCard.add(exactMatch.id)
 
-    if (cardMatch) {
-      status = 'GREEN'
-    } else {
-      candidates.sort((a, b) => Math.abs(sys.credito - a.valor) - Math.abs(sys.credito - b.valor))
+      results.push({
+        id: `GREEN-${sys.id}-${exactMatch.id}`,
+        data: sys.data,
+        lancamentoDiario: sys.lancamentoDiario,
+        parceiro: sys.parceiro,
+        estabelecimento: exactMatch.estabelecimento,
+        categoria: exactMatch.categoria || sys.categoria,
+        debito: sys.debito,
+        credito: sys.credito,
+        valorFatura: exactMatch.valor,
+        diferenca: calcDifference(sys.credito, exactMatch.valor),
+        status: 'GREEN',
+        origem: 'AMBOS',
+      })
+      continue
+    }
 
-      cardMatch = candidates[0]
-      status = 'YELLOW'
+    // Se o nome bate mas os valores são diferentes (como a Valvolândia de R$ 99,80 vs R$ 291,88) -> AMARELO
+    // Escolhe o candidato do mesmo estabelecimento com a menor diferença de valor para ser preciso.
+    let yellowMatch = candidates[0]
+    let menorDiferenca = Math.abs(sys.credito - yellowMatch.valor)
+
+    for (const candidate of candidates) {
+      const diferenca = Math.abs(sys.credito - candidate.valor)
+      if (diferenca < menorDiferenca) {
+        menorDiferenca = diferenca
+        yellowMatch = candidate
+      }
     }
 
     matchedSystem.add(sys.id)
-    matchedCard.add(cardMatch.id)
+    matchedCard.add(yellowMatch.id)
 
     results.push({
-      id: `${status}-${sys.id}-${cardMatch.id}`,
-      data: sys.data || cardMatch.data,
+      id: `YELLOW-${sys.id}-${yellowMatch.id}`,
+      data: sys.data,
       lancamentoDiario: sys.lancamentoDiario,
       parceiro: sys.parceiro,
-      estabelecimento: cardMatch.estabelecimento,
-      categoria: cardMatch.categoria || sys.categoria,
+      estabelecimento: yellowMatch.estabelecimento,
+      categoria: yellowMatch.categoria || sys.categoria,
       debito: sys.debito,
-      credito: sys.credito,
-      valorFatura: cardMatch.valor,
-      diferenca: calcDifference(sys.credito, cardMatch.valor),
-      status,
+      credito: sys.credito, // R$ 99,80 do Sistema
+      valorFatura: yellowMatch.valor, // R$ 291,88 da Fatura
+      diferenca: calcDifference(sys.credito, yellowMatch.valor), // Fará a diferença exata na tela
+      status: 'YELLOW',
       origem: 'AMBOS',
     })
   }
 
+  // 2. Lançamentos que ficaram apenas no Sistema -> RED
   for (const sys of systemRecords) {
     if (matchedSystem.has(sys.id)) continue
 
@@ -137,6 +167,7 @@ export function reconcileData(
     })
   }
 
+  // 3. Lançamentos que ficaram apenas na Fatura -> RED
   for (const card of cardRecords) {
     if (matchedCard.has(card.id)) continue
 
