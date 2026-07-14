@@ -69,19 +69,25 @@ function isWithinGreenTolerance(a: number, b: number): boolean {
 function calcDifference(credito: number, valor: number): number {
   return Number((valor - credito).toFixed(2))
 }
+// ---- NOVO BLOCO DE TESTE DETALHADO ----
+  const todosSistema = systemRecords
+    .filter(s => normalize(s.parceiro).includes('valvolandia'))
+    .map(s => s.credito);
 
-export function reconcileData(
-  systemRecords: SystemRecord[],
-  cardRecords: CardRecord[],
-): ReconciliationResult[] {
-  // ---- BLOCO DE TESTE (PODE APAGAR DEPOIS) ----
-  const vSistema = systemRecords.find((s) => normalize(s.parceiro).includes('valvolandia'))?.credito
-  const vCartao = cardRecords.find((c) =>
-    normalize(c.estabelecimento).includes('valvolandia'),
-  )?.valor
-  alert(`TESTE DE DADOS:\nSistema leu: R$ ${vSistema}\nCartão leu: R$ ${vCartao}`)
-  // ---------------------------------------------
+  const todosCartao = cardRecords
+    .filter(c => normalize(c.estabelecimento).includes('valvolandia'))
+    .map(c => c.valor);
 
+  alert(
+    `BUSCA COMPLETA POR VALVOLANDIA:\n\n` +
+    `No Sistema encontrei estes valores: [${todosSistema.join(', ')}]\n` +
+    `Na Fatura de Cartão encontrei estes valores: [${todosCartao.join(', ')}]`
+  );
+  // ----------------------------------------
+
+  const results: ReconciliationResult[] = []
+  const matchedSystem = new Set<string>()
+  // ... resto do código igual ao anterior
   const results: ReconciliationResult[] = []
   const matchedSystem = new Set<string>()
   // ... resto do código igual ao anterior
