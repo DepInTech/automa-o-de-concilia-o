@@ -16,16 +16,57 @@ function parseBrazilianDate(dateStr: string): number {
   return isNaN(parsed) ? 0 : parsed
 }
 
+/**
+ * Função utilitária para extrair e normalizar valores monetários de qualquer formato (Texto ou Número)
+ */
+function safeParseValue(val: any): number {
+  if (typeof val === 'number') return val
+  if (!val) return 0
+
+  // Remove R$, espaços e pontos de milhar, ajustando a vírgula para ponto decimal
+  const cleanStr = String(val)
+    .replace(/[^\d,.-]/g, '')
+    .trim()
+  if (cleanStr.includes(',') && cleanStr.includes('.')) {
+    return parseFloat(cleanStr.replace(/\./g, '').replace(',', '.'))
+  } else if (cleanStr.includes(',')) {
+    return parseFloat(cleanStr.replace(',', '.'))
+  }
+  return parseFloat(cleanStr) || 0
+}
+
+/**
+ * Retorna o valor de crédito do registro do Sistema de forma flexível (suporta "total" ou "credito")
+ */
+function getSystemValue(sys: any, bank: BankType): number {
+  if (bank === 'itau') {
+    // No Itaú, o valor do sistema está na coluna "Total" (que pode vir como .total ou .credito após o upload)
+    return safeParseValue(sys.total ?? sys.credito ?? sys.Total)
+  }
+  return safeParseValue(sys.credito ?? sys.total ?? sys.Credito)
+}
+
+/**
+ * Retorna o valor da fatura do Cartão de forma flexível (suporta "valor" ou "Valor (R$)")
+ */
+function getCardValue(card: any): number {
+  // Procura por qualquer variação de propriedade que contenha "valor"
+  const keys = Object.keys(card || {})
+  const valueKey = keys.find((k) => k.toLowerCase().includes('valor'))
+  if (valueKey) {
+    return safeParseValue(card[valueKey])
+  }
+  return safeParseValue(card.valor ?? card.total)
+}
+
 function sortSystemRecordsByValueDesc(records: SystemRecord[], bank: BankType): SystemRecord[] {
   return [...records].sort((a, b) => {
-    const valA = bank === 'itau' ? (a.total ?? a.credito) : a.credito
-    const valB = bank === 'itau' ? (b.total ?? b.credito) : b.credito
-    return valB - valA
+    return getSystemValue(b, bank) - getSystemValue(a, bank)
   })
 }
 
 function sortCardRecordsByValueDesc(records: CardRecord[]): CardRecord[] {
-  return [...records].sort((a, b) => b.valor - a.valor)
+  return [...records].sort((a, b) => getCardValue(b) - getCardValue(a))
 }
 
 function normalize(text: string): string {
@@ -97,7 +138,7 @@ export function reconcileData(
   cardRecords: CardRecord[],
   bank: BankType = 'itau',
 ): ReconciliationResult[] {
-  // Ordena as planilhas inteiras de forma decrescente antes de qualquer outra ação
+  // 1. Aplica a ordenação decrescente completa por valor/total antes de iniciar o cruzamento
   const sortedSystemRecords = sortSystemRecordsByValueDesc(systemRecords, bank)
   const sortedCardRecords = sortCardRecordsByValueDesc(cardRecords)
 
@@ -108,21 +149,25 @@ export function reconcileData(
   for (const sys of sortedSystemRecords) {
     if (matchedSystem.has(sys.id)) continue
 
-    // CORREÇÃO: Filtrando a partir do array devidamente ordenado (sortedCardRecords)
+    const sysVal = getSystemValue(sys, bank)
+
+    // Filtra os candidatos usando a lista devidamente ordenada de cartões
     const candidates = sortedCardRecords.filter(
       (card) =>
         !matchedCard.has(card.id) && isSameEstablishment(sys.parceiro, card.estabelecimento),
     )
     if (candidates.length === 0) continue
 
+    // Busca exata (Verde) utilizando o array ordenado por valor
     const exactMatch = sortedCardRecords.find(
       (card) =>
         !matchedCard.has(card.id) &&
         isSameEstablishment(sys.parceiro, card.estabelecimento) &&
-        isExactMatch(sys.credito, card.valor),
+        isExactMatch(sysVal, getCardValue(card)),
     )
 
     if (exactMatch) {
+      const matchVal = getCardValue(exactMatch)
       matchedSystem.add(sys.id)
       matchedCard.add(exactMatch.id)
       results.push({
@@ -135,25 +180,27 @@ export function reconcileData(
         estabelecimento: exactMatch.estabelecimento,
         categoria: exactMatch.categoria || sys.categoria || '',
         debito: sys.debito,
-        credito: sys.credito,
-        valorFatura: exactMatch.valor,
-        diferenca: calcDifference(sys.credito, exactMatch.valor),
+        credito: sysVal,
+        valorFatura: matchVal,
+        diferenca: calcDifference(sysVal, matchVal),
         status: 'GREEN',
         origem: 'AMBOS',
       })
       continue
     }
 
-    // Como candidates agora vem de sortedCardRecords, yellowMatch herda a ordem decrescente correta
+    // Se não encontrou exato, pega o de menor diferença (Amarelo) mantendo a prioridade da ordenação
     let yellowMatch = candidates[0]
-    let minDiff = Math.abs(sys.credito - yellowMatch.valor)
+    let minDiff = Math.abs(sysVal - getCardValue(yellowMatch))
     for (const c of candidates) {
-      const d = Math.abs(sys.credito - c.valor)
+      const d = Math.abs(sysVal - getCardValue(c))
       if (d < minDiff) {
         minDiff = d
         yellowMatch = c
       }
     }
+
+    const yellowVal = getCardValue(yellowMatch)
     matchedSystem.add(sys.id)
     matchedCard.add(yellowMatch.id)
     results.push({
@@ -166,16 +213,18 @@ export function reconcileData(
       estabelecimento: yellowMatch.estabelecimento,
       categoria: yellowMatch.categoria || sys.categoria || '',
       debito: sys.debito,
-      credito: sys.credito,
-      valorFatura: yellowMatch.valor,
-      diferenca: calcDifference(sys.credito, yellowMatch.valor),
+      credito: sysVal,
+      valorFatura: yellowVal,
+      diferenca: calcDifference(sysVal, yellowVal),
       status: 'YELLOW',
       origem: 'AMBOS',
     })
   }
 
+  // Registros que ficaram só no sistema
   for (const sys of sortedSystemRecords) {
     if (matchedSystem.has(sys.id)) continue
+    const sysVal = getSystemValue(sys, bank)
     results.push({
       id: `RED-SYS-${sys.id}`,
       data: sys.data,
@@ -186,7 +235,7 @@ export function reconcileData(
       estabelecimento: '-',
       categoria: sys.categoria || '',
       debito: sys.debito,
-      credito: sys.credito,
+      credito: sysVal,
       valorFatura: null,
       diferenca: null,
       status: 'RED',
@@ -194,8 +243,10 @@ export function reconcileData(
     })
   }
 
+  // Registros que ficaram só na fatura
   for (const card of sortedCardRecords) {
     if (matchedCard.has(card.id)) continue
+    const cardVal = getCardValue(card)
     results.push({
       id: `RED-CARD-${card.id}`,
       data: card.data,
@@ -204,7 +255,7 @@ export function reconcileData(
       categoria: card.categoria || '',
       debito: null,
       credito: null,
-      valorFatura: card.valor,
+      valorFatura: cardVal,
       diferenca: null,
       status: 'RED',
       origem: 'FATURA',
