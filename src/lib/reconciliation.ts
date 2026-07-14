@@ -70,65 +70,94 @@ function calcDifference(credito: number, valor: number): number {
 }
 
 /**
- * Mapeador Inteligente e Dinâmico de Colunas.
- * Garante compatibilidade automática com Itaú, cartões antigos, CSVs ou planilhas variadas.
+ * Converte qualquer valor em texto/número para um decimal válido
+ */
+function parseCurrency(val: any): number {
+  if (typeof val === 'number') return val
+  if (!val) return 0
+
+  const cleanStr = String(val)
+    .replace(/[^\d,.-]/g, '')
+    .trim()
+  if (cleanStr.includes(',') && cleanStr.includes('.')) {
+    return parseFloat(cleanStr.replace(/\./g, '').replace(',', '.'))
+  } else if (cleanStr.includes(',')) {
+    return parseFloat(cleanStr.replace(',', '.'))
+  }
+  return parseFloat(cleanStr) || 0
+}
+
+/**
+ * Normaliza os dados vindos do sistema (Odoo, Diário, etc.)
+ */
+function getSystemDetails(sys: any) {
+  const keys = Object.keys(sys || {})
+
+  const parceiroKey = keys.find((k) => {
+    const n = k.toLowerCase().trim()
+    return n === 'parceiro' || n === 'nome' || n === 'fornecedor'
+  })
+
+  const totalKey = keys.find((k) => {
+    const n = k.toLowerCase().trim()
+    return n === 'total' || n === 'credito' || n === 'valor'
+  })
+
+  const numKey = keys.find((k) => {
+    const n = k.toLowerCase().trim()
+    return (
+      n === 'numero' ||
+      n === 'número' ||
+      n === 'lancamentodiario' ||
+      n === 'referencia' ||
+      n === 'referência'
+    )
+  })
+
+  const dataKey = keys.find((k) => k.toLowerCase().trim() === 'data')
+
+  return {
+    id: sys.id || String(sys[numKey || ''] || Math.random()),
+    data: dataKey ? String(sys[dataKey] || '') : '',
+    lancamentoDiario: numKey ? String(sys[numKey] || '') : '',
+    parceiro: parceiroKey ? String(sys[parceiroKey] || '') : '',
+    categoria: sys.categoria || '',
+    debito: sys.debito || null,
+    credito: totalKey ? parseCurrency(sys[totalKey]) : 0,
+  }
+}
+
+/**
+ * Normaliza os dados vindos de QUALQUER Cartão (Santander, Itaú, etc.)
  */
 function getCardDetails(card: any) {
   const keys = Object.keys(card || {})
 
-  // 1. Busca dinâmica pelo campo do Estabelecimento
   const estKey = keys.find((k) => {
     const n = k.toLowerCase().trim()
     return (
       n === 'estabelecimento' ||
       n === 'parceiro' ||
       n === 'local' ||
-      n === 'descrição' ||
-      n === 'descricao'
+      n === 'descricao' ||
+      n === 'descrição'
     )
   })
-  const estabelecimento = estKey ? String(card[estKey] || '') : ''
 
-  // 2. Busca dinâmica pelo campo do Valor (aceita "valor", "valor (r$)", "total", etc.)
   const valKey = keys.find((k) => {
     const n = k.toLowerCase().trim()
-    return n === 'valor' || n.includes('valor') || n === 'total' || n === 'credito'
+    return n === 'valor' || n.includes('valor') || n === 'total'
   })
 
-  let valor = 0
-  if (valKey) {
-    const rawVal = card[valKey]
-    if (typeof rawVal === 'number') {
-      valor = rawVal
-    } else if (rawVal) {
-      // Limpa formatações de moeda como R$, pontos de milhar e substitui vírgula por ponto decimal
-      const cleanStr = String(rawVal)
-        .replace(/[^\d,.-]/g, '')
-        .trim()
-      if (cleanStr.includes(',') && cleanStr.includes('.')) {
-        valor = parseFloat(cleanStr.replace(/\./g, '').replace(',', '.'))
-      } else if (cleanStr.includes(',')) {
-        valor = parseFloat(cleanStr.replace(',', '.'))
-      } else {
-        valor = parseFloat(cleanStr)
-      }
-    }
-  }
-
-  // 3. Busca dinâmica pela Data
   const dataKey = keys.find((k) => k.toLowerCase().trim() === 'data')
-  const data = dataKey ? String(card[dataKey] || '') : ''
-
-  // 4. Busca dinâmica pela Categoria
   const catKey = keys.find((k) => k.toLowerCase().trim() === 'categoria')
-  const categoria = catKey ? String(card[catKey] || '') : ''
 
   return {
-    id: card.id || `card-${estabelecimento}-${valor}-${data}`,
-    estabelecimento,
-    valor: isNaN(valor) ? 0 : valor,
-    data,
-    categoria,
+    id: card.id || `card-${card[estKey || '']}-${card[valKey || '']}-${card[dataKey || '']}`,
+    estabelecimento: estKey ? String(card[estKey] || '') : '',
+    valor: valKey ? parseCurrency(card[valKey]) : 0,
+    data: dataKey ? String(card[dataKey] || '') : '',
+    categoria: catKey ? String(card[catKey] || '') : '',
   }
 }
 
@@ -140,11 +169,12 @@ export function reconcileData(
   const matchedSystem = new Set<string>()
   const matchedCard = new Set<string>()
 
-  // Normaliza e padroniza todos os cartões de forma robusta e dinâmica
+  // Normaliza de forma inteligente as duas listas recebidas
+  const normalizedSystem = (systemRecords || []).map((sys) => getSystemDetails(sys))
   const normalizedCards = (cardRecords || []).map((card) => getCardDetails(card))
 
   // 1. Processa matches com o Sistema
-  for (const sys of systemRecords) {
+  for (const sys of normalizedSystem) {
     if (matchedSystem.has(sys.id)) continue
 
     const candidates = normalizedCards.filter(
@@ -156,7 +186,7 @@ export function reconcileData(
       continue
     }
 
-    // Match de Nome + Valor Igual/Uber -> VERDE
+    // Match de Nome + Valor com tolerância de R$ 2,00 (Verde)
     const exactMatch = candidates.find((card) => isWithinGreenTolerance(sys.credito, card.valor))
 
     if (exactMatch) {
@@ -180,7 +210,7 @@ export function reconcileData(
       continue
     }
 
-    // Match de Nome + Valor Divergente -> AMARELO
+    // Match de Nome + Valores divergentes (Amarelo)
     let yellowMatch = candidates[0]
     let menorDiferenca = Math.abs(sys.credito - yellowMatch.valor)
 
@@ -212,7 +242,7 @@ export function reconcileData(
   }
 
   // 2. Apenas no Sistema -> RED
-  for (const sys of systemRecords) {
+  for (const sys of normalizedSystem) {
     if (matchedSystem.has(sys.id)) continue
 
     results.push({
