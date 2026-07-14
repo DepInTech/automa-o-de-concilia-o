@@ -70,40 +70,63 @@ function calcDifference(credito: number, valor: number): number {
 }
 
 /**
- * Função auxiliar para ler as propriedades do cartão de forma segura,
- * aceitando tanto o formato padrão quanto o do Itaú.
+ * Mapeador Inteligente e Dinâmico de Colunas.
+ * Garante compatibilidade automática com Itaú, cartões antigos, CSVs ou planilhas variadas.
  */
 function getCardDetails(card: any) {
-  // Pega o nome do estabelecimento de 'estabelecimento' ou de 'Estabelecimento' (Itaú)
-  const estabelecimento = card.estabelecimento || card.Estabelecimento || ''
+  const keys = Object.keys(card || {})
 
-  // Pega o valor de 'valor' ou de 'Valor (R$)' (Itaú) ou 'Valor'
+  // 1. Busca dinâmica pelo campo do Estabelecimento
+  const estKey = keys.find((k) => {
+    const n = k.toLowerCase().trim()
+    return (
+      n === 'estabelecimento' ||
+      n === 'parceiro' ||
+      n === 'local' ||
+      n === 'descrição' ||
+      n === 'descricao'
+    )
+  })
+  const estabelecimento = estKey ? String(card[estKey] || '') : ''
+
+  // 2. Busca dinâmica pelo campo do Valor (aceita "valor", "valor (r$)", "total", etc.)
+  const valKey = keys.find((k) => {
+    const n = k.toLowerCase().trim()
+    return n === 'valor' || n.includes('valor') || n === 'total' || n === 'credito'
+  })
+
   let valor = 0
-  if (typeof card.valor === 'number') {
-    valor = card.valor
-  } else if (typeof card['Valor (R$)'] === 'number') {
-    valor = card['Valor (R$)']
-  } else if (card['Valor (R$)']) {
-    valor = parseFloat(
-      String(card['Valor (R$)'])
-        .replace(/[^\d,-]/g, '')
-        .replace(',', '.'),
-    )
-  } else if (card.valor) {
-    valor = parseFloat(
-      String(card.valor)
-        .replace(/[^\d,-]/g, '')
-        .replace(',', '.'),
-    )
+  if (valKey) {
+    const rawVal = card[valKey]
+    if (typeof rawVal === 'number') {
+      valor = rawVal
+    } else if (rawVal) {
+      // Limpa formatações de moeda como R$, pontos de milhar e substitui vírgula por ponto decimal
+      const cleanStr = String(rawVal)
+        .replace(/[^\d,.-]/g, '')
+        .trim()
+      if (cleanStr.includes(',') && cleanStr.includes('.')) {
+        valor = parseFloat(cleanStr.replace(/\./g, '').replace(',', '.'))
+      } else if (cleanStr.includes(',')) {
+        valor = parseFloat(cleanStr.replace(',', '.'))
+      } else {
+        valor = parseFloat(cleanStr)
+      }
+    }
   }
 
-  const data = card.data || card.Data || ''
-  const categoria = card.categoria || card.Categoria || ''
+  // 3. Busca dinâmica pela Data
+  const dataKey = keys.find((k) => k.toLowerCase().trim() === 'data')
+  const data = dataKey ? String(card[dataKey] || '') : ''
+
+  // 4. Busca dinâmica pela Categoria
+  const catKey = keys.find((k) => k.toLowerCase().trim() === 'categoria')
+  const categoria = catKey ? String(card[catKey] || '') : ''
 
   return {
     id: card.id || `card-${estabelecimento}-${valor}-${data}`,
     estabelecimento,
-    valor,
+    valor: isNaN(valor) ? 0 : valor,
     data,
     categoria,
   }
@@ -117,7 +140,7 @@ export function reconcileData(
   const matchedSystem = new Set<string>()
   const matchedCard = new Set<string>()
 
-  // Mapeia e normaliza os registros de cartão de forma segura
+  // Normaliza e padroniza todos os cartões de forma robusta e dinâmica
   const normalizedCards = (cardRecords || []).map((card) => getCardDetails(card))
 
   // 1. Processa matches com o Sistema
