@@ -74,9 +74,17 @@ export function reconcileData(
   systemRecords: SystemRecord[],
   cardRecords: CardRecord[],
 ): ReconciliationResult[] {
+  // ---- BLOCO DE TESTE (PODE APAGAR DEPOIS) ----
+  const vSistema = systemRecords.find((s) => normalize(s.parceiro).includes('valvolandia'))?.credito
+  const vCartao = cardRecords.find((c) =>
+    normalize(c.estabelecimento).includes('valvolandia'),
+  )?.valor
+  alert(`TESTE DE DADOS:\nSistema leu: R$ ${vSistema}\nCartão leu: R$ ${vCartao}`)
+  // ---------------------------------------------
+
   const results: ReconciliationResult[] = []
   const matchedSystem = new Set<string>()
-  const matchedCard = new Set<string>()
+  // ... resto do código igual ao anterior
 
   // 1. Varre os registros do sistema
   for (const sys of systemRecords) {
