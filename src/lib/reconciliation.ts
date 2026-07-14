@@ -1,5 +1,24 @@
 import type { SystemRecord, CardRecord, ReconciliationResult } from './types'
 
+function parseBrazilianDate(dateStr: string): number {
+  if (!dateStr) return 0
+  const parts = dateStr.trim().split(/[/\-.]/)
+  if (parts.length >= 3) {
+    const d = parseInt(parts[0], 10)
+    const m = parseInt(parts[1], 10)
+    const y = parseInt(parts[2], 10)
+    if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+      return new Date(y, m - 1, d).getTime()
+    }
+  }
+  const parsed = Date.parse(dateStr)
+  return isNaN(parsed) ? 0 : parsed
+}
+
+function sortRecordsByDateDesc<T extends { data: string }>(records: T[]): T[] {
+  return [...records].sort((a, b) => parseBrazilianDate(b.data) - parseBrazilianDate(a.data))
+}
+
 function normalize(text: string): string {
   return (text || '')
     .toLowerCase()
@@ -68,11 +87,14 @@ export function reconcileData(
   systemRecords: SystemRecord[],
   cardRecords: CardRecord[],
 ): ReconciliationResult[] {
+  const sortedSystemRecords = sortRecordsByDateDesc(systemRecords)
+  const sortedCardRecords = sortRecordsByDateDesc(cardRecords)
+
   const results: ReconciliationResult[] = []
   const matchedSystem = new Set<string>()
   const matchedCard = new Set<string>()
 
-  for (const sys of systemRecords) {
+  for (const sys of sortedSystemRecords) {
     if (matchedSystem.has(sys.id)) continue
     const candidates = cardRecords.filter(
       (card) =>
@@ -80,7 +102,13 @@ export function reconcileData(
     )
     if (candidates.length === 0) continue
 
-    const exactMatch = candidates.find((card) => isExactMatch(sys.credito, card.valor))
+    const exactMatch = sortedCardRecords.find(
+      (card) =>
+        !matchedCard.has(card.id) &&
+        isSameEstablishment(sys.parceiro, card.estabelecimento) &&
+        isExactMatch(sys.credito, card.valor),
+    )
+
     if (exactMatch) {
       matchedSystem.add(sys.id)
       matchedCard.add(exactMatch.id)
@@ -132,7 +160,7 @@ export function reconcileData(
     })
   }
 
-  for (const sys of systemRecords) {
+  for (const sys of sortedSystemRecords) {
     if (matchedSystem.has(sys.id)) continue
     results.push({
       id: `RED-SYS-${sys.id}`,
@@ -152,7 +180,7 @@ export function reconcileData(
     })
   }
 
-  for (const card of cardRecords) {
+  for (const card of sortedCardRecords) {
     if (matchedCard.has(card.id)) continue
     results.push({
       id: `RED-CARD-${card.id}`,
@@ -169,5 +197,5 @@ export function reconcileData(
     })
   }
 
-  return results
+  return results.sort((a, b) => parseBrazilianDate(b.data) - parseBrazilianDate(a.data))
 }
