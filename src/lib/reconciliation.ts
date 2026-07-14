@@ -69,20 +69,25 @@ function isWithinGreenTolerance(a: number, b: number): boolean {
 function calcDifference(credito: number, valor: number): number {
   return Number((valor - credito).toFixed(2))
 }
-// ---- NOVO BLOCO DE TESTE DETALHADO ----
+
+export function reconcileData(
+  systemRecords: SystemRecord[],
+  cardRecords: CardRecord[],
+): ReconciliationResult[] {
+  // ---- NOVO BLOCO DE TESTE DETALHADO ----
   const todosSistema = systemRecords
-    .filter(s => normalize(s.parceiro).includes('valvolandia'))
-    .map(s => s.credito);
+    .filter((s) => normalize(s.parceiro).includes('valvolandia'))
+    .map((s) => s.credito)
 
   const todosCartao = cardRecords
-    .filter(c => normalize(c.estabelecimento).includes('valvolandia'))
-    .map(c => c.valor);
+    .filter((c) => normalize(c.estabelecimento).includes('valvolandia'))
+    .map((c) => c.valor)
 
   alert(
     `BUSCA COMPLETA POR VALVOLANDIA:\n\n` +
-    `No Sistema encontrei estes valores: [${todosSistema.join(', ')}]\n` +
-    `Na Fatura de Cartão encontrei estes valores: [${todosCartao.join(', ')}]`
-  );
+      `No Sistema encontrei estes valores: [${todosSistema.join(', ')}]\n` +
+      `Na Fatura de Cartão encontrei estes valores: [${todosCartao.join(', ')}]`,
+  )
   // ----------------------------------------
 
   const results: ReconciliationResult[] = []
