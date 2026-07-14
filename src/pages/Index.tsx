@@ -1,225 +1,280 @@
 import { useState } from 'react'
-import { ArrowRight, Loader2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { useToast } from '@/hooks/use-toast'
-import { reconcileData } from '@/lib/reconciliation'
-import { MOCK_SYSTEM_RECORDS, MOCK_CARD_RECORDS } from '@/lib/mock-data'
-import { mapSystemRecords, mapCardRecords } from '@/lib/csv-parser'
-import { parseFile } from '@/lib/file-parser'
-import { generateSystemCSV, generateCardCSV, downloadCSV } from '@/lib/sample-csv'
-import { bankThemes } from '@/lib/bank-config'
-import { SummaryCards } from '@/components/summary-cards'
-import { ResultsTable } from '@/components/results-table'
+import { BankSelector } from '@/components/bank-selector'
 import { UploadZone } from '@/components/upload-zone'
 import { ImportStats } from '@/components/import-stats'
-import { BankSelector } from '@/components/bank-selector'
-import type { ReconciliationResult, SystemRecord, CardRecord, BankType } from '@/lib/types'
+import { SummaryCards } from '@/components/summary-cards'
+import { ResultsTable } from '@/components/results-table'
+import { Button } from '@/components/ui/button'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  Database,
+  FileSpreadsheet,
+  ArrowRight,
+  RefreshCw,
+  Wand2,
+  Loader2,
+  AlertTriangle,
+} from 'lucide-react'
+import { bankLabels, bankThemes } from '@/lib/bank-config'
+import { parseFile } from '@/lib/file-parser'
+import { mapSystemRecords, mapCardRecords } from '@/lib/csv-parser'
+import { reconcileData } from '@/lib/reconciliation'
+import { generateSystemCSV, generateCardCSV, downloadCSV } from '@/lib/sample-csv'
+import { MOCK_SYSTEM_RECORDS, MOCK_CARD_RECORDS } from '@/lib/mock-data'
+import type { BankType, SystemRecord, CardRecord, ReconciliationResult } from '@/lib/types'
 
-type Step = 'upload' | 'stats' | 'processing' | 'results'
+type Step = 'upload' | 'confirm' | 'results'
 
 export default function Index() {
   const [bank, setBank] = useState<BankType>('itau')
   const [step, setStep] = useState<Step>('upload')
-  const [sysFile, setSysFile] = useState<File | null>(null)
+  const [systemFile, setSystemFile] = useState<File | null>(null)
   const [cardFile, setCardFile] = useState<File | null>(null)
-  const [results, setResults] = useState<ReconciliationResult[]>([])
-  const [sysTotal, setSysTotal] = useState(0)
-  const [cardTotal, setCardTotal] = useState(0)
-  const [sourceSysRecords, setSourceSysRecords] = useState<SystemRecord[]>([])
-  const [sourceCardRecords, setSourceCardRecords] = useState<CardRecord[]>([])
-  const [parseWarning, setParseWarning] = useState<string | null>(null)
+  const [systemRecords, setSystemRecords] = useState<SystemRecord[]>([])
+  const [cardRecords, setCardRecords] = useState<CardRecord[]>([])
   const [sysDetected, setSysDetected] = useState(0)
   const [cardDetected, setCardDetected] = useState(0)
+  const [results, setResults] = useState<ReconciliationResult[]>([])
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [warning, setWarning] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
-  const { toast } = useToast()
+  const [parseError, setParseError] = useState<string | null>(null)
+
   const theme = bankThemes[bank]
 
-  const handleParse = async () => {
-    if (!sysFile || !cardFile) {
-      toast({
-        title: 'Atenção',
-        description: 'Faça o upload dos dois arquivos para iniciar.',
-        variant: 'destructive',
-      })
-      return
-    }
-    let sysRecords: SystemRecord[] = MOCK_SYSTEM_RECORDS
-    let cardRecords: CardRecord[] = MOCK_CARD_RECORDS
-    let warning: string | null = null
-    let sysDetectedCount = 0
-    let cardDetectedCount = 0
-    let importErrorMsg: string | null = null
-    try {
-      const sysParsed = await parseFile(sysFile)
-      const cardParsed = await parseFile(cardFile)
-      const mappedSys = mapSystemRecords(sysParsed)
-      const mappedCard = mapCardRecords(cardParsed)
-      sysDetectedCount = sysParsed.detectedRows
-      cardDetectedCount = cardParsed.detectedRows
-      if (mappedSys.length > 0 && mappedCard.length > 0) {
-        sysRecords = mappedSys
-        cardRecords = mappedCard
-        const errors: string[] = []
-        if (mappedSys.length < sysDetectedCount)
-          errors.push(
-            `Sistema: ${sysDetectedCount} detectados, mas apenas ${mappedSys.length} importados.`,
-          )
-        if (mappedCard.length < cardDetectedCount)
-          errors.push(
-            `Fatura: ${cardDetectedCount} detectados, mas apenas ${mappedCard.length} importados.`,
-          )
-        if (errors.length > 0) importErrorMsg = errors.join(' ')
-      } else {
-        warning = 'Arquivos vazios ou ilegíveis. Usando dados de demonstração.'
-      }
-    } catch {
-      warning = 'Erro ao ler arquivos. Verifique o formato. Usando dados de demonstração.'
-    }
-    setSourceSysRecords(sysRecords)
-    setSourceCardRecords(cardRecords)
-    setSysTotal(sysRecords.length)
-    setCardTotal(cardRecords.length)
-    setSysDetected(sysDetectedCount || sysRecords.length)
-    setCardDetected(cardDetectedCount || cardRecords.length)
-    setImportError(importErrorMsg)
-    setParseWarning(warning)
-    setStep('stats')
-    if (warning) toast({ title: 'Aviso', description: warning })
-    if (importErrorMsg)
-      toast({ title: 'Erro de Importação', description: importErrorMsg, variant: 'destructive' })
+  const handleBankChange = (b: BankType) => {
+    setBank(b)
+    setSystemFile(null)
+    setCardFile(null)
+    setSystemRecords([])
+    setCardRecords([])
+    setResults([])
+    setWarning(null)
+    setImportError(null)
+    setParseError(null)
+    setStep('upload')
   }
 
-  const handleReconcile = () => {
-    setStep('processing')
-    setTimeout(() => {
-      const res = reconcileData(sourceSysRecords, sourceCardRecords, bank)
-      setResults(res)
-      setStep('results')
-      toast({ title: 'Sucesso', description: 'Conciliação finalizada com sucesso.' })
-    }, 2500)
+  const handleProcessFiles = async () => {
+    setIsProcessing(true)
+    setParseError(null)
+    setWarning(null)
+    setImportError(null)
+
+    try {
+      let sysRecords: SystemRecord[]
+      let cardRecs: CardRecord[]
+      let sysDet = 0
+      let cardDet = 0
+      let hasSanitized = false
+
+      if (systemFile) {
+        const parsed = await parseFile(systemFile, bank, 'system')
+        sysDet = parsed.detectedRows
+        sysRecords = mapSystemRecords(parsed)
+        if (bank === 'itau' && parsed.detectedRows > parsed.rows.length) {
+          hasSanitized = true
+        }
+      } else {
+        sysRecords = MOCK_SYSTEM_RECORDS
+        sysDet = sysRecords.length
+      }
+
+      if (cardFile) {
+        const parsed = await parseFile(cardFile, bank, 'card')
+        cardDet = parsed.detectedRows
+        cardRecs = mapCardRecords(parsed)
+        if (bank === 'itau' && parsed.detectedRows > parsed.rows.length) {
+          hasSanitized = true
+        }
+      } else {
+        cardRecs = MOCK_CARD_RECORDS
+        cardDet = cardRecs.length
+      }
+
+      setSystemRecords(sysRecords)
+      setCardRecords(cardRecs)
+      setSysDetected(sysDet)
+      setCardDetected(cardDet)
+
+      if (hasSanitized) {
+        setWarning(
+          `Linhas administrativas foram detectadas e removidas automaticamente dos arquivos ${bankLabels[bank]}.`,
+        )
+      }
+
+      setStep('confirm')
+    } catch (err) {
+      setParseError(
+        err instanceof Error
+          ? err.message
+          : 'Erro ao processar arquivos. Verifique o formato e tente novamente.',
+      )
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const handleConfirm = () => {
+    const reconciled = reconcileData(systemRecords, cardRecords, bank)
+    setResults(reconciled)
+    setStep('results')
   }
 
   const handleReset = () => {
     setStep('upload')
-    setSysFile(null)
+    setSystemFile(null)
     setCardFile(null)
+    setSystemRecords([])
+    setCardRecords([])
     setResults([])
-    setSourceSysRecords([])
-    setSourceCardRecords([])
-    setParseWarning(null)
-    setSysDetected(0)
-    setCardDetected(0)
+    setWarning(null)
     setImportError(null)
+    setParseError(null)
   }
 
-  if (step === 'upload') {
-    return (
-      <div className="max-w-5xl mx-auto space-y-8 animate-fade-in pb-12">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-            Área de Conciliação
-          </h1>
-          <p className="text-slate-500 text-lg">
-            Selecione o banco e faça o upload do extrato do sistema e da fatura do cartão
-            corporativo.
-          </p>
-        </div>
-        <div className="flex justify-center">
-          <BankSelector bank={bank} onChange={setBank} />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <UploadZone
-            title="Registros do Sistema"
-            id="sys-file"
-            file={sysFile}
-            onChange={setSysFile}
-            onDownloadSample={() => downloadCSV(generateSystemCSV(bank), 'modelo_sistema.csv')}
-          />
-          <UploadZone
-            title="Fatura do Cartão"
-            id="card-file"
-            file={cardFile}
-            onChange={setCardFile}
-            onDownloadSample={() => downloadCSV(generateCardCSV(bank), 'modelo_fatura.csv')}
-          />
-        </div>
-        <div className="flex justify-end pt-4">
-          <Button
-            size="lg"
-            onClick={handleParse}
-            disabled={!sysFile || !cardFile}
-            className={`w-full sm:w-auto h-12 px-8 text-base shadow-lg text-white ${theme.primary} ${theme.hover}`}
-          >
-            Iniciar Importação <ArrowRight className="w-5 h-5 ml-2" />
-          </Button>
-        </div>
-      </div>
-    )
+  const handleDemoData = () => {
+    setSystemRecords(MOCK_SYSTEM_RECORDS)
+    setCardRecords(MOCK_CARD_RECORDS)
+    setSysDetected(MOCK_SYSTEM_RECORDS.length)
+    setCardDetected(MOCK_CARD_RECORDS.length)
+    setSystemFile(null)
+    setCardFile(null)
+    setWarning(null)
+    setImportError(null)
+    setParseError(null)
+    setStep('confirm')
   }
 
-  if (step === 'stats') {
+  const handleDownloadSystemSample = () => {
+    downloadCSV(generateSystemCSV(bank), `modelo_sistema_${bank}.csv`)
+  }
+
+  const handleDownloadCardSample = () => {
+    downloadCSV(generateCardCSV(bank), `modelo_fatura_${bank}.csv`)
+  }
+
+  if (step === 'confirm') {
     return (
       <ImportStats
-        sysTotal={sysTotal}
-        cardTotal={cardTotal}
+        sysTotal={systemRecords.length}
+        cardTotal={cardRecords.length}
         sysDetected={sysDetected}
         cardDetected={cardDetected}
-        sysFileName={sysFile?.name || ''}
-        cardFileName={cardFile?.name || ''}
-        warning={parseWarning}
+        sysFileName={systemFile?.name ?? ''}
+        cardFileName={cardFile?.name ?? ''}
+        warning={warning}
         importError={importError}
-        onConfirm={handleReconcile}
+        onConfirm={handleConfirm}
         onBack={handleReset}
         bank={bank}
       />
     )
   }
 
-  if (step === 'processing') {
+  if (step === 'results') {
     return (
-      <div className="flex flex-col items-center justify-center h-[60vh] animate-fade-in">
-        <div className="relative mb-8">
-          <div
-            className={`absolute inset-0 rounded-full blur-xl animate-pulse ${theme.light}`}
-          ></div>
-          <Loader2 className={`w-20 h-20 animate-spin relative z-10 ${theme.accent}`} />
+      <div className="space-y-6 pb-12">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+              Resultado da Conciliação
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              {bankLabels[bank]} • {results.length} registros analisados
+            </p>
+          </div>
+          <Button variant="outline" onClick={handleReset} className="bg-white dark:bg-slate-950">
+            <RefreshCw className="w-4 h-4 mr-2" /> Nova Conciliação
+          </Button>
         </div>
-        <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-3">
-          Analisando Valores...
-        </h2>
-        <p className="text-slate-500 max-w-sm text-center">
-          Cruzando dados por Data, Parceiro/Estabelecimento e Crédito/Valor, identificando
-          divergências.
-        </p>
+        <SummaryCards results={results} />
+        <ResultsTable
+          data={results}
+          systemRecords={systemRecords}
+          cardRecords={cardRecords}
+          bank={bank}
+        />
       </div>
     )
   }
 
   return (
-    <div className="animate-fade-in-up pb-12">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-4 mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
-            Resultado da Conciliação
+    <div className="max-w-5xl mx-auto space-y-8 pb-12">
+      <div className="text-center space-y-3">
+        <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+          Conciliação Financeira
+        </h1>
+        <p className="text-slate-500 text-lg">
+          Selecione o banco e faça upload dos arquivos para conciliação automática
+        </p>
+      </div>
+
+      <div className="flex justify-center">
+        <BankSelector bank={bank} onChange={handleBankChange} />
+      </div>
+
+      {parseError && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Erro ao Processar</AlertTitle>
+          <AlertDescription>{parseError}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-2">
+          <h2 className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+            <Database className="w-4 h-4 text-blue-600" /> Sistema (Odoo)
           </h2>
-          <p className="text-slate-500 mt-1">
-            {sysTotal} registros do sistema e {cardTotal} da fatura processados.
-          </p>
+          <UploadZone
+            title="Sistema (Odoo)"
+            id="system-file"
+            file={systemFile}
+            onChange={setSystemFile}
+            onDownloadSample={handleDownloadSystemSample}
+          />
         </div>
-        <Button variant="outline" onClick={handleReset} className="bg-white dark:bg-slate-950">
-          Nova Conciliação
+        <div className="space-y-2">
+          <h2 className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+            <FileSpreadsheet className={`w-4 h-4 ${theme.accent}`} />
+            Fatura do Cartão ({bankLabels[bank]})
+          </h2>
+          <UploadZone
+            title="Fatura do Cartão"
+            id="card-file"
+            file={cardFile}
+            onChange={setCardFile}
+            onDownloadSample={handleDownloadCardSample}
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row justify-center gap-4">
+        <Button
+          variant="outline"
+          onClick={handleDemoData}
+          size="lg"
+          className="bg-white dark:bg-slate-950"
+        >
+          <Wand2 className="w-4 h-4 mr-2" /> Usar Dados de Demonstração
         </Button>
-      </div>
-      <div className="sticky top-0 z-30 py-4 -mx-4 lg:-mx-8 px-4 lg:px-8 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm border-b border-slate-200 dark:border-slate-800">
-        <SummaryCards results={results} />
-      </div>
-      <div className="mt-6">
-        <ResultsTable
-          data={results}
-          systemRecords={sourceSysRecords}
-          cardRecords={sourceCardRecords}
-          bank={bank}
-        />
+        <Button
+          onClick={handleProcessFiles}
+          size="lg"
+          disabled={isProcessing}
+          className={`text-white ${theme.primary} ${theme.hover}`}
+        >
+          {isProcessing ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processando...
+            </>
+          ) : (
+            <>
+              Processar Arquivos <ArrowRight className="w-4 h-4 ml-2" />
+            </>
+          )}
+        </Button>
       </div>
     </div>
   )

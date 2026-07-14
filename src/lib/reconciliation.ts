@@ -75,44 +75,22 @@ function normalize(text: string): string {
     .trim()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[*]/g, ' ')
+    .replace(/[^a-z0-9\s-]/g, ' ')
     .replace(/\s+/g, ' ')
 }
 
 const IGNORE_WORDS = new Set([
   'ltda',
   'servicos',
-  'equipamentos',
   'me',
   'eireli',
   's/a',
   'sa',
   'vindi',
   'pag',
-  'recorrente',
-  'material',
-  'materia',
-  'laboratorios',
-  'laboratorio',
-  'comercial',
-  'comercio',
-  'comerci',
-  'produtos',
-  'vendas',
-  'importacao',
-  'distribuidora',
-  'loja',
-  'lojas',
-  'brasil',
-  'grupo',
-  'solucoes',
-  'industria',
   'de',
   'da',
   'do',
-  'dos',
-  'das',
-  'e',
 ])
 
 function isSameEstablishment(parceiro: string, estabelecimento: string): boolean {
