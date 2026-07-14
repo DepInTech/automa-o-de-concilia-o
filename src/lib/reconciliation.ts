@@ -69,6 +69,46 @@ function calcDifference(credito: number, valor: number): number {
   return Number((valor - credito).toFixed(2))
 }
 
+/**
+ * Função auxiliar para ler as propriedades do cartão de forma segura,
+ * aceitando tanto o formato padrão quanto o do Itaú.
+ */
+function getCardDetails(card: any) {
+  // Pega o nome do estabelecimento de 'estabelecimento' ou de 'Estabelecimento' (Itaú)
+  const estabelecimento = card.estabelecimento || card.Estabelecimento || ''
+
+  // Pega o valor de 'valor' ou de 'Valor (R$)' (Itaú) ou 'Valor'
+  let valor = 0
+  if (typeof card.valor === 'number') {
+    valor = card.valor
+  } else if (typeof card['Valor (R$)'] === 'number') {
+    valor = card['Valor (R$)']
+  } else if (card['Valor (R$)']) {
+    valor = parseFloat(
+      String(card['Valor (R$)'])
+        .replace(/[^\d,-]/g, '')
+        .replace(',', '.'),
+    )
+  } else if (card.valor) {
+    valor = parseFloat(
+      String(card.valor)
+        .replace(/[^\d,-]/g, '')
+        .replace(',', '.'),
+    )
+  }
+
+  const data = card.data || card.Data || ''
+  const categoria = card.categoria || card.Categoria || ''
+
+  return {
+    id: card.id || `card-${estabelecimento}-${valor}-${data}`,
+    estabelecimento,
+    valor,
+    data,
+    categoria,
+  }
+}
+
 export function reconcileData(
   systemRecords: SystemRecord[],
   cardRecords: CardRecord[],
@@ -77,11 +117,14 @@ export function reconcileData(
   const matchedSystem = new Set<string>()
   const matchedCard = new Set<string>()
 
+  // Mapeia e normaliza os registros de cartão de forma segura
+  const normalizedCards = (cardRecords || []).map((card) => getCardDetails(card))
+
   // 1. Processa matches com o Sistema
   for (const sys of systemRecords) {
     if (matchedSystem.has(sys.id)) continue
 
-    const candidates = cardRecords.filter(
+    const candidates = normalizedCards.filter(
       (card) =>
         !matchedCard.has(card.id) && isSameEstablishment(sys.parceiro, card.estabelecimento),
     )
@@ -166,7 +209,7 @@ export function reconcileData(
   }
 
   // 3. Apenas na Fatura -> RED
-  for (const card of cardRecords) {
+  for (const card of normalizedCards) {
     if (matchedCard.has(card.id)) continue
 
     results.push({
