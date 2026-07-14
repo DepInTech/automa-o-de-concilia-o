@@ -49,11 +49,12 @@ function generateMockData(): { system: SystemRecord[]; card: CardRecord[] } {
     const partner = partners[i % partners.length]
     const value = 150 + i * 37 + (i % 7) * 13
     const cat = ['Servicos', 'Suprimentos', 'Operacional'][i % 3]
-
     system.push({
       id: `sys-${sysId}`,
       data: formatDate(day, month),
       lancamentoDiario: `LD-${String(sysId + 1).padStart(5, '0')}`,
+      numero: `NF-${String(sysId + 1).padStart(6, '0')}`,
+      referencia: `REF-${String(sysId + 1).padStart(4, '0')}`,
       parceiro: partner,
       debito: i % 6 === 0 ? Math.round(value * 0.05 * 100) / 100 : null,
       credito: value,
@@ -75,11 +76,12 @@ function generateMockData(): { system: SystemRecord[]; card: CardRecord[] } {
     const partner = partners[(70 + i) % partners.length]
     const sysValue = 500 + i * 45
     const cardValue = Math.round((sysValue + 25.5) * 100) / 100
-
     system.push({
       id: `sys-${sysId}`,
       data: formatDate(day, 4),
       lancamentoDiario: `LD-${String(sysId + 1).padStart(5, '0')}`,
+      numero: `NF-${String(sysId + 1).padStart(6, '0')}`,
+      referencia: `REF-${String(sysId + 1).padStart(4, '0')}`,
       parceiro: partner,
       debito: null,
       credito: sysValue,
@@ -101,6 +103,8 @@ function generateMockData(): { system: SystemRecord[]; card: CardRecord[] } {
       id: `sys-${sysId}`,
       data: formatDate((i % 28) + 1, 5),
       lancamentoDiario: `LD-${String(sysId + 1).padStart(5, '0')}`,
+      numero: `NF-${String(sysId + 1).padStart(6, '0')}`,
+      referencia: `REF-${String(sysId + 1).padStart(4, '0')}`,
       parceiro: `FORNECEDOR EXCLUSIVO SISTEMA ${i + 1}`,
       debito: null,
       credito: 300 + i * 20,

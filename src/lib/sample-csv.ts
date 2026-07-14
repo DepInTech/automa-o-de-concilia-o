@@ -1,17 +1,39 @@
+import type { BankType } from './types'
 import { MOCK_SYSTEM_RECORDS, MOCK_CARD_RECORDS } from './mock-data'
 
-export function generateSystemCSV(): string {
-  const header = 'Data;Lançamento Diário;Parceiro;Débito;Crédito'
+export function generateSystemCSV(bank: BankType): string {
+  if (bank === 'itau') {
+    const header = 'Data;Parceiro;Total;Categoria;Número;Referência'
+    const rows = MOCK_SYSTEM_RECORDS.map((r) =>
+      [
+        r.data,
+        r.parceiro,
+        r.credito.toFixed(2),
+        r.categoria ?? '',
+        r.numero ?? '',
+        r.referencia ?? '',
+      ].join(';'),
+    )
+    return [header, ...rows].join('\n')
+  }
+  const header = 'Data;Parceiro;Crédito;Lançamento Diário'
   const rows = MOCK_SYSTEM_RECORDS.map((r) =>
-    [r.data, r.lancamentoDiario, r.parceiro, r.debito ?? '', r.credito.toFixed(2)].join(';'),
+    [r.data, r.parceiro, r.credito.toFixed(2), r.lancamentoDiario ?? ''].join(';'),
   )
   return [header, ...rows].join('\n')
 }
 
-export function generateCardCSV(): string {
-  const header = 'Data;Estabelecimento;Categoria;Valor'
+export function generateCardCSV(bank: BankType): string {
+  if (bank === 'itau') {
+    const header = 'Data;Estabelecimento;Valor (R$);Categoria'
+    const rows = MOCK_CARD_RECORDS.map((r) =>
+      [r.data, r.estabelecimento, r.valor.toFixed(2), r.categoria ?? ''].join(';'),
+    )
+    return [header, ...rows].join('\n')
+  }
+  const header = 'Data;Estabelecimento;Valor'
   const rows = MOCK_CARD_RECORDS.map((r) =>
-    [r.data, r.estabelecimento, r.categoria, r.valor.toFixed(2)].join(';'),
+    [r.data, r.estabelecimento, r.valor.toFixed(2)].join(';'),
   )
   return [header, ...rows].join('\n')
 }

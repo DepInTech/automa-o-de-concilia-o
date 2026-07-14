@@ -1,4 +1,4 @@
-import { useState } from 'react' // Separado corretamente
+import { useState } from 'react'
 import {
   Table,
   TableBody,
@@ -29,27 +29,27 @@ import { formatCurrency } from '@/lib/format'
 import { validateExport, generateExportCSV } from '@/lib/validation'
 import { downloadCSV } from '@/lib/sample-csv'
 import { ResultRowMobile } from '@/components/result-row-mobile'
-import type { ReconciliationResult, SystemRecord, CardRecord } from '@/lib/types'
+import type { ReconciliationResult, SystemRecord, CardRecord, BankType } from '@/lib/types'
 
 interface ResultsTableProps {
   data: ReconciliationResult[]
   systemRecords: SystemRecord[]
   cardRecords: CardRecord[]
+  bank: BankType
 }
 
-export function ResultsTable({ data, systemRecords, cardRecords }: ResultsTableProps) {
+export function ResultsTable({ data, systemRecords, cardRecords, bank }: ResultsTableProps) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('ALL')
   const [validationErrors, setValidationErrors] = useState<string[] | null>(null)
 
   const filtered = data.filter((r) => {
     const q = search.toLowerCase()
-    // Adicionado fallback para string vazia "" prevenindo quebras por valores nulos
     const matchSearch =
       (r.parceiro ?? '').toLowerCase().includes(q) ||
       (r.estabelecimento ?? '').toLowerCase().includes(q) ||
-      (r.lancamentoDiario ?? '').toLowerCase().includes(q)
-
+      (r.lancamentoDiario ?? '').toLowerCase().includes(q) ||
+      (r.numero ?? '').toLowerCase().includes(q)
     return matchSearch && (filter === 'ALL' || r.status === filter)
   })
 
@@ -112,21 +112,23 @@ export function ResultsTable({ data, systemRecords, cardRecords }: ResultsTableP
         </Button>
       </div>
 
-      {/* Desktop Table */}
       <div className="hidden md:block rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader className="bg-slate-50 dark:bg-slate-900/50">
               <TableRow>
                 <TableHead className="whitespace-nowrap">Data</TableHead>
-                <TableHead className="whitespace-nowrap">Lancamento Diario</TableHead>
+                {bank === 'itau' && <TableHead className="whitespace-nowrap">Número</TableHead>}
+                {bank === 'itau' && <TableHead className="whitespace-nowrap">Referência</TableHead>}
+                {bank === 'santander' && (
+                  <TableHead className="whitespace-nowrap">Lançamento Diário</TableHead>
+                )}
                 <TableHead className="whitespace-nowrap">Parceiro</TableHead>
                 <TableHead className="whitespace-nowrap">Estabelecimento</TableHead>
                 <TableHead className="whitespace-nowrap">Categoria</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Debito</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Credito</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Crédito</TableHead>
                 <TableHead className="text-right whitespace-nowrap">Valor Fatura</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Diferenca</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Diferença</TableHead>
                 <TableHead className="text-center">Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -134,13 +136,18 @@ export function ResultsTable({ data, systemRecords, cardRecords }: ResultsTableP
               {filtered.map((r) => (
                 <TableRow key={r.id} className={`${getRowClass(r.status)} transition-colors`}>
                   <TableCell className="whitespace-nowrap font-medium">{r.data}</TableCell>
-                  <TableCell className="whitespace-nowrap">{r.lancamentoDiario}</TableCell>
+                  {bank === 'itau' && (
+                    <TableCell className="whitespace-nowrap">{r.numero ?? '-'}</TableCell>
+                  )}
+                  {bank === 'itau' && (
+                    <TableCell className="whitespace-nowrap">{r.referencia ?? '-'}</TableCell>
+                  )}
+                  {bank === 'santander' && (
+                    <TableCell className="whitespace-nowrap">{r.lancamentoDiario ?? '-'}</TableCell>
+                  )}
                   <TableCell className="whitespace-nowrap">{r.parceiro}</TableCell>
                   <TableCell className="whitespace-nowrap">{r.estabelecimento}</TableCell>
                   <TableCell className="whitespace-nowrap">{r.categoria}</TableCell>
-                  <TableCell className="text-right whitespace-nowrap">
-                    {formatCurrency(r.debito)}
-                  </TableCell>
                   <TableCell className="text-right whitespace-nowrap font-medium">
                     {formatCurrency(r.credito)}
                   </TableCell>
@@ -162,7 +169,10 @@ export function ResultsTable({ data, systemRecords, cardRecords }: ResultsTableP
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center h-32 text-slate-500">
+                  <TableCell
+                    colSpan={bank === 'itau' ? 11 : 10}
+                    className="text-center h-32 text-slate-500"
+                  >
                     Nenhum registro encontrado para os filtros aplicados.
                   </TableCell>
                 </TableRow>
@@ -172,10 +182,15 @@ export function ResultsTable({ data, systemRecords, cardRecords }: ResultsTableP
         </div>
       </div>
 
-      {/* Mobile Cards */}
       <div className="md:hidden space-y-4">
         {filtered.map((r) => (
-          <ResultRowMobile key={r.id} r={r} getRowClass={getRowClass} statusLabel={statusLabel} />
+          <ResultRowMobile
+            key={r.id}
+            r={r}
+            bank={bank}
+            getRowClass={getRowClass}
+            statusLabel={statusLabel}
+          />
         ))}
         {filtered.length === 0 && (
           <div className="text-center p-8 bg-white dark:bg-slate-950 rounded-xl border text-slate-500">
@@ -184,19 +199,17 @@ export function ResultsTable({ data, systemRecords, cardRecords }: ResultsTableP
         )}
       </div>
 
-      {/* Validation Errors Modal */}
       <Dialog
         open={validationErrors !== null}
         onOpenChange={(open) => !open && setValidationErrors(null)}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Erro de Validacao</DialogTitle>
+            <DialogTitle>Erro de Validação</DialogTitle>
             <DialogDescription>
-              A exportacao foi interrompida. Foram encontradas as seguintes inconsistencias:
+              A exportação foi interrompida. Foram encontradas as seguintes inconsistências:
             </DialogDescription>
           </DialogHeader>
-          {/* Removido o <ul /> de dentro do <DialogDescription /> para respeitar o DOM do HTML */}
           <ul className="space-y-2 text-sm text-rose-600 max-h-60 overflow-y-auto mt-2">
             {validationErrors?.map((err, i) => (
               <li key={i} className="flex items-start gap-2">

@@ -2,6 +2,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { FileSpreadsheet, ArrowRight, ArrowLeft, AlertTriangle, Database } from 'lucide-react'
+import { bankLabels, bankThemes } from '@/lib/bank-config'
+import type { BankType } from '@/lib/types'
 
 interface ImportStatsProps {
   sysTotal: number
@@ -14,6 +16,7 @@ interface ImportStatsProps {
   importError: string | null
   onConfirm: () => void
   onBack: () => void
+  bank: BankType
 }
 
 export function ImportStats({
@@ -27,18 +30,20 @@ export function ImportStats({
   importError,
   onConfirm,
   onBack,
+  bank,
 }: ImportStatsProps) {
   const hasError = sysTotal === 0 || cardTotal === 0
   const hasImportError = !!importError
+  const theme = bankThemes[bank]
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pb-12">
       <div>
         <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-          Confirmacao de Importacao
+          Confirmação de Importação
         </h1>
         <p className="text-slate-500 text-lg">
-          Revise os dados importados antes de iniciar a conciliacao.
+          Revise os dados importados antes de iniciar a conciliação com {bankLabels[bank]}.
         </p>
       </div>
 
@@ -46,7 +51,7 @@ export function ImportStats({
         <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900">
           <AlertTriangle className="h-4 w-4 text-amber-600" />
           <AlertTitle className="text-amber-800 dark:text-amber-400">
-            Aviso de Importacao
+            Aviso de Importação
           </AlertTitle>
           <AlertDescription className="text-amber-700 dark:text-amber-500">
             {warning}
@@ -57,9 +62,9 @@ export function ImportStats({
       {hasError && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Erro de Importacao</AlertTitle>
+          <AlertTitle>Erro de Importação</AlertTitle>
           <AlertDescription>
-            Um ou mais arquivos nao puderam ser importados. Verifique os arquivos e tente novamente.
+            Um ou mais arquivos não puderam ser importados. Verifique os arquivos e tente novamente.
           </AlertDescription>
         </Alert>
       )}
@@ -102,9 +107,9 @@ export function ImportStats({
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-semibold text-slate-600 dark:text-slate-400">
-              Fatura do Cartao
+              Fatura do Cartão ({bankLabels[bank]})
             </CardTitle>
-            <FileSpreadsheet className="h-5 w-5 text-emerald-600" />
+            <FileSpreadsheet className={`h-5 w-5 ${theme.accent}`} />
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-3 mb-2">
@@ -134,9 +139,9 @@ export function ImportStats({
           size="lg"
           onClick={onConfirm}
           disabled={hasError || hasImportError}
-          className="h-12 px-8 text-base shadow-lg bg-blue-600 hover:bg-blue-700 text-white"
+          className={`h-12 px-8 text-base shadow-lg text-white ${theme.primary} ${theme.hover}`}
         >
-          Confirmar Conciliacao <ArrowRight className="w-5 h-5 ml-2" />
+          Confirmar Conciliação <ArrowRight className="w-5 h-5 ml-2" />
         </Button>
       </div>
     </div>

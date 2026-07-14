@@ -7,15 +7,18 @@ import { MOCK_SYSTEM_RECORDS, MOCK_CARD_RECORDS } from '@/lib/mock-data'
 import { mapSystemRecords, mapCardRecords } from '@/lib/csv-parser'
 import { parseFile } from '@/lib/file-parser'
 import { generateSystemCSV, generateCardCSV, downloadCSV } from '@/lib/sample-csv'
+import { bankThemes } from '@/lib/bank-config'
 import { SummaryCards } from '@/components/summary-cards'
 import { ResultsTable } from '@/components/results-table'
 import { UploadZone } from '@/components/upload-zone'
 import { ImportStats } from '@/components/import-stats'
-import type { ReconciliationResult, SystemRecord, CardRecord } from '@/lib/types'
+import { BankSelector } from '@/components/bank-selector'
+import type { ReconciliationResult, SystemRecord, CardRecord, BankType } from '@/lib/types'
 
 type Step = 'upload' | 'stats' | 'processing' | 'results'
 
 export default function Index() {
+  const [bank, setBank] = useState<BankType>('itau')
   const [step, setStep] = useState<Step>('upload')
   const [sysFile, setSysFile] = useState<File | null>(null)
   const [cardFile, setCardFile] = useState<File | null>(null)
@@ -29,6 +32,7 @@ export default function Index() {
   const [cardDetected, setCardDetected] = useState(0)
   const [importError, setImportError] = useState<string | null>(null)
   const { toast } = useToast()
+  const theme = bankThemes[bank]
 
   const handleParse = async () => {
     if (!sysFile || !cardFile) {
@@ -39,48 +43,38 @@ export default function Index() {
       })
       return
     }
-
     let sysRecords: SystemRecord[] = MOCK_SYSTEM_RECORDS
     let cardRecords: CardRecord[] = MOCK_CARD_RECORDS
     let warning: string | null = null
     let sysDetectedCount = 0
     let cardDetectedCount = 0
     let importErrorMsg: string | null = null
-
     try {
       const sysParsed = await parseFile(sysFile)
       const cardParsed = await parseFile(cardFile)
       const mappedSys = mapSystemRecords(sysParsed)
       const mappedCard = mapCardRecords(cardParsed)
-
       sysDetectedCount = sysParsed.detectedRows
       cardDetectedCount = cardParsed.detectedRows
-
       if (mappedSys.length > 0 && mappedCard.length > 0) {
         sysRecords = mappedSys
         cardRecords = mappedCard
-
         const errors: string[] = []
-        if (mappedSys.length < sysDetectedCount) {
+        if (mappedSys.length < sysDetectedCount)
           errors.push(
-            `Sistema: ${sysDetectedCount} registros detectados, mas apenas ${mappedSys.length} foram importados.`,
+            `Sistema: ${sysDetectedCount} detectados, mas apenas ${mappedSys.length} importados.`,
           )
-        }
-        if (mappedCard.length < cardDetectedCount) {
+        if (mappedCard.length < cardDetectedCount)
           errors.push(
-            `Fatura: ${cardDetectedCount} registros detectados, mas apenas ${mappedCard.length} foram importados.`,
+            `Fatura: ${cardDetectedCount} detectados, mas apenas ${mappedCard.length} importados.`,
           )
-        }
-        if (errors.length > 0) {
-          importErrorMsg = errors.join(' ')
-        }
+        if (errors.length > 0) importErrorMsg = errors.join(' ')
       } else {
         warning = 'Arquivos vazios ou ilegíveis. Usando dados de demonstração.'
       }
     } catch {
       warning = 'Erro ao ler arquivos. Verifique o formato. Usando dados de demonstração.'
     }
-
     setSourceSysRecords(sysRecords)
     setSourceCardRecords(cardRecords)
     setSysTotal(sysRecords.length)
@@ -90,13 +84,9 @@ export default function Index() {
     setImportError(importErrorMsg)
     setParseWarning(warning)
     setStep('stats')
-
-    if (warning) {
-      toast({ title: 'Aviso', description: warning })
-    }
-    if (importErrorMsg) {
+    if (warning) toast({ title: 'Aviso', description: warning })
+    if (importErrorMsg)
       toast({ title: 'Erro de Importação', description: importErrorMsg, variant: 'destructive' })
-    }
   }
 
   const handleReconcile = () => {
@@ -130,9 +120,12 @@ export default function Index() {
             Área de Conciliação
           </h1>
           <p className="text-slate-500 text-lg">
-            Faça o upload do extrato do sistema e da fatura do cartão corporativo para cruzar os
-            dados automaticamente.
+            Selecione o banco e faça o upload do extrato do sistema e da fatura do cartão
+            corporativo.
           </p>
+        </div>
+        <div className="flex justify-center">
+          <BankSelector bank={bank} onChange={setBank} />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <UploadZone
@@ -140,14 +133,14 @@ export default function Index() {
             id="sys-file"
             file={sysFile}
             onChange={setSysFile}
-            onDownloadSample={() => downloadCSV(generateSystemCSV(), 'modelo_sistema.csv')}
+            onDownloadSample={() => downloadCSV(generateSystemCSV(bank), 'modelo_sistema.csv')}
           />
           <UploadZone
             title="Fatura do Cartão"
             id="card-file"
             file={cardFile}
             onChange={setCardFile}
-            onDownloadSample={() => downloadCSV(generateCardCSV(), 'modelo_fatura.csv')}
+            onDownloadSample={() => downloadCSV(generateCardCSV(bank), 'modelo_fatura.csv')}
           />
         </div>
         <div className="flex justify-end pt-4">
@@ -155,7 +148,7 @@ export default function Index() {
             size="lg"
             onClick={handleParse}
             disabled={!sysFile || !cardFile}
-            className="w-full sm:w-auto h-12 px-8 text-base shadow-lg bg-blue-600 hover:bg-blue-700 text-white"
+            className={`w-full sm:w-auto h-12 px-8 text-base shadow-lg text-white ${theme.primary} ${theme.hover}`}
           >
             Iniciar Importação <ArrowRight className="w-5 h-5 ml-2" />
           </Button>
@@ -177,6 +170,7 @@ export default function Index() {
         importError={importError}
         onConfirm={handleReconcile}
         onBack={handleReset}
+        bank={bank}
       />
     )
   }
@@ -185,15 +179,17 @@ export default function Index() {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] animate-fade-in">
         <div className="relative mb-8">
-          <div className="absolute inset-0 bg-blue-100 dark:bg-blue-900/30 rounded-full blur-xl animate-pulse"></div>
-          <Loader2 className="w-20 h-20 text-blue-600 animate-spin relative z-10" />
+          <div
+            className={`absolute inset-0 rounded-full blur-xl animate-pulse ${theme.light}`}
+          ></div>
+          <Loader2 className={`w-20 h-20 animate-spin relative z-10 ${theme.accent}`} />
         </div>
         <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-3">
           Analisando Valores...
         </h2>
         <p className="text-slate-500 max-w-sm text-center">
           Cruzando dados por Data, Parceiro/Estabelecimento e Crédito/Valor, identificando
-          divergências e separando os registros perfeitamente casados.
+          divergências.
         </p>
       </div>
     )
@@ -207,7 +203,7 @@ export default function Index() {
             Resultado da Conciliação
           </h2>
           <p className="text-slate-500 mt-1">
-            Análise concluída. {sysTotal} registros do sistema e {cardTotal} da fatura processados.
+            {sysTotal} registros do sistema e {cardTotal} da fatura processados.
           </p>
         </div>
         <Button variant="outline" onClick={handleReset} className="bg-white dark:bg-slate-950">
@@ -222,6 +218,7 @@ export default function Index() {
           data={results}
           systemRecords={sourceSysRecords}
           cardRecords={sourceCardRecords}
+          bank={bank}
         />
       </div>
     </div>

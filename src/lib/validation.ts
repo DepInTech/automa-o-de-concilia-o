@@ -12,70 +12,49 @@ export function validateExport(
 ): ValidationResult {
   const errors: string[] = []
 
-  if (results.length === 0) {
-    errors.push('Nenhum resultado de conciliação disponível para exportação.')
+  const matchedCount = results.filter((r) => r.origem === 'AMBOS').length
+  const expected = systemRecords.length + cardRecords.length - matchedCount
+
+  if (results.length !== expected) {
+    errors.push(
+      `Inconsistência: ${results.length} resultados, esperado ${expected} (${systemRecords.length} sistema + ${cardRecords.length} fatura - ${matchedCount} casados).`,
+    )
   }
 
-  if (systemRecords.length === 0 && cardRecords.length === 0) {
-    errors.push('Nenhum dado de origem foi importado.')
+  const green = results.filter((r) => r.status === 'GREEN').length
+  const yellow = results.filter((r) => r.status === 'YELLOW').length
+  const red = results.filter((r) => r.status === 'RED').length
+
+  if (green + yellow + red !== results.length) {
+    errors.push('Soma de statuses inconsistente (GREEN + YELLOW + RED != total).')
   }
 
-  return {
-    isValid: errors.length === 0,
-    errors,
+  const yellowWithNullDiff = results.filter((r) => r.status === 'YELLOW' && r.diferenca === null)
+  if (yellowWithNullDiff.length > 0) {
+    errors.push(`${yellowWithNullDiff.length} registro(s) divergente(s) sem diferença calculada.`)
   }
-}
 
-function escapeCSV(value: string): string {
-  if (value.includes(';') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`
-  }
-  return value
-}
-
-function formatNum(value: number | null): string {
-  if (value === null) return ''
-  return value.toFixed(2).replace('.', ',')
-}
-
-function statusLabel(s: string): string {
-  if (s === 'GREEN') return 'Conciliado'
-  if (s === 'YELLOW') return 'Divergente'
-  return 'Nao Encontrado'
+  return { isValid: errors.length === 0, errors }
 }
 
 export function generateExportCSV(results: ReconciliationResult[]): string {
-  const headers = [
-    'Data',
-    'Lançamento Diário',
-    'Parceiro',
-    'Estabelecimento',
-    'Categoria',
-    'Débito',
-    'Crédito',
-    'Valor Fatura',
-    'Diferença',
-    'Status',
-    'Origem',
-  ]
-
+  const header =
+    'Data;Número;Referência;Lançamento Diário;Parceiro;Estabelecimento;Categoria;Crédito;Valor Fatura;Diferença;Status;Origem'
   const rows = results.map((r) =>
     [
       r.data,
-      r.lancamentoDiario,
+      r.numero ?? '',
+      r.referencia ?? '',
+      r.lancamentoDiario ?? '',
       r.parceiro,
       r.estabelecimento,
-      r.categoria,
-      formatNum(r.debito),
-      formatNum(r.credito),
-      formatNum(r.valorFatura),
-      formatNum(r.diferenca),
-      statusLabel(r.status),
+      r.categoria ?? '',
+      r.credito?.toFixed(2) ?? '',
+      r.valorFatura?.toFixed(2) ?? '',
+      r.diferenca?.toFixed(2) ?? '',
+      r.status,
       r.origem,
-    ]
-      .map(escapeCSV)
-      .join(';'),
+    ].join(';'),
   )
-
-  return [headers.join(';'), ...rows].join('\n')
+  return [header, ...rows].join('\n')
 }
