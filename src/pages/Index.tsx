@@ -92,7 +92,7 @@ export default function Index() {
   const handleReconcile = () => {
     setStep('processing')
     setTimeout(() => {
-      const res = reconcileData(sourceSysRecords, sourceCardRecords)
+      const res = reconcileData(sourceSysRecords, sourceCardRecords, bank)
       setResults(res)
       setStep('results')
       toast({ title: 'Sucesso', description: 'Conciliação finalizada com sucesso.' })

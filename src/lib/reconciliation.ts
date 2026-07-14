@@ -1,4 +1,5 @@
 import type { SystemRecord, CardRecord, ReconciliationResult } from './types'
+import type { BankType } from './types'
 
 function parseBrazilianDate(dateStr: string): number {
   if (!dateStr) return 0
@@ -15,8 +16,16 @@ function parseBrazilianDate(dateStr: string): number {
   return isNaN(parsed) ? 0 : parsed
 }
 
-function sortRecordsByDateDesc<T extends { data: string }>(records: T[]): T[] {
-  return [...records].sort((a, b) => parseBrazilianDate(b.data) - parseBrazilianDate(a.data))
+function sortSystemRecordsByValueDesc(records: SystemRecord[], bank: BankType): SystemRecord[] {
+  return [...records].sort((a, b) => {
+    const valA = bank === 'itau' ? (a.total ?? a.credito) : a.credito
+    const valB = bank === 'itau' ? (b.total ?? b.credito) : b.credito
+    return valB - valA
+  })
+}
+
+function sortCardRecordsByValueDesc(records: CardRecord[]): CardRecord[] {
+  return [...records].sort((a, b) => b.valor - a.valor)
 }
 
 function normalize(text: string): string {
@@ -86,9 +95,11 @@ function calcDifference(credito: number, valor: number): number {
 export function reconcileData(
   systemRecords: SystemRecord[],
   cardRecords: CardRecord[],
+  bank: BankType = 'itau',
 ): ReconciliationResult[] {
-  const sortedSystemRecords = sortRecordsByDateDesc(systemRecords)
-  const sortedCardRecords = sortRecordsByDateDesc(cardRecords)
+  // Ordena as planilhas inteiras de forma decrescente antes de qualquer outra ação
+  const sortedSystemRecords = sortSystemRecordsByValueDesc(systemRecords, bank)
+  const sortedCardRecords = sortCardRecordsByValueDesc(cardRecords)
 
   const results: ReconciliationResult[] = []
   const matchedSystem = new Set<string>()
@@ -96,7 +107,9 @@ export function reconcileData(
 
   for (const sys of sortedSystemRecords) {
     if (matchedSystem.has(sys.id)) continue
-    const candidates = cardRecords.filter(
+
+    // CORREÇÃO: Filtrando a partir do array devidamente ordenado (sortedCardRecords)
+    const candidates = sortedCardRecords.filter(
       (card) =>
         !matchedCard.has(card.id) && isSameEstablishment(sys.parceiro, card.estabelecimento),
     )
@@ -131,6 +144,7 @@ export function reconcileData(
       continue
     }
 
+    // Como candidates agora vem de sortedCardRecords, yellowMatch herda a ordem decrescente correta
     let yellowMatch = candidates[0]
     let minDiff = Math.abs(sys.credito - yellowMatch.valor)
     for (const c of candidates) {
@@ -197,5 +211,6 @@ export function reconcileData(
     })
   }
 
+  // Ao final, organiza o output decrescente por data para exibição na tela
   return results.sort((a, b) => parseBrazilianDate(b.data) - parseBrazilianDate(a.data))
 }

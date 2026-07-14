@@ -10,6 +10,7 @@ export interface SystemRecord {
   categoria?: string
   debito: number | null
   credito: number
+  total?: number | null
 }
 
 export interface CardRecord {

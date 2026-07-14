@@ -103,20 +103,26 @@ export function mapSystemRecords(parsed: ParsedCSV): SystemRecord[] {
   const numero = findColumn(parsed.headers, ['Número', 'Numero', 'NF', 'Nota Fiscal'])
   const referencia = findColumn(parsed.headers, ['Referência', 'Referencia', 'Ref'])
   const debito = findColumn(parsed.headers, ['Débito', 'Debito'])
-  const credito = findColumn(parsed.headers, ['Total', 'Crédito', 'Credito', 'Valor'])
+  const total = findColumn(parsed.headers, ['Total'])
+  const credito = findColumn(parsed.headers, ['Crédito', 'Credito', 'Valor', 'Total'])
   const categoria = findColumn(parsed.headers, ['Categoria'])
 
-  return parsed.rows.map((row, index) => ({
-    id: String(index),
-    data: data ? row[data] : '',
-    parceiro: parceiro ? row[parceiro] : '',
-    lancamentoDiario: lancamento ? row[lancamento] : undefined,
-    numero: numero ? row[numero] : undefined,
-    referencia: referencia ? row[referencia] : undefined,
-    categoria: categoria ? row[categoria] : undefined,
-    debito: debito ? parseBrazilianNumber(row[debito]) : null,
-    credito: credito ? (parseBrazilianNumber(row[credito]) ?? 0) : 0,
-  }))
+  return parsed.rows.map((row, index) => {
+    const totalVal = total ? parseBrazilianNumber(row[total]) : null
+    const creditoVal = credito ? (parseBrazilianNumber(row[credito]) ?? 0) : 0
+    return {
+      id: String(index),
+      data: data ? row[data] : '',
+      parceiro: parceiro ? row[parceiro] : '',
+      lancamentoDiario: lancamento ? row[lancamento] : undefined,
+      numero: numero ? row[numero] : undefined,
+      referencia: referencia ? row[referencia] : undefined,
+      categoria: categoria ? row[categoria] : undefined,
+      debito: debito ? parseBrazilianNumber(row[debito]) : null,
+      credito: creditoVal,
+      total: totalVal,
+    }
+  })
 }
 
 export function mapCardRecords(parsed: ParsedCSV): CardRecord[] {
