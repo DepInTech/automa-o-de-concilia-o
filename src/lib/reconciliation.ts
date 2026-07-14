@@ -73,22 +73,6 @@ export function reconcileData(
   systemRecords: SystemRecord[],
   cardRecords: CardRecord[],
 ): ReconciliationResult[] {
-  // ---- TESTE DETALHADO SEM VARIÁVEIS DUPLICADAS ----
-  const todosSistema = systemRecords
-    .filter((s) => normalize(s.parceiro).includes('valvolandia'))
-    .map((s) => s.credito)
-
-  const todosCartao = cardRecords
-    .filter((c) => normalize(c.estabelecimento).includes('valvolandia'))
-    .map((c) => c.valor)
-
-  alert(
-    `DIAGNÓSTICO VALVOLANDIA:\n\n` +
-      `No Sistema encontramos: [${todosSistema.join(', ')}]\n` +
-      `No Cartão (Fatura) encontramos: [${todosCartao.join(', ')}]`,
-  )
-  // --------------------------------------------------
-
   const results: ReconciliationResult[] = []
   const matchedSystem = new Set<string>()
   const matchedCard = new Set<string>()
