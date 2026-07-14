@@ -9,9 +9,6 @@ function normalize(text: string): string {
     .replace(/\s+/g, ' ')
 }
 
-/**
- * Validação de nomes para garantir o vínculo correto de estabelecimentos
- */
 function isSameEstablishment(parceiro: string, estabelecimento: string): boolean {
   const p = normalize(parceiro)
   const e = normalize(estabelecimento)
@@ -75,7 +72,7 @@ export function reconcileData(
   const results: ReconciliationResult[] = []
   const matchedCardIds = new Set<string>()
 
-  // 1. Varrer o Sistema e buscar correspondentes na Fatura pelo nome do Estabelecimento
+  // 1. Varre o Sistema e busca na Fatura pelo nome correspondente
   for (const sys of systemRecords) {
     const cardMatch = cardRecords.find(
       (card) =>
@@ -93,16 +90,16 @@ export function reconcileData(
         estabelecimento: cardMatch.estabelecimento,
         categoria: cardMatch.categoria || sys.categoria,
         debito: sys.debito,
-        credito: sys.credito, // Valor do Sistema
-        valorFatura: cardMatch.valor, // Valor da Fatura
-        diferenca: calcDifference(sys.credito, cardMatch.valor), // Exibe a diferença exata na coluna
-        status: 'YELLOW', // Mantemos uma string de fallback para não quebrar a tipagem do TypeScript, mas ignoramos no visual
+        credito: sys.credito,
+        valorFatura: cardMatch.valor,
+        diferenca: calcDifference(sys.credito, cardMatch.valor), // Apenas calcula a diferença real
+        status: 'NONE', // Sem status de cor (forçado a neutro)
         origem: 'AMBOS',
       })
     } else {
-      // Registro existe apenas no Sistema
+      // Somente no Sistema
       results.push({
-        id: `ONLY-SYS-${sys.id}`,
+        id: `SYS-${sys.id}`,
         data: sys.data,
         lancamentoDiario: sys.lancamentoDiario,
         parceiro: sys.parceiro,
@@ -112,17 +109,17 @@ export function reconcileData(
         credito: sys.credito,
         valorFatura: null,
         diferenca: null,
-        status: 'RED',
+        status: 'NONE',
         origem: 'SISTEMA',
       })
     }
   }
 
-  // 2. Registros que existem apenas na Fatura
+  // 2. Somente na Fatura
   for (const card of cardRecords) {
     if (!matchedCardIds.has(card.id)) {
       results.push({
-        id: `ONLY-CARD-${card.id}`,
+        id: `CARD-${card.id}`,
         data: card.data,
         lancamentoDiario: '-',
         parceiro: '-',
@@ -132,7 +129,7 @@ export function reconcileData(
         credito: null,
         valorFatura: card.valor,
         diferenca: null,
-        status: 'RED',
+        status: 'NONE',
         origem: 'FATURA',
       })
     }
