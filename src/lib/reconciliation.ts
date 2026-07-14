@@ -10,15 +10,15 @@ function normalize(text: string): string {
 }
 
 /**
- * Validação de nomes estrita.
- * Só retorna true se houver uma correspondência clara de nome próprio entre as partes.
+ * Validação de nomes inteligente e estrita.
+ * Retorna true se houver uma correspondência clara de nome próprio entre as partes.
  */
 function isSameEstablishment(parceiro: string, estabelecimento: string): boolean {
   const p = normalize(parceiro)
   const e = normalize(estabelecimento)
   if (!p || !e) return false
 
-  // 1. Caso simples: nomes idênticos ou um contido inteiramente no outro
+  // 1. Caso simples: nomes idênticos ou um contido inteiramente no outro (ex: "vindi *swiftrecorren" vs "swift recorrente")
   if (p === e || p.includes(e) || e.includes(p)) {
     return true
   }
@@ -57,7 +57,7 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
   const wordsP = p.split(/[\s*-]+/).filter((w) => w.length > 3 && !ignoreWords.has(w))
   const wordsE = e.split(/[\s*-]+/).filter((w) => w.length > 3 && !ignoreWords.has(w))
 
-  // 3. Comparação Estrita de Palavras (Exige correspondência exata para evitar falsos positivos)
+  // 3. Comparação Estrita de Palavras
   return wordsP.some((wp) => {
     return wordsE.some((we) => {
       if (wp.length >= 8 || we.length >= 8) {
@@ -77,7 +77,7 @@ function calcDifference(credito: number, valor: number): number {
 }
 
 /**
- * Janela de tempo lógica máxima entre a compra e o registro no sistema
+ * Janela de tempo lógica máxima entre a compra e o registro no sistema (padrão 45 dias)
  */
 function isPaymentWindowValid(dataCompraStr?: string, dataPagamentoStr?: string): boolean {
   if (!dataCompraStr || !dataPagamentoStr) return true
@@ -177,7 +177,7 @@ export function reconcileData(
         isPaymentWindowValid(card.data, sys.data),
     )
 
-    // REGRA 2: Match de Nome + Janela de Tempo (Mas valor diferente) -> AMARELO (Divergência de Preço)
+    // REGRA 2: Match de Nome + Janela de Tempo (Valor é diferente! Ex: Swift R$ 1475,25 vs R$ 1484,23) -> AMARELO
     if (!cardMatch) {
       cardMatch = cardRecords.find(
         (card) =>
@@ -187,7 +187,7 @@ export function reconcileData(
       )
     }
 
-    // REGRA 3: Match de Nome (Qualquer data - Fallback de segurança para atrasos extremos)
+    // REGRA 3: Match de Nome (Qualquer data - Fallback de segurança para atrasos de conciliação) -> AMARELO/VERDE
     if (!cardMatch) {
       cardMatch = cardRecords.find(
         (card) =>
@@ -201,15 +201,15 @@ export function reconcileData(
       if (sameValue(sys.credito, cardMatch.valor)) {
         results.push(createGreen(sys, cardMatch))
       } else {
-        results.push(createYellow(sys, cardMatch))
+        results.push(createYellow(sys, cardMatch)) // Vira amarelo mostrando a diferença de valor calculada!
       }
     } else {
-      // Se NÃO bateu o nome, vai direto para Vermelho (Sem adivinhação de valor!)
+      // Se não houver correspondência nenhuma do nome, vai separado para Vermelho no painel
       results.push(createRedSystem(sys))
     }
   }
 
-  // Tudo o que sobrou na fatura sem um match claro de nome vai para Vermelho
+  // Tudo o que sobrou na fatura sem nenhum match de nome vai para Vermelho
   for (const card of cardRecords) {
     if (!matchedCardIds.has(card.id)) {
       results.push(createRedCard(card))
