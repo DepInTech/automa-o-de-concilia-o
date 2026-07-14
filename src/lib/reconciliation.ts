@@ -64,25 +64,13 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
   })
 }
 
-// Tolerância estrita para o VERDE (pequenos centavos como o Uber)
-function isGreenValueTolerance(credito: number, valor: number): boolean {
+// Tolerância estrita de R$ 2,00 para o VERDE (apenas para Uber e taxas de centavos)
+function isWithinGreenTolerance(credito: number, valor: number): boolean {
   return Math.abs(credito - valor) <= 2.0
 }
 
 function calcDifference(credito: number, valor: number): number {
   return Math.round((valor - credito) * 100) / 100
-}
-
-function isPaymentWindowValid(dataCompraStr?: string, dataPagamentoStr?: string): boolean {
-  if (!dataCompraStr || !dataPagamentoStr) return true
-  try {
-    const d1 = new Date(dataCompraStr).getTime()
-    const d2 = new Date(dataPagamentoStr).getTime()
-    const diffDays = Math.abs(d2 - d1) / (1000 * 60 * 60 * 24)
-    return diffDays <= 45
-  } catch {
-    return true
-  }
 }
 
 export function reconcileData(
@@ -92,14 +80,13 @@ export function reconcileData(
   const results: ReconciliationResult[] = []
   const matchedCardIds = new Set<string>()
 
-  // PASSO 1: Match de Nome + Valor Praticamente Igual (até R$ 2,00 de diferença) -> VERDE
+  // PASSO 1: Match de Nome + Valor Praticamente Igual (Tolerância máx de R$ 2,00) -> VERDE
   for (const sys of systemRecords) {
     const cardMatch = cardRecords.find(
       (card) =>
         !matchedCardIds.has(card.id) &&
         isSameEstablishment(sys.parceiro, card.estabelecimento) &&
-        isGreenValueTolerance(sys.credito, card.valor) &&
-        isPaymentWindowValid(card.data, sys.data),
+        isWithinGreenTolerance(sys.credito, card.valor),
     )
 
     if (cardMatch) {
@@ -122,7 +109,7 @@ export function reconcileData(
   }
 
   // PASSO 2: Match de Nome + Qualquer outro valor diferente -> AMARELO
-  // (Isso vai pegar a Valvolandia de R$ 99,80 vs R$ 291,88 e deixá-la amarela com a diferença de R$ 192,08)
+  // (Qualquer diferença maior que R$ 2,00 cai obrigatoriamente aqui!)
   for (const sys of systemRecords) {
     const jáConciliado = results.some(
       (r) => r.id.includes(`-${sys.id}-`) || r.id.includes(`-${sys.id}`),
@@ -131,9 +118,7 @@ export function reconcileData(
 
     const cardMatch = cardRecords.find(
       (card) =>
-        !matchedCardIds.has(card.id) &&
-        isSameEstablishment(sys.parceiro, card.estabelecimento) &&
-        isPaymentWindowValid(card.data, sys.data),
+        !matchedCardIds.has(card.id) && isSameEstablishment(sys.parceiro, card.estabelecimento),
     )
 
     if (cardMatch) {
@@ -155,7 +140,7 @@ export function reconcileData(
     }
   }
 
-  // PASSO 3: Itens que existem APENAS no Sistema -> VERMELHO
+  // PASSO 3: Somente no Sistema -> VERMELHO
   for (const sys of systemRecords) {
     const jáConciliado = results.some(
       (r) => r.id.includes(`-${sys.id}-`) || r.id.includes(`-${sys.id}`),
@@ -178,7 +163,7 @@ export function reconcileData(
     })
   }
 
-  // PASSO 4: Itens que existem APENAS na Fatura -> VERMELHO
+  // PASSO 4: Somente na Fatura -> VERMELHO
   for (const card of cardRecords) {
     if (!matchedCardIds.has(card.id)) {
       results.push({
