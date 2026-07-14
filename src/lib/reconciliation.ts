@@ -10,7 +10,7 @@ function normalize(text: string): string {
 }
 
 /**
- * Validação de nomes estrita.
+ * Validação de nomes para o match perfeito (Verde)
  */
 function isSameEstablishment(parceiro: string, estabelecimento: string): boolean {
   const p = normalize(parceiro)
@@ -73,8 +73,7 @@ function calcDifference(credito: number, valor: number): number {
 }
 
 /**
- * Valida se as datas estão próximas (tolerância máxima de 15 dias)
- * para evitar cruzar compras de meses diferentes.
+ * Valida proximidade de datas (até 15 dias)
  */
 function isDateMatchValid(dataCompraStr?: string, dataPagamentoStr?: string): boolean {
   if (!dataCompraStr || !dataPagamentoStr) return true
@@ -82,7 +81,7 @@ function isDateMatchValid(dataCompraStr?: string, dataPagamentoStr?: string): bo
     const d1 = new Date(dataCompraStr).getTime()
     const d2 = new Date(dataPagamentoStr).getTime()
     const diffDays = Math.abs(d2 - d1) / (1000 * 60 * 60 * 24)
-    return diffDays <= 15 // Ajuste para até 15 dias de diferença
+    return diffDays <= 15
   } catch {
     return true
   }
@@ -95,9 +94,9 @@ export function reconcileData(
   const results: ReconciliationResult[] = []
   const matchedCardIds = new Set<string>()
 
+  // Passo 1: Encontrar todos os Matches Perfeitos primeiro (Nome Igual + Valor Igual) -> VERDE
   for (const sys of systemRecords) {
-    // 1. Procurar correspondente de Nome + Valor Exato + Proximidade de Data -> VERDE
-    let cardMatch = cardRecords.find(
+    const cardMatch = cardRecords.find(
       (card) =>
         !matchedCardIds.has(card.id) &&
         isSameEstablishment(sys.parceiro, card.estabelecimento) &&
@@ -105,43 +104,73 @@ export function reconcileData(
         isDateMatchValid(card.data, sys.data),
     )
 
-    // 2. Se não achou, procurar correspondente de Nome + Proximidade de Data (mas valor diferente) -> AMARELO
-    if (!cardMatch) {
-      cardMatch = cardRecords.find(
-        (card) =>
-          !matchedCardIds.has(card.id) &&
-          isSameEstablishment(sys.parceiro, card.estabelecimento) &&
-          isDateMatchValid(card.data, sys.data),
-      )
-    }
-
     if (cardMatch) {
       matchedCardIds.add(cardMatch.id)
-
-      const isGreen = sameValue(sys.credito, cardMatch.valor)
-
       results.push({
-        id: `${isGreen ? 'GREEN' : 'YELLOW'}-${sys.id}-${cardMatch.id}`,
+        id: `GREEN-${sys.id}-${cardMatch.id}`,
         data: sys.data || cardMatch.data,
         lancamentoDiario: sys.lancamentoDiario,
-        // Exibe de forma transparente os dois nomes na tela para você ver o cruzamento:
-        parceiro: `[SYS] ${sys.parceiro}`,
-        estabelecimento: `[CARD] ${cardMatch.estabelecimento}`,
+        parceiro: sys.parceiro,
+        estabelecimento: cardMatch.estabelecimento,
         categoria: cardMatch.categoria || sys.categoria,
         debito: sys.debito,
         credito: sys.credito,
         valorFatura: cardMatch.valor,
-        diferenca: isGreen ? 0 : calcDifference(sys.credito, cardMatch.valor),
-        status: isGreen ? 'GREEN' : 'YELLOW',
+        diferenca: 0,
+        status: 'GREEN',
+        origem: 'AMBOS',
+      })
+    }
+  }
+
+  // Passo 2: Para o que sobrou, tentar conciliar por Valor Único + Data -> AMARELO
+  // Isso resolve perfeitamente o caso da LOJADOMECANICO de R$ 3055,88 vs MERCADOLIVRE*LOJABELG
+  for (const sys of systemRecords) {
+    // Pula se esse registro do sistema já foi conciliado no Passo 1
+    const jáConciliado = results.some(
+      (r) => r.id.includes(`-${sys.id}-`) || r.id.includes(`-${sys.id}`),
+    )
+    if (jáConciliado) continue
+
+    const valorProcurado = sys.credito
+
+    // Conta quantas faturas ainda disponíveis têm exatamente este valor
+    const faturasComMesmoValor = cardRecords.filter(
+      (c) =>
+        !matchedCardIds.has(c.id) &&
+        sameValue(valorProcurado, c.valor) &&
+        isDateMatchValid(c.data, sys.data),
+    )
+
+    // Conta quantos registros do sistema têm exatamente este valor
+    const sistemasComMesmoValor = systemRecords.filter((s) => sameValue(valorProcurado, s.credito))
+
+    // Segurança contra duplicidade: Só concilia se o valor for exclusivo (1 para 1) naquela faixa de data
+    if (faturasComMesmoValor.length === 1 && sistemasComMesmoValor.length === 1) {
+      const cardMatch = faturasComMesmoValor[0]
+      matchedCardIds.add(cardMatch.id)
+
+      results.push({
+        id: `YELLOW-${sys.id}-${cardMatch.id}`,
+        data: sys.data || cardMatch.data,
+        lancamentoDiario: sys.lancamentoDiario,
+        parceiro: `${sys.parceiro} (Conciliado por Valor)`,
+        estabelecimento: cardMatch.estabelecimento,
+        categoria: cardMatch.categoria || sys.categoria,
+        debito: sys.debito,
+        credito: sys.credito,
+        valorFatura: cardMatch.valor,
+        diferenca: 0,
+        status: 'YELLOW',
         origem: 'AMBOS',
       })
     } else {
-      // Vermelho: Apenas no Sistema
+      // Se não achou match seguro por valor, fica como Vermelho (Só no Sistema)
       results.push({
         id: `RED-SYS-${sys.id}`,
         data: sys.data,
         lancamentoDiario: sys.lancamentoDiario,
-        parceiro: `[SYS] ${sys.parceiro}`,
+        parceiro: sys.parceiro,
         estabelecimento: '-',
         categoria: sys.categoria,
         debito: sys.debito,
@@ -154,7 +183,7 @@ export function reconcileData(
     }
   }
 
-  // Vermelho: Apenas na Fatura
+  // Passo 3: O que sobrou na fatura sem conciliação nenhuma vira Vermelho (Só na Fatura)
   for (const card of cardRecords) {
     if (!matchedCardIds.has(card.id)) {
       results.push({
@@ -162,7 +191,7 @@ export function reconcileData(
         data: card.data,
         lancamentoDiario: '-',
         parceiro: '-',
-        estabelecimento: `[CARD] ${card.estabelecimento}`,
+        estabelecimento: card.estabelecimento,
         categoria: card.categoria,
         debito: null,
         credito: null,
