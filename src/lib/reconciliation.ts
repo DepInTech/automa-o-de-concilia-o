@@ -10,7 +10,7 @@ function normalize(text: string): string {
 }
 
 /**
- * Validação estrita de nomes de estabelecimentos.
+ * Validação de nomes de estabelecimentos.
  */
 function isSameEstablishment(parceiro: string, estabelecimento: string): boolean {
   const p = normalize(parceiro)
@@ -64,20 +64,15 @@ function isSameEstablishment(parceiro: string, estabelecimento: string): boolean
   })
 }
 
-/**
- * Validação de valor igual (com tolerância máxima de R$ 0,05 para dízimas e taxas de centavos)
- */
-function isValueExactlyEqual(credito: number, valor: number): boolean {
-  return Math.abs(credito - valor) <= 0.05
+// Tolerância estrita para o VERDE (pequenos centavos como o Uber)
+function isGreenValueTolerance(credito: number, valor: number): boolean {
+  return Math.abs(credito - valor) <= 2.0
 }
 
 function calcDifference(credito: number, valor: number): number {
   return Math.round((valor - credito) * 100) / 100
 }
 
-/**
- * Validação temporal lógica (compras e faturas devem estar na mesma janela de até 45 dias)
- */
 function isPaymentWindowValid(dataCompraStr?: string, dataPagamentoStr?: string): boolean {
   if (!dataCompraStr || !dataPagamentoStr) return true
   try {
@@ -97,13 +92,13 @@ export function reconcileData(
   const results: ReconciliationResult[] = []
   const matchedCardIds = new Set<string>()
 
-  // PASSO 1: Buscar correspondências perfeitas de Nome + Valor Exato -> VERDE
+  // PASSO 1: Match de Nome + Valor Praticamente Igual (até R$ 2,00 de diferença) -> VERDE
   for (const sys of systemRecords) {
     const cardMatch = cardRecords.find(
       (card) =>
         !matchedCardIds.has(card.id) &&
         isSameEstablishment(sys.parceiro, card.estabelecimento) &&
-        isValueExactlyEqual(sys.credito, card.valor) &&
+        isGreenValueTolerance(sys.credito, card.valor) &&
         isPaymentWindowValid(card.data, sys.data),
     )
 
@@ -117,8 +112,8 @@ export function reconcileData(
         estabelecimento: cardMatch.estabelecimento,
         categoria: cardMatch.categoria || sys.categoria,
         debito: sys.debito,
-        credito: sys.credito, // Puxa o valor real do sistema
-        valorFatura: cardMatch.valor, // Puxa o valor real da fatura
+        credito: sys.credito,
+        valorFatura: cardMatch.valor,
         diferenca: calcDifference(sys.credito, cardMatch.valor),
         status: 'GREEN',
         origem: 'AMBOS',
@@ -126,9 +121,9 @@ export function reconcileData(
     }
   }
 
-  // PASSO 2: Buscar correspondências de Nome com valores diferentes -> AMARELO
+  // PASSO 2: Match de Nome + Qualquer outro valor diferente -> AMARELO
+  // (Isso vai pegar a Valvolandia de R$ 99,80 vs R$ 291,88 e deixá-la amarela com a diferença de R$ 192,08)
   for (const sys of systemRecords) {
-    // Pula se este registro do sistema já foi conciliado no PASSO 1
     const jáConciliado = results.some(
       (r) => r.id.includes(`-${sys.id}-`) || r.id.includes(`-${sys.id}`),
     )
@@ -151,16 +146,16 @@ export function reconcileData(
         estabelecimento: cardMatch.estabelecimento,
         categoria: cardMatch.categoria || sys.categoria,
         debito: sys.debito,
-        credito: sys.credito, // Mantém o valor do sistema
-        valorFatura: cardMatch.valor, // Puxa o valor da fatura
-        diferenca: calcDifference(sys.credito, cardMatch.valor), // Calcula a diferença real na tela
+        credito: sys.credito,
+        valorFatura: cardMatch.valor,
+        diferenca: calcDifference(sys.credito, cardMatch.valor),
         status: 'YELLOW',
         origem: 'AMBOS',
       })
     }
   }
 
-  // PASSO 3: Tudo que sobrou no Sistema sem par de nome -> VERMELHO
+  // PASSO 3: Itens que existem APENAS no Sistema -> VERMELHO
   for (const sys of systemRecords) {
     const jáConciliado = results.some(
       (r) => r.id.includes(`-${sys.id}-`) || r.id.includes(`-${sys.id}`),
@@ -183,7 +178,7 @@ export function reconcileData(
     })
   }
 
-  // PASSO 4: Tudo que sobrou na Fatura sem par de nome -> VERMELHO
+  // PASSO 4: Itens que existem APENAS na Fatura -> VERMELHO
   for (const card of cardRecords) {
     if (!matchedCardIds.has(card.id)) {
       results.push({
