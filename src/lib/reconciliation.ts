@@ -1,5 +1,6 @@
 import type { SystemRecord, CardRecord, ReconciliationResult } from './types'
 
+// Normaliza o texto removendo acentos, espaços extras e deixando em minúsculo
 function normalize(text: string): string {
   return (text || '')
     .toLowerCase()
@@ -9,11 +10,22 @@ function normalize(text: string): string {
     .replace(/\s+/g, ' ')
 }
 
-function samePartner(parceiro: string, estabelecimento: string): boolean {
+/**
+ * Verifica se dois estabelecimentos compartilham alguma palavra significativa (com mais de 3 letras).
+ * Isso resolve casos como "BIOVERA EQUIPAMENTOS" e "VINDI *7LABBIOVERAEQU" (ambos contêm "biovera").
+ */
+function shareCommonWord(parceiro: string, estabelecimento: string): boolean {
   const p = normalize(parceiro)
   const e = normalize(estabelecimento)
   if (!p || !e) return false
-  return p === e || p.includes(e) || e.includes(p)
+
+  // Divide em palavras e filtra palavras muito curtas (ex: "e", "de", "da", "ltda", "me")
+  const ignoreWords = new Set(['ltda', 'servicos', 'equipamentos', 'me', 'eireli', 's/a', 'sa'])
+  const wordsP = p.split(' ').filter((w) => w.length > 3 && !ignoreWords.has(w))
+  const wordsE = e.split(/[\s*]+/).filter((w) => w.length > 3 && !ignoreWords.has(w)) // Divide por espaços ou asteriscos
+
+  // Procura se alguma palavra de 'P' está contida em alguma palavra de 'E' ou vice-versa
+  return wordsP.some((wp) => wordsE.some((we) => we.includes(wp) || wp.includes(we)))
 }
 
 function sameValue(credito: number, valor: number): boolean {
@@ -25,34 +37,26 @@ function calcDifference(credito: number, valor: number): number {
 }
 
 /**
- * Valida se a data de pagamento (Sistema) faz sentido em relação à data de compra (Fatura).
- * A data de pagamento deve ser posterior à data de compra, tipicamente em até 45 dias.
+ * A data de pagamento (Sistema) deve ser posterior à data de compra (Fatura),
+ * tipicamente em até 45 dias.
  */
 function isPaymentWindowValid(dataCompraStr?: string, dataPagamentoStr?: string): boolean {
-  if (!dataCompraStr || !dataPagamentoStr) return true // Se um dos lados não tiver data, não bloqueia
-
+  if (!dataCompraStr || !dataPagamentoStr) return true
   try {
     const dataCompra = new Date(dataCompraStr).getTime()
     const dataPagamento = new Date(dataPagamentoStr).getTime()
-
-    // O pagamento não pode acontecer ANTES da compra
     if (dataPagamento < dataCompra) return false
-
-    // Calcula a diferença em dias
-    const diffTime = dataPagamento - dataCompra
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-
-    // Retorna true se o pagamento ocorreu dentro do ciclo esperado de faturamento (até 45 dias)
+    const diffDays = Math.ceil((dataPagamento - dataCompra) / (1000 * 60 * 60 * 24))
     return diffDays <= 45
   } catch {
-    return true // Fallback em caso de erro de parse de data
+    return true
   }
 }
 
 function createGreen(sistema: SystemRecord, fatura: CardRecord): ReconciliationResult {
   return {
     id: `GREEN-${sistema.id}-${fatura.id}`,
-    data: sistema.data || fatura.data, // Prioriza a data de lançamento ou compra
+    data: sistema.data || fatura.data,
     lancamentoDiario: sistema.lancamentoDiario,
     parceiro: sistema.parceiro,
     estabelecimento: fatura.estabelecimento,
@@ -125,31 +129,34 @@ export function reconcileData(
   const matchedCardIds = new Set<string>()
 
   for (const sys of systemRecords) {
-    // 1ª Tentativa: Procura transações do mesmo parceiro, cujo valor seja igual
-    // E onde o pagamento ocorra em até 45 dias após a data da compra.
+    // 1ª Tentativa (MÁXIMA PRIORIDADE): Valor exato + Janela de Data válida + Nome com palavra parecida
+    // Exemplo: R$ 1850,23 + datas corretas + "BIOVERA" presente nos dois lados.
     let cardMatch = cardRecords.find(
       (card) =>
         !matchedCardIds.has(card.id) &&
-        samePartner(sys.parceiro, card.estabelecimento) &&
         sameValue(sys.credito, card.valor) &&
-        isPaymentWindowValid(card.data, sys.data),
+        isPaymentWindowValid(card.data, sys.data) &&
+        shareCommonWord(sys.parceiro, card.estabelecimento),
     )
 
-    // 2ª Tentativa (Se não achou o valor perfeito): Procura apenas o mesmo parceiro na mesma janela de datas
-    // (Isso gerará o alerta Amarelo para diferença de valor na mesma transação temporal)
+    // 2ª Tentativa: Mesmo valor + Janela de Data válida (Se não houver nomes parecidos, mas for o único valor correspondente na janela)
+    // Útil se o nome na fatura for completamente diferente, ex: "PAG*NomeFantasia" vs "Razao Social Ltda"
     if (!cardMatch) {
       cardMatch = cardRecords.find(
         (card) =>
           !matchedCardIds.has(card.id) &&
-          samePartner(sys.parceiro, card.estabelecimento) &&
+          sameValue(sys.credito, card.valor) &&
           isPaymentWindowValid(card.data, sys.data),
       )
     }
 
-    // 3ª Tentativa (Último recurso): Se não houver correspondência temporal, tenta achar apenas pelo nome
+    // 3ª Tentativa (Fallback de texto): Se não bater o valor exato, mas os nomes tiverem relação e data aceitável (Gera Amarelo)
     if (!cardMatch) {
       cardMatch = cardRecords.find(
-        (card) => !matchedCardIds.has(card.id) && samePartner(sys.parceiro, card.estabelecimento),
+        (card) =>
+          !matchedCardIds.has(card.id) &&
+          isPaymentWindowValid(card.data, sys.data) &&
+          shareCommonWord(sys.parceiro, card.estabelecimento),
       )
     }
 
@@ -158,14 +165,14 @@ export function reconcileData(
       if (sameValue(sys.credito, cardMatch.valor)) {
         results.push(createGreen(sys, cardMatch))
       } else {
-        results.push(createYellow(sys, cardMatch))
+        results.push(createYellow(sys, cardMatch)) // Se caiu na 3ª tentativa, a diferença de valor gerará Amarelo
       }
     } else {
       results.push(createRedSystem(sys))
     }
   }
 
-  // Registros sobressalentes da fatura que não foram mapeados vão para Vermelho
+  // Registros que sobraram na fatura viram Vermelho
   for (const card of cardRecords) {
     if (!matchedCardIds.has(card.id)) {
       results.push(createRedCard(card))
