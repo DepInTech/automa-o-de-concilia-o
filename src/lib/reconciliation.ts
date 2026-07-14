@@ -9,8 +9,12 @@ function normalize(text: string): string {
     .replace(/\s+/g, ' ')
 }
 
+// Melhoria: Verifica se há correspondência parcial para evitar que pequenas diferenças textuais quebrem a busca
 function samePartner(parceiro: string, estabelecimento: string): boolean {
-  return normalize(parceiro) === normalize(estabelecimento)
+  const p = normalize(parceiro)
+  const e = normalize(estabelecimento)
+  if (!p || !e) return false
+  return p === e || p.includes(e) || e.includes(p)
 }
 
 function sameValue(credito: number, valor: number): boolean {
@@ -19,6 +23,20 @@ function sameValue(credito: number, valor: number): boolean {
 
 function calcDifference(credito: number, valor: number): number {
   return Math.round((valor - credito) * 100) / 100
+}
+
+// Auxiliar para verificar se as datas estão próximas (ex: até 5 dias de diferença por atrasos de processamento da fatura)
+function datesAreClose(dateStr1?: string, dateStr2?: string, maxDays = 5): boolean {
+  if (!dateStr1 || !dateStr2) return true // Se um não tiver data, ignora o filtro de proximidade
+  try {
+    const d1 = new Date(dateStr1).getTime()
+    const d2 = new Date(dateStr2).getTime()
+    const diffTime = Math.abs(d1 - d2)
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    return diffDays <= maxDays
+  } catch {
+    return true // Caso ocorra erro de parse na data
+  }
 }
 
 function createGreen(sistema: SystemRecord, fatura: CardRecord): ReconciliationResult {
@@ -97,9 +115,20 @@ export function reconcileData(
   const matchedCardIds = new Set<string>()
 
   for (const sys of systemRecords) {
-    const cardMatch = cardRecords.find(
-      (card) => !matchedCardIds.has(card.id) && samePartner(sys.parceiro, card.estabelecimento),
+    // 1ª Tentativa de busca: Mesma empresa E mesma faixa de data (Evita falsos amarelos quando há compras recorrentes)
+    let cardMatch = cardRecords.find(
+      (card) =>
+        !matchedCardIds.has(card.id) &&
+        samePartner(sys.parceiro, card.estabelecimento) &&
+        datesAreClose(sys.data, card.data, 5),
     )
+
+    // 2ª Tentativa (fallback): Apenas mesma empresa, caso a compra tenha demorado mais de 5 dias para cair na fatura
+    if (!cardMatch) {
+      cardMatch = cardRecords.find(
+        (card) => !matchedCardIds.has(card.id) && samePartner(sys.parceiro, card.estabelecimento),
+      )
+    }
 
     if (cardMatch) {
       matchedCardIds.add(cardMatch.id)
