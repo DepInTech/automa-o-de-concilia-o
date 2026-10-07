@@ -19,11 +19,11 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="border-r border-[#004A46]/40 bg-[#004A46] dark:bg-[#042B28] text-[#F1F5F4]">
-      {/* Cabeçalho da Sidebar com fundo claro contínuo integrado (sem caixa/box branca em volta da logo) */}
-      <SidebarHeader className="p-0 border-b border-[#00796F]/20 bg-[#F4F8F7] dark:bg-[#E9F3F1] text-[#163A38] transition-colors">
+      {/* Cabeçalho da Sidebar com o mesmo fundo verde-petróleo contínuo da sidebar */}
+      <SidebarHeader className="p-0 border-b border-white/10 bg-transparent text-[#F1F5F4] transition-colors">
         <Link
           to="/"
-          className="group block w-full px-5 pt-5 pb-3 transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00796F]"
+          className="group block w-full px-5 pt-6 pb-3 transition-opacity hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#20BFA9]"
           title="Grupo EPA - Página Inicial"
         >
           <div className="flex items-center justify-center w-full">
@@ -35,12 +35,12 @@ export function AppSidebar() {
           </div>
         </Link>
 
-        {/* Subtítulo institucional na faixa clara do cabeçalho */}
-        <div className="flex items-center justify-between px-5 pb-3 text-xs border-t border-[#00796F]/10 pt-2">
-          <span className="text-[10px] uppercase tracking-widest font-bold text-[#00796F]">
+        {/* Subtítulo institucional e badge sobre o fundo verde-petróleo escuro */}
+        <div className="flex items-center justify-between px-5 pb-3.5 text-xs border-t border-white/10 pt-2.5">
+          <span className="text-[10px] uppercase tracking-widest font-semibold text-[#A7C4C0]">
             Conciliação Financeira
           </span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#00796F]/10 font-bold text-[#00796F]">
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#20BFA9]/20 font-bold text-[#20BFA9] border border-[#20BFA9]/30">
             OFICIAL
           </span>
         </div>
