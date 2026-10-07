@@ -81,22 +81,22 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
   return (
     <div className="space-y-4">
       {/* Barra de Filtros e Busca Corporativa */}
-      <div className="flex flex-col sm:flex-row justify-between gap-3 p-3 sm:p-4 rounded-2xl border border-[#008F83]/15 bg-white dark:bg-[#0D3834] shadow-sm">
+      <div className="flex flex-col sm:flex-row justify-between gap-3 p-3 sm:p-4 rounded-2xl border border-[#00796F]/15 bg-white dark:bg-[#0D3834] shadow-sm">
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center w-full sm:w-auto">
           <div className="relative w-full sm:w-72">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-[#64748B] dark:text-[#A7C4C0]" />
+            <Search className="absolute left-3 top-3 h-4 w-4 text-[#647875] dark:text-[#A7C4C0]" />
             <Input
               placeholder="Buscar parceiro, número, estabelecimento..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 h-10 rounded-xl border-[#008F83]/20 bg-[#F5F8F8] dark:bg-[#071F1D] text-sm text-[#12343B] dark:text-[#F1F5F4] focus-visible:ring-[#008F83]"
+              className="pl-9 h-10 rounded-xl border-[#00796F]/20 bg-[#F4F8F7] dark:bg-[#071F1D] text-sm text-[#163A38] dark:text-[#F1F5F4] focus-visible:ring-[#00796F]"
             />
           </div>
           <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl border-[#008F83]/20 bg-[#F5F8F8] dark:bg-[#071F1D] text-sm font-medium text-[#12343B] dark:text-[#F1F5F4] focus:ring-[#008F83]">
+            <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl border-[#00796F]/20 bg-[#F4F8F7] dark:bg-[#071F1D] text-sm font-medium text-[#163A38] dark:text-[#F1F5F4] focus:ring-[#00796F]">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
-            <SelectContent className="bg-white dark:bg-[#0D3834] border-[#008F83]/20 text-[#12343B] dark:text-[#F1F5F4] rounded-xl">
+            <SelectContent className="bg-white dark:bg-[#0D3834] border-[#00796F]/20 text-[#163A38] dark:text-[#F1F5F4] rounded-xl">
               <SelectItem value="ALL">Todos os Status ({data.length})</SelectItem>
               <SelectItem value="GREEN">
                 <span className="flex items-center gap-2">
@@ -122,55 +122,55 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
 
         <Button
           onClick={handleDownload}
-          className="h-10 px-5 rounded-xl bg-[#008F83] hover:bg-[#006B67] text-white font-semibold shadow-sm transition-all flex items-center justify-center gap-2"
+          className="h-10 px-5 rounded-xl bg-[#00796F] hover:bg-[#004A46] text-white font-semibold shadow-sm transition-all flex items-center justify-center gap-2"
         >
           <Download className="w-4 h-4" /> Baixar .CSV
         </Button>
       </div>
 
       {/* Tabela com scroll horizontal suave e bordas elegantes */}
-      <div className="hidden md:block rounded-2xl border border-[#008F83]/15 bg-white dark:bg-[#0D3834] shadow-sm overflow-hidden">
+      <div className="hidden md:block rounded-2xl border border-[#00796F]/15 bg-white dark:bg-[#0D3834] shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
-            <TableHeader className="bg-[#DDF5F0]/40 dark:bg-[#008F83]/10 border-b border-[#008F83]/15">
-              <TableRow className="hover:bg-transparent border-[#008F83]/15">
-                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+            <TableHeader className="bg-[#F4F8F7] dark:bg-[#00796F]/10 border-b border-[#00796F]/15">
+              <TableRow className="hover:bg-transparent border-[#00796F]/15">
+                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Data
                 </TableHead>
                 {bank === 'itau' && (
-                  <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                  <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                     Número
                   </TableHead>
                 )}
                 {bank === 'itau' && (
-                  <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                  <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                     Referência
                   </TableHead>
                 )}
                 {bank === 'santander' && (
-                  <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                  <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                     Lançamento Diário
                   </TableHead>
                 )}
-                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Parceiro
                 </TableHead>
-                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Estabelecimento
                 </TableHead>
-                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Categoria
                 </TableHead>
-                <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Crédito
                 </TableHead>
-                <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Valor Fatura
                 </TableHead>
-                <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Diferença
                 </TableHead>
-                <TableHead className="text-center font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                <TableHead className="text-center font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Status
                 </TableHead>
               </TableRow>
@@ -232,7 +232,7 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
                 <TableRow>
                   <TableCell
                     colSpan={bank === 'itau' ? 11 : 10}
-                    className="text-center h-32 text-[#64748B] dark:text-[#A7C4C0]"
+                    className="text-center h-32 text-[#647875] dark:text-[#A7C4C0]"
                   >
                     Nenhum registro encontrado para os filtros aplicados.
                   </TableCell>

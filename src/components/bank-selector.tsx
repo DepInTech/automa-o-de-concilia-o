@@ -14,7 +14,7 @@ export function BankSelector({ bank, onChange }: BankSelectorProps) {
   ]
 
   return (
-    <div className="inline-flex p-1.5 rounded-2xl border border-[#008F83]/20 bg-white dark:bg-[#0D3834] shadow-sm">
+    <div className="inline-flex p-1.5 rounded-2xl border border-[#00796F]/20 bg-white dark:bg-[#0D3834] shadow-sm">
       {banks.map((b) => {
         const isActive = bank === b.key
         return (
@@ -25,18 +25,18 @@ export function BankSelector({ bank, onChange }: BankSelectorProps) {
             className={cn(
               'px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2.5 relative select-none',
               isActive
-                ? 'bg-[#008F83] text-white shadow-md shadow-[#008F83]/20 dark:bg-[#008F83] dark:text-white'
-                : 'text-[#64748B] dark:text-[#A7C4C0] hover:text-[#006B67] dark:hover:text-[#20C9A6] hover:bg-[#DDF5F0]/40 dark:hover:bg-[#008F83]/10',
+                ? 'bg-[#00796F] text-white shadow-md shadow-[#00796F]/20 dark:bg-[#00796F] dark:text-white'
+                : 'text-[#647875] dark:text-[#A7C4C0] hover:text-[#004A46] dark:hover:text-[#20BFA9] hover:bg-[#F4F8F7] dark:hover:bg-[#00796F]/10',
             )}
           >
             <Building2
               className={cn(
                 'w-4 h-4',
-                isActive ? 'text-white' : 'text-[#008F83] dark:text-[#20C9A6]',
+                isActive ? 'text-white' : 'text-[#00796F] dark:text-[#20BFA9]',
               )}
             />
             <span>{b.label}</span>
-            {isActive && <span className="w-1.5 h-1.5 rounded-full bg-[#20C9A6]" />}
+            {isActive && <span className="w-1.5 h-1.5 rounded-full bg-[#20BFA9]" />}
           </button>
         )
       })}

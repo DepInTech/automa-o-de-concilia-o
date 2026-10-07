@@ -56,15 +56,15 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
       label: 'Registros Sistema',
       value: totalSystem.toString(),
       icon: Database,
-      color: 'text-[#008F83] dark:text-[#20C9A6]',
-      bg: 'bg-[#DDF5F0] dark:bg-[#008F83]/20',
+      color: 'text-[#00796F] dark:text-[#20BFA9]',
+      bg: 'bg-[#F4F8F7] dark:bg-[#00796F]/20',
     },
     {
       label: 'Registros Fatura',
       value: totalInvoice.toString(),
       icon: FileText,
-      color: 'text-[#006B67] dark:text-[#20C9A6]',
-      bg: 'bg-[#DDF5F0]/70 dark:bg-[#008F83]/20',
+      color: 'text-[#004A46] dark:text-[#20BFA9]',
+      bg: 'bg-[#F4F8F7] dark:bg-[#00796F]/20',
     },
     {
       label: 'Conciliados (Verde)',
@@ -98,15 +98,15 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
       label: 'Total Crédito Sistema',
       value: formatCurrency(totalCreditoSistema),
       icon: DollarSign,
-      color: 'text-[#12343B] dark:text-[#F1F5F4]',
-      bg: 'bg-[#F5F8F8] dark:bg-[#071F1D]',
+      color: 'text-[#163A38] dark:text-[#F1F5F4]',
+      bg: 'bg-[#F4F8F7] dark:bg-[#071F1D]',
     },
     {
       label: 'Total Valor Fatura',
       value: formatCurrency(totalValorFatura),
       icon: CreditCard,
-      color: 'text-[#12343B] dark:text-[#F1F5F4]',
-      bg: 'bg-[#F5F8F8] dark:bg-[#071F1D]',
+      color: 'text-[#163A38] dark:text-[#F1F5F4]',
+      bg: 'bg-[#F4F8F7] dark:bg-[#071F1D]',
     },
     {
       label: 'Diferença Total',
@@ -125,8 +125,8 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
       label: 'Percentual Conciliação',
       value: `${percentual.toFixed(1)}%`,
       icon: Percent,
-      color: 'text-[#008F83] dark:text-[#20C9A6]',
-      bg: 'bg-[#DDF5F0] dark:bg-[#008F83]/20',
+      color: 'text-[#00796F] dark:text-[#20BFA9]',
+      bg: 'bg-[#F4F8F7] dark:bg-[#00796F]/20',
     },
   ]
 
@@ -137,7 +137,7 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
         return (
           <Card
             key={m.label}
-            className="rounded-xl border border-[#008F83]/15 bg-white dark:bg-[#0D3834] shadow-sm hover:shadow transition-shadow"
+            className="rounded-xl border border-[#00796F]/15 bg-white dark:bg-[#0D3834] shadow-sm hover:shadow transition-shadow"
           >
             <CardContent className="p-3.5 flex flex-col justify-between h-full">
               <div className="flex items-center gap-2 mb-2">
@@ -146,7 +146,7 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
                 >
                   <Icon className={`w-3.5 h-3.5 ${m.color}`} />
                 </div>
-                <span className="text-[11px] font-semibold text-[#64748B] dark:text-[#A7C4C0] leading-tight">
+                <span className="text-[11px] font-semibold text-[#647875] dark:text-[#A7C4C0] leading-tight">
                   {m.label}
                 </span>
               </div>
