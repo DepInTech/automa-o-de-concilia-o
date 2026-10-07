@@ -10,7 +10,7 @@ interface UploadZoneProps {
 
 export function UploadZone({ title, id, file, onChange, onDownloadSample }: UploadZoneProps) {
   return (
-    <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded-2xl p-10 flex flex-col items-center justify-center text-center hover:bg-slate-50 dark:hover:bg-slate-900/50 hover:border-blue-400 transition-all relative group h-72 shadow-sm">
+    <div className="border-2 border-dashed border-[#008F83]/30 dark:border-[#008F83]/40 bg-white dark:bg-[#0D3834] rounded-2xl p-8 flex flex-col items-center justify-center text-center hover:bg-[#DDF5F0]/20 dark:hover:bg-[#008F83]/10 hover:border-[#008F83] dark:hover:border-[#20C9A6] transition-all relative group h-72 shadow-sm">
       <input
         type="file"
         id={id}
@@ -19,23 +19,34 @@ export function UploadZone({ title, id, file, onChange, onDownloadSample }: Uplo
         onChange={(e) => e.target.files?.[0] && onChange(e.target.files[0])}
       />
       {file ? (
-        <div className="animate-fade-in flex flex-col items-center">
-          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-4 text-blue-600">
+        <div className="animate-fade-in flex flex-col items-center max-w-[280px]">
+          <div className="w-16 h-16 bg-[#DDF5F0] dark:bg-[#008F83]/20 border border-[#008F83]/30 rounded-2xl flex items-center justify-center mb-3 text-[#008F83] dark:text-[#20C9A6] shadow-sm">
             <FileSpreadsheet className="w-8 h-8" />
           </div>
-          <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-1">Arquivo Pronto</h3>
-          <p className="text-sm text-slate-500 font-medium">{file.name}</p>
-          <p className="text-xs text-blue-500 font-semibold mt-4 opacity-0 group-hover:opacity-100 transition-opacity">
-            Clique para trocar
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#DDF5F0] dark:bg-[#008F83]/20 text-[#006B67] dark:text-[#20C9A6] text-xs font-semibold mb-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#008F83] dark:bg-[#20C9A6]" />
+            Arquivo Carregado
+          </div>
+          <h3
+            className="font-bold text-base text-[#12343B] dark:text-[#F1F5F4] truncate w-full"
+            title={file.name}
+          >
+            {file.name}
+          </h3>
+          <p className="text-xs text-[#64748B] dark:text-[#A7C4C0] mt-1 font-medium">
+            {(file.size / 1024).toFixed(1)} KB • Pronto para processar
+          </p>
+          <p className="text-xs text-[#008F83] dark:text-[#20C9A6] font-semibold mt-3 opacity-90 group-hover:underline">
+            Clique para substituir arquivo
           </p>
         </div>
       ) : (
-        <div className="flex flex-col items-center opacity-80 group-hover:opacity-100 transition-opacity">
-          <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4 text-slate-400 group-hover:text-blue-500 group-hover:bg-blue-50 dark:group-hover:bg-blue-900/30 transition-colors">
+        <div className="flex flex-col items-center">
+          <div className="w-16 h-16 bg-[#F5F8F8] dark:bg-[#071F1D] border border-[#008F83]/20 rounded-2xl flex items-center justify-center mb-3 text-[#008F83] dark:text-[#20C9A6] group-hover:scale-105 group-hover:bg-[#DDF5F0] dark:group-hover:bg-[#008F83]/30 transition-all shadow-sm">
             <UploadCloud className="w-8 h-8" />
           </div>
-          <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-2">{title}</h3>
-          <p className="text-sm text-slate-500 max-w-[200px]">
+          <h3 className="font-bold text-lg text-[#12343B] dark:text-[#F1F5F4] mb-1">{title}</h3>
+          <p className="text-xs text-[#64748B] dark:text-[#A7C4C0] max-w-[240px] leading-relaxed">
             Arraste seu arquivo Excel (.xlsx) ou CSV aqui ou clique para buscar
           </p>
           {onDownloadSample && (
@@ -45,9 +56,9 @@ export function UploadZone({ title, id, file, onChange, onDownloadSample }: Uplo
                 e.stopPropagation()
                 onDownloadSample()
               }}
-              className="mt-3 text-xs text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1 transition-colors z-20"
+              className="mt-4 inline-flex items-center gap-1.5 text-xs text-[#006B67] dark:text-[#20C9A6] hover:text-[#008F83] font-semibold px-3 py-1.5 rounded-lg bg-[#DDF5F0]/60 dark:bg-[#008F83]/20 hover:bg-[#DDF5F0] dark:hover:bg-[#008F83]/30 transition-all z-20"
             >
-              <Download className="w-3 h-3" /> Baixar modelo CSV
+              <Download className="w-3.5 h-3.5" /> Baixar modelo CSV
             </button>
           )}
         </div>

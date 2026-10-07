@@ -1,6 +1,8 @@
 async function decompress(data: Uint8Array): Promise<Uint8Array> {
   const ds = new DecompressionStream('deflate-raw')
-  const stream = new Blob([data]).stream().pipeThrough(ds)
+  // Use data.buffer as ArrayBuffer or cast to BlobPart to satisfy strict TypeScript DOM lib types
+  const blobPart: BlobPart = data.buffer as ArrayBuffer
+  const stream = new Blob([blobPart]).stream().pipeThrough(ds)
   const reader = stream.getReader()
   const chunks: Uint8Array[] = []
   let total = 0

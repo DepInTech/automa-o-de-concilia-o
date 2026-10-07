@@ -174,21 +174,47 @@ export default function Index() {
 
   if (step === 'results') {
     return (
-      <div className="space-y-6 pb-12">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-              Resultado da Conciliação
-            </h1>
-            <p className="text-sm text-slate-500 mt-1">
-              {bankLabels[bank]} • {results.length} registros analisados
-            </p>
+      <div className="max-w-7xl mx-auto space-y-6 pb-12 animate-fade-in">
+        {/* Banner / Cabeçalho Corporativo Grupo EPA com formas sutis inspiradas em folhas/sustentabilidade */}
+        <div className="relative overflow-hidden rounded-2xl border border-[#008F83]/20 bg-gradient-to-r from-[#006B67] via-[#008F83] to-[#043330] p-6 sm:p-8 text-white shadow-md">
+          {/* Formas abstratas discretas inspiradas em natureza e sustentabilidade */}
+          <div className="absolute -right-10 -bottom-10 w-48 h-48 rounded-full bg-white/5 blur-2xl pointer-events-none" />
+          <div className="absolute right-24 -top-8 w-32 h-32 rounded-full bg-[#20C9A6]/10 blur-xl pointer-events-none" />
+          <svg
+            className="absolute right-4 bottom-2 w-32 h-32 text-white/5 pointer-events-none hidden sm:block"
+            viewBox="0 0 100 100"
+            fill="currentColor"
+          >
+            <path d="M50 0 C60 30 90 40 100 50 C70 60 60 90 50 100 C40 70 10 60 0 50 C30 40 40 10 50 0 Z" />
+          </svg>
+
+          <div className="relative z-10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm text-xs font-semibold text-[#DDF5F0] mb-2.5">
+                <span className="w-2 h-2 rounded-full bg-[#20C9A6] animate-pulse" />
+                Auditoria e Conciliação Concluída
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                Resultado da Conciliação
+              </h1>
+              <p className="text-sm text-[#DDF5F0]/90 mt-1 font-medium">
+                {bankLabels[bank]} • {results.length} registros analisados
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={handleReset}
+              className="bg-white/95 text-[#006B67] hover:bg-white hover:text-[#004D4A] border-none shadow-md font-semibold rounded-xl"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" /> Nova Conciliação
+            </Button>
           </div>
-          <Button variant="outline" onClick={handleReset} className="bg-white dark:bg-slate-950">
-            <RefreshCw className="w-4 h-4 mr-2" /> Nova Conciliação
-          </Button>
         </div>
+
+        {/* Indicadores Redesenhados */}
         <SummaryCards results={results} />
+
+        {/* Tabela de Resultados */}
         <ResultsTable
           data={results}
           systemRecords={systemRecords}
@@ -200,33 +226,45 @@ export default function Index() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8 pb-12">
+    <div className="max-w-5xl mx-auto space-y-8 pb-12 animate-fade-in">
+      {/* Cabeçalho de Boas-Vindas & Identidade EPA */}
       <div className="text-center space-y-3">
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#DDF5F0] dark:bg-[#008F83]/20 border border-[#008F83]/20 text-[#006B67] dark:text-[#20C9A6] text-xs font-bold uppercase tracking-wider">
+          <span className="w-2 h-2 rounded-full bg-[#008F83] dark:bg-[#20C9A6]" />
+          Tecnologia & Controladoria Financeira
+        </div>
+        <h1 className="text-3xl sm:text-4xl font-black text-[#12343B] dark:text-[#F1F5F4] tracking-tight">
           Conciliação Financeira
         </h1>
-        <p className="text-slate-500 text-lg">
+        <p className="text-[#64748B] dark:text-[#A7C4C0] text-base sm:text-lg max-w-2xl mx-auto">
           Selecione o banco e faça upload dos arquivos para conciliação automática
         </p>
       </div>
 
+      {/* Seletor de Banco */}
       <div className="flex justify-center">
         <BankSelector bank={bank} onChange={handleBankChange} />
       </div>
 
       {parseError && (
-        <Alert variant="destructive">
+        <Alert variant="destructive" className="rounded-xl shadow-sm">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Erro ao Processar</AlertTitle>
+          <AlertTitle className="font-semibold">Erro ao Processar</AlertTitle>
           <AlertDescription>{parseError}</AlertDescription>
         </Alert>
       )}
 
+      {/* Cards de Upload */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="space-y-2">
-          <h2 className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-            <Database className="w-4 h-4 text-blue-600" /> Sistema (Odoo)
-          </h2>
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="font-bold text-sm text-[#006B67] dark:text-[#20C9A6] flex items-center gap-2">
+              <Database className="w-4 h-4 text-[#008F83]" /> Sistema (Odoo)
+            </h2>
+            <span className="text-[11px] font-semibold text-[#64748B] dark:text-[#A7C4C0]">
+              Relatório Contábil
+            </span>
+          </div>
           <UploadZone
             title="Sistema (Odoo)"
             id="system-file"
@@ -235,11 +273,17 @@ export default function Index() {
             onDownloadSample={handleDownloadSystemSample}
           />
         </div>
-        <div className="space-y-2">
-          <h2 className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-            <FileSpreadsheet className={`w-4 h-4 ${theme.accent}`} />
-            Fatura do Cartão ({bankLabels[bank]})
-          </h2>
+
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="font-bold text-sm text-[#006B67] dark:text-[#20C9A6] flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4 text-[#008F83] dark:text-[#20C9A6]" />
+              Fatura do Cartão ({bankLabels[bank]})
+            </h2>
+            <span className="text-[11px] font-semibold text-[#64748B] dark:text-[#A7C4C0]">
+              Arquivo Bancário
+            </span>
+          </div>
           <UploadZone
             title="Fatura do Cartão"
             id="card-file"
@@ -250,20 +294,22 @@ export default function Index() {
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-center gap-4">
+      {/* Botões de Ação */}
+      <div className="flex flex-col sm:flex-row justify-center items-center gap-4 pt-2">
         <Button
           variant="outline"
           onClick={handleDemoData}
           size="lg"
-          className="bg-white dark:bg-slate-950"
+          className="w-full sm:w-auto h-12 px-6 rounded-xl border-[#008F83]/30 hover:border-[#008F83] text-[#006B67] dark:text-[#20C9A6] bg-white dark:bg-[#0D3834] hover:bg-[#DDF5F0] dark:hover:bg-[#008F83]/20 font-semibold shadow-sm transition-all"
         >
-          <Wand2 className="w-4 h-4 mr-2" /> Usar Dados de Demonstração
+          <Wand2 className="w-4 h-4 mr-2 text-[#008F83] dark:text-[#20C9A6]" /> Usar Dados de
+          Demonstração
         </Button>
         <Button
           onClick={handleProcessFiles}
           size="lg"
           disabled={isProcessing}
-          className={`text-white ${theme.primary} ${theme.hover}`}
+          className="w-full sm:w-auto h-12 px-8 rounded-xl font-bold shadow-lg shadow-[#008F83]/20 text-white bg-[#008F83] hover:bg-[#006B67] transition-all"
         >
           {isProcessing ? (
             <>

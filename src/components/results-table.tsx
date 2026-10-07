@@ -56,16 +56,15 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
   const getRowClass = (status: string) => {
     switch (status) {
       case 'GREEN':
-        return 'bg-[#dcfce7] hover:bg-[#bbf7d0] text-[#166534] border-b-[#bbf7d0] dark:bg-emerald-950/30 dark:hover:bg-emerald-900/40 dark:text-emerald-400 dark:border-b-emerald-900/50'
+        return 'bg-emerald-50/70 hover:bg-emerald-100/70 text-emerald-950 border-emerald-200 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-900/40'
       case 'YELLOW':
-        return 'bg-[#fef9c3] hover:bg-[#fef08a] text-[#854d0e] border-b-[#fef08a] dark:bg-amber-950/30 dark:hover:bg-amber-900/40 dark:text-amber-400 dark:border-b-amber-900/50'
+        return 'bg-amber-50/70 hover:bg-amber-100/70 text-amber-950 border-amber-200 dark:bg-amber-950/20 dark:hover:bg-amber-900/30 dark:text-amber-200 dark:border-amber-900/40'
       case 'RED':
-        return 'bg-[#fee2e2] hover:bg-[#fecaca] text-[#991b1b] border-b-[#fecaca] dark:bg-rose-950/30 dark:hover:bg-rose-900/40 dark:text-rose-400 dark:border-b-rose-900/50'
+        return 'bg-rose-50/70 hover:bg-rose-100/70 text-rose-950 border-rose-200 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 dark:text-rose-200 dark:border-rose-900/40'
       default:
         return ''
     }
   }
-
   const statusLabel = (s: string) =>
     s === 'GREEN' ? 'Conciliado' : s === 'YELLOW' ? 'Divergente' : 'Não Encontrado'
 
@@ -81,86 +80,148 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row justify-between gap-4">
-        <div className="flex gap-4 items-center w-full sm:w-auto">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
+      {/* Barra de Filtros e Busca Corporativa */}
+      <div className="flex flex-col sm:flex-row justify-between gap-3 p-3 sm:p-4 rounded-2xl border border-[#008F83]/15 bg-white dark:bg-[#0D3834] shadow-sm">
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center w-full sm:w-auto">
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-[#64748B] dark:text-[#A7C4C0]" />
             <Input
-              placeholder="Buscar parceiro..."
+              placeholder="Buscar parceiro, número, estabelecimento..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 bg-white dark:bg-slate-950"
+              className="pl-9 h-10 rounded-xl border-[#008F83]/20 bg-[#F5F8F8] dark:bg-[#071F1D] text-sm text-[#12343B] dark:text-[#F1F5F4] focus-visible:ring-[#008F83]"
             />
           </div>
           <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-[180px] bg-white dark:bg-slate-950">
+            <SelectTrigger className="w-full sm:w-[200px] h-10 rounded-xl border-[#008F83]/20 bg-[#F5F8F8] dark:bg-[#071F1D] text-sm font-medium text-[#12343B] dark:text-[#F1F5F4] focus:ring-[#008F83]">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">Todos os Status</SelectItem>
-              <SelectItem value="GREEN">Conciliados (Verde)</SelectItem>
-              <SelectItem value="YELLOW">Divergentes (Amarelo)</SelectItem>
-              <SelectItem value="RED">Ausentes (Vermelho)</SelectItem>
+            <SelectContent className="bg-white dark:bg-[#0D3834] border-[#008F83]/20 text-[#12343B] dark:text-[#F1F5F4] rounded-xl">
+              <SelectItem value="ALL">Todos os Status ({data.length})</SelectItem>
+              <SelectItem value="GREEN">
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  Conciliados (Verde)
+                </span>
+              </SelectItem>
+              <SelectItem value="YELLOW">
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  Divergentes (Amarelo)
+                </span>
+              </SelectItem>
+              <SelectItem value="RED">
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-rose-500" />
+                  Ausentes (Vermelho)
+                </span>
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>
+
         <Button
           onClick={handleDownload}
-          className="bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900"
+          className="h-10 px-5 rounded-xl bg-[#008F83] hover:bg-[#006B67] text-white font-semibold shadow-sm transition-all flex items-center justify-center gap-2"
         >
-          <Download className="w-4 h-4 mr-2" /> Baixar .CSV
+          <Download className="w-4 h-4" /> Baixar .CSV
         </Button>
       </div>
 
-      <div className="hidden md:block rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-sm overflow-hidden">
+      {/* Tabela com scroll horizontal suave e bordas elegantes */}
+      <div className="hidden md:block rounded-2xl border border-[#008F83]/15 bg-white dark:bg-[#0D3834] shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
-            <TableHeader className="bg-slate-50 dark:bg-slate-900/50">
-              <TableRow>
-                <TableHead className="whitespace-nowrap">Data</TableHead>
-                {bank === 'itau' && <TableHead className="whitespace-nowrap">Número</TableHead>}
-                {bank === 'itau' && <TableHead className="whitespace-nowrap">Referência</TableHead>}
-                {bank === 'santander' && (
-                  <TableHead className="whitespace-nowrap">Lançamento Diário</TableHead>
+            <TableHeader className="bg-[#DDF5F0]/40 dark:bg-[#008F83]/10 border-b border-[#008F83]/15">
+              <TableRow className="hover:bg-transparent border-[#008F83]/15">
+                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                  Data
+                </TableHead>
+                {bank === 'itau' && (
+                  <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                    Número
+                  </TableHead>
                 )}
-                <TableHead className="whitespace-nowrap">Parceiro</TableHead>
-                <TableHead className="whitespace-nowrap">Estabelecimento</TableHead>
-                <TableHead className="whitespace-nowrap">Categoria</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Crédito</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Valor Fatura</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Diferença</TableHead>
-                <TableHead className="text-center">Status</TableHead>
+                {bank === 'itau' && (
+                  <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                    Referência
+                  </TableHead>
+                )}
+                {bank === 'santander' && (
+                  <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                    Lançamento Diário
+                  </TableHead>
+                )}
+                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                  Parceiro
+                </TableHead>
+                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                  Estabelecimento
+                </TableHead>
+                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                  Categoria
+                </TableHead>
+                <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                  Crédito
+                </TableHead>
+                <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                  Valor Fatura
+                </TableHead>
+                <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                  Diferença
+                </TableHead>
+                <TableHead className="text-center font-bold text-xs uppercase tracking-wider text-[#006B67] dark:text-[#20C9A6]">
+                  Status
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.map((r) => (
                 <TableRow key={r.id} className={`${getRowClass(r.status)} transition-colors`}>
-                  <TableCell className="whitespace-nowrap font-medium">{r.data}</TableCell>
+                  <TableCell className="whitespace-nowrap font-semibold text-xs sm:text-sm">
+                    {r.data}
+                  </TableCell>
                   {bank === 'itau' && (
-                    <TableCell className="whitespace-nowrap">{r.numero ?? '-'}</TableCell>
+                    <TableCell className="whitespace-nowrap text-xs font-mono">
+                      {r.numero ?? '-'}
+                    </TableCell>
                   )}
                   {bank === 'itau' && (
-                    <TableCell className="whitespace-nowrap">{r.referencia ?? '-'}</TableCell>
+                    <TableCell className="whitespace-nowrap text-xs">
+                      {r.referencia ?? '-'}
+                    </TableCell>
                   )}
                   {bank === 'santander' && (
-                    <TableCell className="whitespace-nowrap">{r.lancamentoDiario ?? '-'}</TableCell>
+                    <TableCell className="whitespace-nowrap text-xs font-mono">
+                      {r.lancamentoDiario ?? '-'}
+                    </TableCell>
                   )}
-                  <TableCell className="whitespace-nowrap">{r.parceiro}</TableCell>
-                  <TableCell className="whitespace-nowrap">{r.estabelecimento}</TableCell>
-                  <TableCell className="whitespace-nowrap">{r.categoria}</TableCell>
-                  <TableCell className="text-right whitespace-nowrap font-medium">
+                  <TableCell className="whitespace-nowrap font-medium text-xs sm:text-sm">
+                    {r.parceiro}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap font-medium text-xs sm:text-sm">
+                    {r.estabelecimento}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-xs">{r.categoria}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap font-semibold text-xs sm:text-sm">
                     {formatCurrency(r.credito)}
                   </TableCell>
-                  <TableCell className="text-right whitespace-nowrap font-medium">
+                  <TableCell className="text-right whitespace-nowrap font-semibold text-xs sm:text-sm">
                     {formatCurrency(r.valorFatura)}
                   </TableCell>
-                  <TableCell className="text-right whitespace-nowrap font-bold opacity-80">
+                  <TableCell className="text-right whitespace-nowrap font-bold text-xs sm:text-sm">
                     {formatCurrency(r.diferenca)}
                   </TableCell>
                   <TableCell className="text-center">
                     <Badge
                       variant="outline"
-                      className="bg-white/50 dark:bg-black/20 font-semibold border-current/20 shadow-none"
+                      className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none ${
+                        r.status === 'GREEN'
+                          ? 'bg-emerald-100/80 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
+                          : r.status === 'YELLOW'
+                            ? 'bg-amber-100/80 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
+                            : 'bg-rose-100/80 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800'
+                      }`}
                     >
                       {statusLabel(r.status)}
                     </Badge>
@@ -171,7 +232,7 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
                 <TableRow>
                   <TableCell
                     colSpan={bank === 'itau' ? 11 : 10}
-                    className="text-center h-32 text-slate-500"
+                    className="text-center h-32 text-[#64748B] dark:text-[#A7C4C0]"
                   >
                     Nenhum registro encontrado para os filtros aplicados.
                   </TableCell>

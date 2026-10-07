@@ -26,11 +26,11 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
   const conciliated = results.filter((r) => r.status === 'GREEN')
   const divergent = results.filter((r) => r.status === 'YELLOW')
 
-  // 🟢 CORRIGIDO: Identifica "Somente Sistema" se não tiver Estabelecimento atribuído
+  // Identifica "Somente Sistema" se não tiver Estabelecimento atribuído
   const onlySystem = results.filter(
     (r) => r.status === 'RED' && (!r.estabelecimento || r.estabelecimento === '-'),
   )
-  // 🟢 CORRIGIDO: Identifica "Somente Fatura" se não tiver Parceiro atribuído
+  // Identifica "Somente Fatura" se não tiver Parceiro atribuído
   const onlyInvoice = results.filter(
     (r) => r.status === 'RED' && (!r.parceiro || r.parceiro === '-'),
   )
@@ -42,7 +42,7 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
   const totalCreditoSistema = results.reduce((acc, r) => acc + (r.credito || 0), 0)
   const totalValorFatura = results.reduce((acc, r) => acc + (r.valorFatura || 0), 0)
 
-  // 🟢 CORRIGIDO: Soma a diferença APENAS dos registros Amarelos (Divergentes)
+  // Soma a diferença APENAS dos registros Amarelos (Divergentes)
   const diferencaTotal =
     Math.round(
       results.filter((r) => r.status === 'YELLOW').reduce((acc, r) => acc + (r.diferenca || 0), 0) *
@@ -56,63 +56,66 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
       label: 'Registros Sistema',
       value: totalSystem.toString(),
       icon: Database,
-      color: 'text-blue-600',
-      bg: 'bg-blue-50 dark:bg-blue-950/30',
+      color: 'text-[#008F83] dark:text-[#20C9A6]',
+      bg: 'bg-[#DDF5F0] dark:bg-[#008F83]/20',
     },
     {
       label: 'Registros Fatura',
       value: totalInvoice.toString(),
       icon: FileText,
-      color: 'text-cyan-600',
-      bg: 'bg-cyan-50 dark:bg-cyan-950/30',
+      color: 'text-[#006B67] dark:text-[#20C9A6]',
+      bg: 'bg-[#DDF5F0]/70 dark:bg-[#008F83]/20',
     },
     {
       label: 'Conciliados (Verde)',
       value: conciliated.length.toString(),
       icon: CheckCircle2,
-      color: 'text-emerald-600',
-      bg: 'bg-emerald-50 dark:bg-emerald-500/10',
+      color: 'text-emerald-700 dark:text-emerald-400',
+      bg: 'bg-emerald-50 dark:bg-emerald-500/15',
     },
     {
       label: 'Divergentes (Amarelo)',
       value: divergent.length.toString(),
       icon: AlertTriangle,
-      color: 'text-amber-600',
-      bg: 'bg-amber-50 dark:bg-amber-500/10',
+      color: 'text-amber-700 dark:text-amber-400',
+      bg: 'bg-amber-50 dark:bg-amber-500/15',
     },
     {
       label: 'Somente Sistema',
       value: onlySystem.length.toString(),
       icon: Building2,
-      color: 'text-rose-600',
-      bg: 'bg-rose-50 dark:bg-rose-500/10',
+      color: 'text-rose-700 dark:text-rose-400',
+      bg: 'bg-rose-50 dark:bg-rose-500/15',
     },
     {
       label: 'Somente Fatura',
       value: onlyInvoice.length.toString(),
       icon: XCircle,
-      color: 'text-rose-600',
-      bg: 'bg-rose-50 dark:bg-rose-500/10',
+      color: 'text-rose-700 dark:text-rose-400',
+      bg: 'bg-rose-50 dark:bg-rose-500/15',
     },
     {
       label: 'Total Crédito Sistema',
       value: formatCurrency(totalCreditoSistema),
       icon: DollarSign,
-      color: 'text-slate-700 dark:text-slate-300',
-      bg: 'bg-slate-100 dark:bg-slate-800/50',
+      color: 'text-[#12343B] dark:text-[#F1F5F4]',
+      bg: 'bg-[#F5F8F8] dark:bg-[#071F1D]',
     },
     {
       label: 'Total Valor Fatura',
       value: formatCurrency(totalValorFatura),
       icon: CreditCard,
-      color: 'text-slate-700 dark:text-slate-300',
-      bg: 'bg-slate-100 dark:bg-slate-800/50',
+      color: 'text-[#12343B] dark:text-[#F1F5F4]',
+      bg: 'bg-[#F5F8F8] dark:bg-[#071F1D]',
     },
     {
       label: 'Diferença Total',
       value: formatCurrency(diferencaTotal),
       icon: Scale,
-      color: diferencaTotal === 0 ? 'text-emerald-600' : 'text-rose-600',
+      color:
+        diferencaTotal === 0
+          ? 'text-emerald-700 dark:text-emerald-400'
+          : 'text-rose-700 dark:text-rose-400',
       bg:
         diferencaTotal === 0
           ? 'bg-emerald-50 dark:bg-emerald-950/30'
@@ -122,8 +125,8 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
       label: 'Percentual Conciliação',
       value: `${percentual.toFixed(1)}%`,
       icon: Percent,
-      color: 'text-blue-600',
-      bg: 'bg-blue-50 dark:bg-blue-950/30',
+      color: 'text-[#008F83] dark:text-[#20C9A6]',
+      bg: 'bg-[#DDF5F0] dark:bg-[#008F83]/20',
     },
   ]
 
@@ -132,17 +135,22 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
       {metrics.map((m) => {
         const Icon = m.icon
         return (
-          <Card key={m.label} className="shadow-sm">
-            <CardContent className="p-3">
+          <Card
+            key={m.label}
+            className="rounded-xl border border-[#008F83]/15 bg-white dark:bg-[#0D3834] shadow-sm hover:shadow transition-shadow"
+          >
+            <CardContent className="p-3.5 flex flex-col justify-between h-full">
               <div className="flex items-center gap-2 mb-2">
-                <div className={`p-1.5 rounded-md shrink-0 ${m.bg}`}>
+                <div
+                  className={`w-7 h-7 rounded-lg shrink-0 flex items-center justify-center ${m.bg}`}
+                >
                   <Icon className={`w-3.5 h-3.5 ${m.color}`} />
                 </div>
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 leading-tight">
+                <span className="text-[11px] font-semibold text-[#64748B] dark:text-[#A7C4C0] leading-tight">
                   {m.label}
                 </span>
               </div>
-              <p className={`text-base font-bold ${m.color} truncate`}>{m.value}</p>
+              <p className={`text-base font-bold ${m.color} truncate tracking-tight`}>{m.value}</p>
             </CardContent>
           </Card>
         )

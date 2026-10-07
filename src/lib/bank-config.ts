@@ -15,17 +15,17 @@ export interface BankTheme {
 
 export const bankThemes: Record<BankType, BankTheme> = {
   itau: {
-    primary: 'bg-orange-600',
-    hover: 'hover:bg-orange-700',
-    accent: 'text-orange-600',
-    light: 'bg-orange-50 dark:bg-orange-950/30',
-    border: 'border-orange-400',
+    primary: 'bg-[#008F83]',
+    hover: 'hover:bg-[#006B67]',
+    accent: 'text-[#008F83] dark:text-[#20C9A6]',
+    light: 'bg-[#DDF5F0]/60 dark:bg-[#008F83]/15',
+    border: 'border-[#008F83]/40',
   },
   santander: {
-    primary: 'bg-red-600',
-    hover: 'hover:bg-red-700',
-    accent: 'text-red-600',
-    light: 'bg-red-50 dark:bg-red-950/30',
-    border: 'border-red-400',
+    primary: 'bg-[#008F83]',
+    hover: 'hover:bg-[#006B67]',
+    accent: 'text-[#008F83] dark:text-[#20C9A6]',
+    light: 'bg-[#DDF5F0]/60 dark:bg-[#008F83]/15',
+    border: 'border-[#008F83]/40',
   },
 }
