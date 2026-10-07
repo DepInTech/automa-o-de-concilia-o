@@ -231,7 +231,7 @@ export default function Index() {
       <div className="text-center space-y-3">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#DDF5F0] dark:bg-[#008F83]/20 border border-[#008F83]/20 text-[#006B67] dark:text-[#20C9A6] text-xs font-bold uppercase tracking-wider">
           <span className="w-2 h-2 rounded-full bg-[#008F83] dark:bg-[#20C9A6]" />
-          Tecnologia & Controladoria Financeira
+          Gestão Financeira
         </div>
         <h1 className="text-3xl sm:text-4xl font-black text-[#12343B] dark:text-[#F1F5F4] tracking-tight">
           Conciliação Financeira

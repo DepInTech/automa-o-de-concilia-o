@@ -10,7 +10,7 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
 } from '@/components/ui/sidebar'
-import { FileUp, FileSpreadsheet, ShieldCheck, HelpCircle } from 'lucide-react'
+import { FileUp } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { EpaLogo } from './epa-logo'
 
@@ -20,11 +20,11 @@ export function AppSidebar() {
   return (
     <Sidebar className="border-r border-[#006B67]/30 bg-[#004D4A] dark:bg-[#043330] text-[#F1F5F4]">
       <SidebarHeader className="p-4 border-b border-white/10">
-        <div className="bg-white rounded-xl p-2.5 shadow-sm flex items-center justify-center">
+        <div className="flex items-center justify-center py-2 px-1">
           <EpaLogo size="md" />
         </div>
-        <div className="mt-2 text-center">
-          <p className="text-xs uppercase tracking-wider font-semibold text-[#20C9A6]">
+        <div className="mt-1 text-center">
+          <p className="text-[11px] uppercase tracking-wider font-semibold text-[#20C9A6]/90">
             Gestão Financeira
           </p>
         </div>
@@ -48,39 +48,8 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-[#A7C4C0] hover:text-white hover:bg-white/10 opacity-80"
-                >
-                  <span className="cursor-default">
-                    <FileSpreadsheet className="w-4 h-4 text-[#A7C4C0]" />
-                    <span>Relatórios Odoo</span>
-                  </span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-[#A7C4C0] hover:text-white hover:bg-white/10 opacity-80"
-                >
-                  <span className="cursor-default">
-                    <ShieldCheck className="w-4 h-4 text-[#A7C4C0]" />
-                    <span>Auditoria & Logs</span>
-                  </span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup className="mt-auto">
-          <div className="px-3 py-2 rounded-lg bg-black/20 text-[11px] text-[#A7C4C0] flex items-center gap-2">
-            <HelpCircle className="w-4 h-4 text-[#20C9A6] shrink-0" />
-            <span>Suporte: controladoria@grupoepa.com.br</span>
-          </div>
         </SidebarGroup>
       </SidebarContent>
 
