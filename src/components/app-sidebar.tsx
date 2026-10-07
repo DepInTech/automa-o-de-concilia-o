@@ -19,20 +19,14 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="border-r border-[#004A46]/40 bg-[#004A46] dark:bg-[#042B28] text-[#F1F5F4]">
-      {/* Cabeçalho da Sidebar com a logo oficial proporcional e área de proteção neutra */}
-      <SidebarHeader className="p-4 border-b border-white/10 space-y-3">
-        {/*
-          Área de proteção neutra clara recomendada no briefing:
-          Ocupa a largura útil da sidebar (~85-90%), com cantos arredondados,
-          garantindo contraste e legibilidade impecáveis para a árvore e texto verde-petróleo
-          em ambos os temas claro e escuro, sem filtros CSS que alterem a logo.
-        */}
+      {/* Cabeçalho da Sidebar com fundo claro contínuo integrado (sem caixa/box branca em volta da logo) */}
+      <SidebarHeader className="p-0 border-b border-[#00796F]/20 bg-[#F4F8F7] dark:bg-[#E9F3F1] text-[#163A38] transition-colors">
         <Link
           to="/"
-          className="group block w-full rounded-2xl bg-white dark:bg-[#F4F8F7] px-4 py-3.5 shadow-md ring-1 ring-black/5 transition-all hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#20BFA9]"
+          className="group block w-full px-5 pt-5 pb-3 transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00796F]"
           title="Grupo EPA - Página Inicial"
         >
-          <div className="flex items-center justify-center w-full py-0.5">
+          <div className="flex items-center justify-center w-full">
             <EpaLogo
               variant="full"
               size="custom"
@@ -41,12 +35,12 @@ export function AppSidebar() {
           </div>
         </Link>
 
-        {/* Subtítulo institucional com separador sutil */}
-        <div className="flex items-center justify-between px-1 pt-1 text-xs text-[#A7C4C0]">
-          <span className="text-[10px] uppercase tracking-widest font-bold text-[#20BFA9]">
+        {/* Subtítulo institucional na faixa clara do cabeçalho */}
+        <div className="flex items-center justify-between px-5 pb-3 text-xs border-t border-[#00796F]/10 pt-2">
+          <span className="text-[10px] uppercase tracking-widest font-bold text-[#00796F]">
             Conciliação Financeira
           </span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 font-medium text-white/80">
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#00796F]/10 font-bold text-[#00796F]">
             OFICIAL
           </span>
         </div>
