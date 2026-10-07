@@ -16,15 +16,15 @@ export interface EpaLogoProps {
 /**
  * Componente oficial vetorizado da marca GRUPO EPA.
  *
- * Reproduz fielmente a logo oficial:
- * 1. Círculo com gradiente radial azul-claro (centro suave #EAF7FC / #CFEBF7 desbotando para #7EC4E7 / #6CBEE4 nas bordas).
- * 2. Silhueta precisa e recortada da árvore frondosa em verde-petróleo (#1D7A74 / #176B66),
- *    com copa densa multilobada e tronco que se abre na base.
+ * 100% SVG vetorial inline transparente (sem fundo branco em caixa), reproduzindo fielmente:
+ * 1. Círculo à esquerda com gradiente radial azul-claro oficial
+ *    (centro luminoso quase branco #EBF8FD desbotando suavemente para azul-celeste nas bordas #7DC3E6).
+ * 2. Silhueta precisa e detalhada da ÁRVORE frondosa em verde-petróleo (#0D726D / #137771),
+ *    com copa densa multilobada e tronco que se divide em raízes abertas na base do círculo.
  * 3. À direita do círculo (na variante 'full'):
- *    - Linha superior: "GRUPO" com tracking amplo e serifa sutil clássica da identidade.
- *    - Linha inferior: "EPA" em proporção dominante, com serifas suaves e elegantes.
- *
- * 100% SVG vetorial inline transparente (sem caixa branca externa), adaptável a temas claros e escuros.
+ *    - "GRUPO": maiúsculas, letter-spacing amplo, elegante e proporcional.
+ *    - "EPA": maiúsculas dominantes com serifas e proporções fiéis ao logotipo oficial.
+ * 4. Adaptabilidade a fundos escuros (ex: sidebar) e claros com contraste e legibilidade ideais.
  */
 export function EpaLogo({
   className = '',
@@ -32,9 +32,6 @@ export function EpaLogo({
   size = 'md',
   textColorMode = 'auto',
 }: EpaLogoProps) {
-  // Proporções:
-  // - Símbolo (círculo): 200 x 200 (1:1)
-  // - Full (círculo + texto): 520 x 200 (~2.6:1)
   const isFull = variant === 'full'
 
   const sizeStyles = {
@@ -44,24 +41,24 @@ export function EpaLogo({
     xl: isFull ? 'h-16' : 'h-16 w-16',
   }[size]
 
-  // IDs únicos para gradientes locais (evita colisão de IDs se renderizado múltiplas vezes)
-  const idPrefix = 'epa-brand'
-  const radialGradId = `${idPrefix}-bg-radial`
-
   // Cores do texto
-  // - auto: usa classe CSS para tema claro (#1D7A74) e tema escuro (#31C2A5 / #55D4BB para máxima legibilidade na sidebar verde-escura)
-  // - brand: sempre #1D7A74 (verde-petróleo oficial)
-  // - light: sempre tom claro (#3CD1B5)
+  // - auto: usa classe CSS para tema claro (#0D726D) e tema escuro (#20C9A6)
+  // - brand: sempre tom verde petróleo oficial (#0D726D)
+  // - light: tom turquesa brilhante de alta visibilidade em superfícies escuras (#20C9A6)
   const textClass =
     textColorMode === 'brand'
-      ? 'fill-[#1D7A74]'
+      ? 'fill-[#0D726D]'
       : textColorMode === 'light'
-        ? 'fill-[#3CD1B5]'
-        : 'fill-[#1D7A74] dark:fill-[#2FD6B4]'
+        ? 'fill-[#20C9A6]'
+        : 'fill-[#0D726D] dark:fill-[#20C9A6]'
+
+  // IDs para gradientes e clipPath locais
+  const radialGradId = 'epa-brand-radial-bg'
+  const circleClipId = 'epa-brand-circle-clip'
 
   return (
     <svg
-      viewBox={isFull ? '0 0 520 200' : '0 0 200 200'}
+      viewBox={isFull ? '0 0 720 360' : '0 0 360 360'}
       className={`shrink-0 select-none overflow-visible ${sizeStyles} ${className}`}
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
@@ -69,72 +66,124 @@ export function EpaLogo({
       aria-label="Grupo EPA"
     >
       <defs>
-        {/* Gradiente radial azul do círculo: centro luminoso suave desbotando para as bordas */}
-        <radialGradient id={radialGradId} cx="46%" cy="42%" r="54%" fx="42%" fy="38%">
+        {/* Gradiente radial azul do círculo: iluminação suave no centro superior desbotando para as bordas */}
+        <radialGradient
+          id={radialGradId}
+          cx="42%"
+          cy="38%"
+          r="58%"
+          fx="38%"
+          fy="32%"
+          gradientUnits="userSpaceOnUse"
+        >
           <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.95" />
-          <stop offset="28%" stopColor="#EAF7FC" stopOpacity="0.9" />
-          <stop offset="68%" stopColor="#AEE0F5" stopOpacity="0.85" />
-          <stop offset="92%" stopColor="#80C8EC" stopOpacity="0.92" />
-          <stop offset="100%" stopColor="#67BEE7" stopOpacity="0.98" />
+          <stop offset="25%" stopColor="#EBF8FD" stopOpacity="0.9" />
+          <stop offset="60%" stopColor="#A8DCF2" stopOpacity="0.88" />
+          <stop offset="88%" stopColor="#78C0E6" stopOpacity="0.95" />
+          <stop offset="100%" stopColor="#64B6E1" stopOpacity="1" />
         </radialGradient>
 
-        {/* Clip path para manter o corte perfeito da base do tronco e galhos no círculo */}
-        <clipPath id={`${idPrefix}-circle-clip`}>
-          <circle cx="100" cy="100" r="92" />
+        {/* Clip-path perfeitamente circular para cortar o tronco e galhos nos limites do círculo */}
+        <clipPath id={circleClipId}>
+          <circle cx="170" cy="180" r="162" />
         </clipPath>
       </defs>
 
       {/* SÍMBOLO: CÍRCULO COM ÁRVORE */}
       <g>
-        {/* Círculo com gradiente radial azul-claro oficial */}
-        <circle cx="100" cy="100" r="92" fill={`url(#${radialGradId})`} />
+        {/* Círculo com gradiente radial azul oficial */}
+        <circle cx="170" cy="180" r="162" fill={`url(#${radialGradId})`} />
 
-        {/* Borda ultrafina sutil no contorno para reforçar definição */}
-        <circle cx="100" cy="100" r="92" stroke="#7BBEE0" strokeWidth="0.8" strokeOpacity="0.7" />
+        {/* Contorno sutil para definição em qualquer fundo */}
+        <circle
+          cx="170"
+          cy="180"
+          r="162"
+          stroke="#68B9E3"
+          strokeWidth="1.2"
+          strokeOpacity="0.8"
+        />
 
-        {/* Silhueta da Árvore Oficial em verde-petróleo */}
-        <g clipPath={`url(#${idPrefix}-circle-clip)`}>
+        {/* Árvore vetorial oficial em verde-petróleo (#0D726D) */}
+        <g clipPath={`url(#${circleClipId})`}>
+          {/* Tronco principal, raízes na base e ramificações que sustentam a copa */}
           <path
-            fill="#1D7A74"
+            fill="#0D726D"
             fillRule="evenodd"
             d={`
-              M 95 192
-              C 84 191 74 186 64 179
-              C 71 169 77 156 80 142
-              C 76 138 72 131 66 123
-              C 62 128 58 132 54 135
-              C 48 139 42 139 37 135
-              C 33 131 32 125 35 120
-              C 30 120 25 117 23 113
-              C 21 108 22 102 26 98
-              C 23 96 21 92 22 88
-              C 23 83 27 79 32 77
-              C 30 73 30 68 33 64
-              C 36 60 41 58 46 58
-              C 46 53 49 48 54 45
-              C 60 42 67 43 72 47
-              C 75 43 80 40 85 39
-              C 92 37 99 39 104 43
-              C 108 40 114 38 120 38
-              C 127 38 133 42 137 47
-              C 142 45 148 45 153 48
-              C 159 52 162 58 161 65
-              C 167 67 172 72 173 78
-              C 174 84 171 90 166 94
-              C 170 98 171 104 169 110
-              C 166 116 160 120 154 121
-              C 155 126 153 132 148 136
-              C 143 140 136 140 130 137
-              C 126 135 123 131 121 127
-              C 116 133 112 139 108 143
-              C 111 156 117 169 125 179
-              C 115 186 105 191 95 192 Z
+              M 112 342
+              C 126 312 142 278 152 248
+              C 142 240 126 226 112 214
+              C 118 208 128 214 138 222
+              C 148 230 156 236 160 226
+              C 162 208 162 186 164 165
+              C 168 165 174 165 178 165
+              C 180 186 180 208 182 226
+              C 186 236 194 230 204 222
+              C 214 214 224 208 230 214
+              C 216 226 200 240 190 248
+              C 200 278 216 312 230 342
+              C 210 342 195 330 171 306
+              C 147 330 132 342 112 342 Z
 
-              M 90 148
-              C 87 141 84 133 82 124
-              C 89 122 95 122 102 122
-              C 105 131 103 141 99 148
-              C 96 148 93 148 90 148 Z
+              M 171 270
+              C 166 250 162 232 171 216
+              C 180 232 176 250 171 270 Z
+            `}
+          />
+
+          {/* Copa frondosa multilobada da árvore */}
+          <path
+            fill="#0D726D"
+            d={`
+              M 166 60
+              C 182 58 198 62 208 72
+              C 220 66 235 68 245 78
+              C 256 74 270 80 276 92
+              C 286 94 294 104 292 116
+              C 300 122 306 134 300 146
+              C 308 154 308 168 300 176
+              C 306 184 304 196 295 204
+              C 298 212 294 222 284 228
+              C 278 234 268 234 260 228
+              C 255 236 244 240 234 236
+              C 225 240 212 238 206 230
+              C 198 236 186 234 180 226
+              C 174 232 162 232 156 226
+              C 150 234 138 236 130 230
+              C 124 238 111 240 102 236
+              C 92 240 81 236 76 228
+              C 68 234 58 234 52 228
+              C 42 222 38 212 41 204
+              C 32 196 30 184 36 176
+              C 28 168 28 154 36 146
+              C 30 134 36 122 44 116
+              C 42 104 50 94 60 92
+              C 66 80 80 74 91 78
+              C 101 68 116 66 128 72
+              C 138 62 154 58 166 60 Z
+            `}
+          />
+
+          {/* Recortes internos e detalhes que dão o aspecto natural e orgânico da folhagem */}
+          <path
+            fill={`url(#${radialGradId})`}
+            d={`
+              M 88 150
+              C 84 140 92 134 98 138
+              C 104 142 98 154 88 150 Z
+
+              M 248 150
+              C 258 154 252 142 244 138
+              C 238 134 242 140 248 150 Z
+
+              M 112 184
+              C 106 178 114 170 120 174
+              C 124 178 120 186 112 184 Z
+
+              M 224 184
+              C 232 186 228 178 222 174
+              C 216 170 220 178 224 184 Z
             `}
           />
         </g>
@@ -143,26 +192,26 @@ export function EpaLogo({
       {/* TIPOGRAFIA OFICIAL: GRUPO EPA (exibida na variante 'full') */}
       {isFull && (
         <g className={textClass} style={{ transition: 'fill 0.2s ease' }}>
-          {/* GRUPO (linha de cima, tracking amplo, elegante e proporcional) */}
+          {/* GRUPO (linha de cima: maiúsculas, letter-spacing amplo, proporção elegante) */}
           <text
-            x="222"
-            y="64"
-            fontFamily="'Cinzel', 'Trajan Pro', 'Baskerville', 'Times New Roman', serif"
-            fontSize="34"
-            fontWeight="500"
-            letterSpacing="0.32em"
+            x="385"
+            y="114"
+            fontFamily="'Cinzel', 'Trajan Pro', 'Didot', 'Georgia', 'Times New Roman', serif"
+            fontSize="54"
+            fontWeight="600"
+            letterSpacing="0.28em"
           >
             GRUPO
           </text>
 
-          {/* EPA (linha de baixo, letras maiúsculas grandes, dominantes) */}
+          {/* EPA (linha de baixo: maiúsculas dominantes com serifas e porte imponente) */}
           <g
-            fontFamily="'Cinzel', 'Trajan Pro', 'Baskerville', 'Times New Roman', serif"
-            fontWeight="600"
-            fontSize="122"
-            letterSpacing="0.04em"
+            fontFamily="'Cinzel', 'Trajan Pro', 'Didot', 'Georgia', 'Times New Roman', serif"
+            fontWeight="700"
+            fontSize="188"
+            letterSpacing="0.02em"
           >
-            <text x="216" y="172">
+            <text x="375" y="292">
               EPA
             </text>
           </g>

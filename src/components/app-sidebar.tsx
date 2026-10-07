@@ -20,11 +20,13 @@ export function AppSidebar() {
   return (
     <Sidebar className="border-r border-[#006B67]/30 bg-[#004D4A] dark:bg-[#043330] text-[#F1F5F4]">
       <SidebarHeader className="p-4 border-b border-white/10">
-        <div className="flex items-center justify-center py-2 px-1">
-          <EpaLogo size="md" />
+        <div className="flex items-center justify-start px-1 py-1">
+          <Link to="/" className="inline-block transition-opacity hover:opacity-90">
+            <EpaLogo size="lg" textColorMode="light" className="w-[195px] h-auto drop-shadow-sm" />
+          </Link>
         </div>
-        <div className="mt-1 text-center">
-          <p className="text-[11px] uppercase tracking-wider font-semibold text-[#20C9A6]/90">
+        <div className="mt-1 px-1 text-left">
+          <p className="text-[10px] uppercase tracking-widest font-semibold text-[#20C9A6]/90">
             Gestão Financeira
           </p>
         </div>

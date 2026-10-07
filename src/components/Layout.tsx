@@ -25,26 +25,28 @@ export default function Layout() {
           <div className="flex items-center gap-3">
             <SidebarTrigger className="text-[#006B67] dark:text-[#20C9A6] hover:bg-[#DDF5F0] dark:hover:bg-[#008F83]/20" />
             <div className="h-5 w-[1px] bg-slate-200 dark:bg-emerald-900/50 hidden sm:block" />
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink asChild>
-                    <Link
-                      to="/"
-                      className="font-bold text-[#006B67] hover:text-[#008F83] dark:text-[#20C9A6] dark:hover:text-[#DDF5F0] transition-colors"
-                    >
-                      GRUPO EPA
-                    </Link>
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator className="text-slate-400 dark:text-emerald-700" />
-                <BreadcrumbItem>
-                  <BreadcrumbPage className="font-medium text-[#12343B] dark:text-[#F1F5F4]">
-                    Nova Conciliação
-                  </BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
+            <div className="flex items-center gap-3">
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink asChild>
+                      <Link
+                        to="/"
+                        className="font-bold text-[#006B67] hover:text-[#008F83] dark:text-[#20C9A6] dark:hover:text-[#DDF5F0] transition-colors"
+                      >
+                        GRUPO EPA
+                      </Link>
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator className="text-slate-400 dark:text-emerald-700" />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage className="font-medium text-[#12343B] dark:text-[#F1F5F4]">
+                      Nova Conciliação
+                    </BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+            </div>
           </div>
 
           {/* Ações da Direita: Status e Alternador de Tema */}
