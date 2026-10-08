@@ -77,9 +77,22 @@ export default function Index() {
 
       // 1. Processar Planilha do Sistema (Odoo): .xlsx ou .csv
       if (systemFile) {
-        const sysParsed = await parseSystemFile(systemFile, bank)
-        sysDet = sysParsed.detectedRows
-        sysRecords = mapSystemRecords(sysParsed)
+        try {
+          const sysParsed = await parseSystemFile(systemFile, bank)
+          sysDet = sysParsed.detectedRows
+          sysRecords = mapSystemRecords(sysParsed)
+          if (sysRecords.length === 0) {
+            throw new Error(
+              'A planilha do Sistema (Odoo) não contém linhas de dados válidas ou os cabeçalhos não foram reconhecidos. Certifique-se de que as colunas Data, Número, Parceiro ou Total estão presentes.',
+            )
+          }
+        } catch (sysErr) {
+          throw new Error(
+            sysErr instanceof Error
+              ? sysErr.message
+              : 'Não foi possível ler a planilha do Sistema (Odoo). Verifique se o arquivo é um .xlsx ou .csv válido.',
+          )
+        }
       } else {
         sysRecords = MOCK_SYSTEM_RECORDS
         sysDet = sysRecords.length
@@ -87,27 +100,35 @@ export default function Index() {
 
       // 2. Processar Fatura do Cartão (Direto em PDF sem macro)
       if (cardFile) {
-        const cardParsed = await parseCardPdfFile(cardFile, bank)
-        pdfPages = cardParsed.numPages
+        try {
+          const cardParsed = await parseCardPdfFile(cardFile, bank)
+          pdfPages = cardParsed.numPages
 
-        if (cardParsed.isScannedOrEmpty) {
+          if (cardParsed.isScannedOrEmpty) {
+            throw new Error(
+              'Não foi possível identificar os dados da fatura neste PDF. O arquivo parece ser uma imagem digitalizada ou documento protegido. Verifique se o arquivo está legível e tente novamente.',
+            )
+          }
+
+          if (cardParsed.records.length === 0) {
+            throw new Error(
+              'Não foi possível identificar os dados da fatura neste PDF. Verifique se o arquivo está legível e tente novamente.',
+            )
+          }
+
+          cardDet = cardParsed.detectedRows
+          cardRecs = cardParsed.records
+          setPreviewCardRecords(cardParsed.records)
+
+          if (cardParsed.warning) {
+            identifiedWarning = cardParsed.warning
+          }
+        } catch (cardErr) {
           throw new Error(
-            'Não foi possível identificar dados estruturados neste arquivo PDF. Ele parece ser escaneado ou uma imagem. O sistema requer um PDF pesquisável/legível ou com texto estruturado.',
+            cardErr instanceof Error
+              ? cardErr.message
+              : 'Não foi possível identificar os dados da fatura neste PDF. Verifique se o arquivo está legível e tente novamente.',
           )
-        }
-
-        if (cardParsed.records.length === 0) {
-          throw new Error(
-            'Não foi possível identificar os lançamentos de transações neste PDF da fatura. Verifique se o arquivo enviado é a fatura analítica do cartão (com detalhamento das compras) e se não é uma imagem escaneada ou PDF protegido.',
-          )
-        }
-
-        cardDet = cardParsed.detectedRows
-        cardRecs = cardParsed.records
-        setPreviewCardRecords(cardParsed.records)
-
-        if (cardParsed.warning) {
-          identifiedWarning = cardParsed.warning
         }
       } else {
         // Dados de demonstração como se viessem de PDF estruturado

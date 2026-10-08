@@ -52,7 +52,7 @@ export function ImportStats({
   onBack,
   bank,
 }: ImportStatsProps) {
-  const hasError = sysTotal === 0 || cardTotal === 0
+  const hasError = sysTotal === 0 && cardTotal === 0
   const hasImportError = !!importError
 
   // Mostra até 8 registros representativos na pré-visualização

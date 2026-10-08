@@ -59,5 +59,19 @@ export function sanitizeParsedCSV(parsed: ParsedCSV, fileType: 'system' | 'card'
     }
   }
 
+  // Se nenhum cabeçalho continha exatamente keywords combinadas, mas os headers originais contêm 'data' e ('parceiro' ou 'total' ou 'valor')
+  const hasDataCol = normalizedHeaders.some((h) => h.includes('data'))
+  const hasPartnerOrTotal = normalizedHeaders.some(
+    (h) =>
+      h.includes('parceiro') ||
+      h.includes('total') ||
+      h.includes('valor') ||
+      h.includes('debito') ||
+      h.includes('credito'),
+  )
+  if (hasDataCol && hasPartnerOrTotal) {
+    return parsed
+  }
+
   return parsed
 }

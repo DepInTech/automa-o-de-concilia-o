@@ -1,7 +1,9 @@
 async function decompress(data: Uint8Array): Promise<Uint8Array> {
   const ds = new DecompressionStream('deflate-raw')
-  // Use data.buffer as ArrayBuffer or cast to BlobPart to satisfy strict TypeScript DOM lib types
-  const blobPart: BlobPart = data.buffer as ArrayBuffer
+  // Garante que o buffer seja exatamente o pedaço sliceado, com offset 0
+  const safeBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
+  const uint8Copy = new Uint8Array(safeBuffer)
+  const blobPart: BlobPart = uint8Copy as unknown as BlobPart
   const stream = new Blob([blobPart]).stream().pipeThrough(ds)
   const reader = stream.getReader()
   const chunks: Uint8Array[] = []

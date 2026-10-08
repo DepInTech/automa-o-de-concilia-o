@@ -211,8 +211,15 @@ export function normalizeMoneyValue(val: unknown): number {
 
   let numeric = 0
   if (str.includes(',') && str.includes('.')) {
-    // Padrão brasileiro 1.954,12
-    numeric = parseFloat(str.replace(/\./g, '').replace(',', '.'))
+    const lastComma = str.lastIndexOf(',')
+    const lastDot = str.lastIndexOf('.')
+    if (lastComma > lastDot) {
+      // Padrão brasileiro 1.954,12
+      numeric = parseFloat(str.replace(/\./g, '').replace(',', '.'))
+    } else {
+      // Padrão internacional 1,954.12
+      numeric = parseFloat(str.replace(/,/g, ''))
+    }
   } else if (str.includes(',')) {
     // Padrão brasileiro sem milhares 1954,12
     numeric = parseFloat(str.replace(',', '.'))

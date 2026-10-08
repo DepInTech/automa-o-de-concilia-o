@@ -47,10 +47,14 @@ async function readStreamAll(stream: ReadableStream<Uint8Array>): Promise<Uint8A
 async function decompressFlate(data: Uint8Array): Promise<Uint8Array | null> {
   if (data.length === 0) return null
 
+  // Clona subarray para ArrayBuffer limpo caso o slice tenha byteOffset
+  const safeBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
+  const uint8Copy = new Uint8Array(safeBuffer)
+
   // 1. Tenta formato padrão zlib RFC 1950 via format 'deflate'
   try {
     const ds = new DecompressionStream('deflate')
-    const blob = new Blob([data as unknown as BlobPart])
+    const blob = new Blob([uint8Copy as unknown as BlobPart])
     return await readStreamAll(blob.stream().pipeThrough(ds))
   } catch {
     // Segue para tentativas alternativas
@@ -59,7 +63,7 @@ async function decompressFlate(data: Uint8Array): Promise<Uint8Array | null> {
   // 2. Tenta formato raw deflate RFC 1951 via 'deflate-raw'
   try {
     const ds = new DecompressionStream('deflate-raw')
-    const blob = new Blob([data as unknown as BlobPart])
+    const blob = new Blob([uint8Copy as unknown as BlobPart])
     return await readStreamAll(blob.stream().pipeThrough(ds))
   } catch {
     // Segue para tentativa com pulo manual de cabeçalho
@@ -68,7 +72,7 @@ async function decompressFlate(data: Uint8Array): Promise<Uint8Array | null> {
   // 3. Tenta pular cabeçalho zlib (2 bytes) e rodar deflate-raw
   if (data.length > 2) {
     try {
-      const sliced = data.subarray(2)
+      const sliced = uint8Copy.subarray(2)
       const ds = new DecompressionStream('deflate-raw')
       const blob = new Blob([sliced as unknown as BlobPart])
       return await readStreamAll(blob.stream().pipeThrough(ds))

@@ -53,13 +53,26 @@ export async function parseSystemFile(file: File, bank: BankType): Promise<Parse
 export async function parseCardPdfFile(file: File, bank: BankType): Promise<CardPdfParseResult> {
   const name = file.name.toLowerCase()
 
+  if (name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.csv')) {
+    throw new Error(
+      'Formato incorreto. O campo da Fatura do Cartão aceita exclusivamente arquivos em formato PDF (.pdf). Para planilhas do Odoo, utilize o campo ao lado.',
+    )
+  }
+
   if (!name.endsWith('.pdf') && file.type !== 'application/pdf' && file.type !== '') {
     throw new Error(
       'Formato inválido. O campo da Fatura do Cartão aceita exclusivamente arquivos em formato PDF (.pdf).',
     )
   }
 
-  return parseCardPdf(file, bank)
+  try {
+    return await parseCardPdf(file, bank)
+  } catch (err) {
+    if (err instanceof Error) throw err
+    throw new Error(
+      'Não foi possível identificar os dados da fatura neste PDF. Verifique se o arquivo está legível e tente novamente.',
+    )
+  }
 }
 
 /**

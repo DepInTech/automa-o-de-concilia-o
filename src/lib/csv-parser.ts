@@ -28,10 +28,18 @@ export function parseBrazilianNumber(value: string | number | null | undefined):
   v = v.replace(/[()-]/g, '')
 
   if (v.includes(',') && v.includes('.')) {
-    // 1.114,06
-    v = v.replace(/\./g, '').replace(',', '.')
+    // Determina qual é o separador decimal pela última ocorrência
+    const lastComma = v.lastIndexOf(',')
+    const lastDot = v.lastIndexOf('.')
+    if (lastComma > lastDot) {
+      // Formato brasileiro: 1.114,06
+      v = v.replace(/\./g, '').replace(',', '.')
+    } else {
+      // Formato americano/internacional com vírgula de milhar: 1,114.06
+      v = v.replace(/,/g, '')
+    }
   } else if (v.includes(',')) {
-    // 1114,06
+    // Apenas vírgula: 1114,06
     v = v.replace(',', '.')
   }
   const n = Number(v)

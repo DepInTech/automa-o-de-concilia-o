@@ -83,4 +83,99 @@ MISC/2024/06/0014;2024-06-20;POSTO IPIRANGA;ABASTECIMENTO;Cartão Corporativo It
     const sim = calculateNameSimilarity(nameA, nameB)
     expect(sim).toBeGreaterThanOrEqual(0.6)
   })
+
+  it('deve tratar números com vírgula de milhar e ponto decimal sem truncar valores', () => {
+    const csvOdoo = `Data,Número,Parceiro,Referência,Diário,Total
+2026-07-01,CIT12/2026/0670,SJX COMERCIAL ATACADISTA DE MERCADORIAS LTDA,29,[CIT12] Cartão Banco Itaú Master 12 FATURAS,1,114.06
+2026-07-01,CIT12/2026/0667,SWIFT PIRACUAMA,307283,[CIT12] Cartão Banco Itaú Master 12 FATURAS,1,954.12
+2026-07-01,CIT12/2026/0666,STARLINK BRAZIL SERVICOS DE INTERNET LTDA.,178113044799147,[CIT12] Cartão Banco Itaú Master 12 FATURAS,1,199.00
+2026-06-23,CIT12/2026/0638,BIOCENTRIX MATERIAIS PARA LABORATÓRIO,10367,[CIT12] Cartão Banco Itaú Master 12 FATURAS,3,684.82
+2026-06-23,CIT12/2026/0632,SENDAS DISTRIBUIDORA S/A,228877,[CIT12] Cartão Banco Itaú Master 12 FATURAS,5,331.07`
+
+    const parsed = parseCSV(csvOdoo)
+    const records = mapSystemRecords(parsed)
+
+    expect(records).toHaveLength(5)
+    expect(records[0].total).toBe(1114.06)
+    expect(records[1].total).toBe(1954.12)
+    expect(records[2].total).toBe(1199.0)
+    expect(records[3].total).toBe(3684.82)
+    expect(records[4].total).toBe(5331.07)
+  })
+
+  it('deve conciliar perfeitamente casos reais do Odoo contra fatura Itaú', () => {
+    const odooRecords = [
+      {
+        id: 'odoo-1',
+        data: '01/07/2026',
+        numero: 'CIT12/2026/0670',
+        parceiro: 'SJX COMERCIAL ATACADISTA DE MERCADORIAS LTDA - Sacolão São Jorge',
+        referencia: '29',
+        total: 1114.06,
+        credito: 1114.06,
+        debito: 0,
+      },
+      {
+        id: 'odoo-2',
+        data: '01/07/2026',
+        numero: 'CIT12/2026/0667',
+        parceiro: 'SWIFT PIRACUAMA',
+        referencia: '307283',
+        total: 1954.12,
+        credito: 1954.12,
+        debito: 0,
+      },
+      {
+        id: 'odoo-3',
+        data: '01/07/2026',
+        numero: 'CIT12/2026/0666',
+        parceiro: 'STARLINK BRAZIL SERVICOS DE INTERNET LTDA.',
+        referencia: '178113044799147',
+        total: 1199.0,
+        credito: 1199.0,
+        debito: 0,
+      },
+      {
+        id: 'odoo-4',
+        data: '23/06/2026',
+        numero: 'CIT12/2026/0638',
+        parceiro: 'BIOCENTRIX MATERIAIS PARA LABORATÓRIO',
+        referencia: '10367',
+        total: 3684.82,
+        credito: 3684.82,
+        debito: 0,
+      },
+    ]
+
+    const cardRecords = [
+      {
+        id: 'itau-1',
+        data: '23/06/2026',
+        estabelecimento: 'SJX - COMERCIAL ATACAD',
+        valor: 1114.06,
+      },
+      {
+        id: 'itau-2',
+        data: '23/06/2026',
+        estabelecimento: 'SWIFT PIRACUAMA',
+        valor: 1954.12,
+      },
+      {
+        id: 'itau-3',
+        data: '12/06/2026',
+        estabelecimento: 'DL *Starlink Brazil',
+        valor: 1199.0,
+      },
+      {
+        id: 'itau-4',
+        data: '08/06/2026',
+        estabelecimento: 'PG *BIOCENTRIX MATERIA',
+        valor: 3684.82,
+      },
+    ]
+
+    const result = reconcileData(odooRecords, cardRecords, 'itau')
+    const conciliados = result.filter((r) => r.classificacao === 'CONCILIADO')
+    expect(conciliados.length).toBe(4)
+  })
 })

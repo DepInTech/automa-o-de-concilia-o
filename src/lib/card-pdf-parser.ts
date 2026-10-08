@@ -152,65 +152,12 @@ function parseInvoicePageBlocks(
 ): StructuredCardRecord[] {
   const records: StructuredCardRecord[] = []
 
-  // 1. Divide em seções de interesse: ignoramos até "Lançamentos"
-  // Separamos seções "Lançamentos nacionais" e "Lançamentos internacionais"
-  type SectionType = 'HEADER' | 'NACIONAIS' | 'INTERNACIONAIS' | 'ENCARGOS' | 'NONE'
-  let currentSection: SectionType = 'NONE'
-
-  // Para modo linha única
-  const sectionLines: { section: SectionType; text: string }[] = []
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-
-    if (/lan[cç]amentos\s+internacionais/i.test(trimmed)) {
-      currentSection = 'INTERNACIONAIS'
-      continue
-    } else if (/lan[cç]amentos\s+nacionais/i.test(trimmed)) {
-      currentSection = 'NACIONAIS'
-      continue
-    } else if (
-      /produtos,\s*servi[cç]os\s+e\s+encargos/i.test(trimmed) ||
-      /encargos\s+desta\s+fatura/i.test(trimmed) ||
-      /total\s+da\s+fatura/i.test(trimmed) ||
-      /resumo\s+da\s+fatura/i.test(trimmed) ||
-      /saldo\s+da\s+fatura\s+anterior/i.test(trimmed)
-    ) {
-      if (
-        /lan[cç]amentos\s+nacionais/i.test(trimmed) === false &&
-        /lan[cç]amentos\s+internacionais/i.test(trimmed) === false
-      ) {
-        currentSection = 'NONE'
-      }
-    }
-
-    sectionLines.push({ section: currentSection, text: trimmed })
-  }
-
-  // 2. Processa lançamentos internacionais primeiro (seção delimitada)
+  // 1. Processa lançamentos internacionais primeiro (seção delimitada)
   const intlRecords = parseInternacionaisSection(lines, globalIdx)
   records.push(...intlRecords)
 
-  // 3. Tenta extrair linhas no formato inline
-  const inlineRecords: StructuredCardRecord[] = []
-  for (const item of sectionLines) {
-    if (item.section === 'NONE' || item.section === 'INTERNACIONAIS') continue
-    const rec = parseInlineInvoiceLine(item.text, globalIdx.current)
-    if (rec) {
-      globalIdx.current++
-      inlineRecords.push(rec)
-    }
-  }
-
-  // Se o parser encontrou registros inline na página (mesmo 1 ou 2), prioriza-os
-  if (inlineRecords.length > 0) {
-    records.push(...inlineRecords)
-    return records
-  }
-
-  // 4. Caso contrário, aplica o algoritmo de desagregação colunar (OCR em blocos verticais)
-  const nacionaisRecords = parseNacionaisColunar(lines, globalIdx)
+  // 2. Extrai lançamentos nacionais seja por linhas inline ou blocos colunares
+  const nacionaisRecords = parseNacionais(lines, globalIdx)
   records.push(...nacionaisRecords)
 
   return records
@@ -259,7 +206,32 @@ function parseInternacionaisSection(
       continue
     }
 
-    // Se a linha for completa inline: "05/06 OPENAI *CHATGPT SUBSCR USD20,00 US$20,00 R$5,42 R$108,40"
+    // Se for linha de tabela Markdown: | 05/06 | OPENAI *CHATGPT SUBSCR | USD20,00 | US$20,00 | R$5,42 | R$108,40 |
+    if (l.includes('|')) {
+      const parts = l
+        .split('|')
+        .map((p) => p.trim())
+        .filter(Boolean)
+      if (parts.length >= 6 && /^\d{2}\/\d{2}$/.test(parts[0])) {
+        const valorReal = normalizeMoneyValue(parts[5])
+        if (valorReal > 0) {
+          records.push({
+            id: `pdf-rec-intl-${globalIdx.current++}`,
+            data: normalizeCardDate(parts[0]),
+            estabelecimento: parts[1],
+            moedaLocal: parts[2],
+            moedaGlobal: parts[3],
+            cotacao: normalizeMoneyValue(parts[4]),
+            valor: valorReal,
+            isInternacional: true,
+            rawLine: l,
+          })
+          continue
+        }
+      }
+    }
+
+    // Se a linha for completa inline sem pipe: "05/06 OPENAI *CHATGPT SUBSCR USD20,00 US$20,00 R$5,42 R$108,40"
     const fullMatch = l.match(
       /^(\d{2}\/\d{2})\s+(.+?)\s+(USD\s*[\d,.]+)\s+(US\$\s*[\d,.]+)\s+(?:R\$\s*)?([\d,.]+)\s+(?:R\$\s*)?([\d,.]+)$/i,
     )
@@ -280,7 +252,6 @@ function parseInternacionaisSection(
         continue
       }
     }
-
     // Classificação por token
     if (/^\d{2}\/\d{2}$/.test(l)) {
       dates.push(l)
@@ -327,54 +298,81 @@ function parseInternacionaisSection(
 }
 
 /**
- * Parser para layout colunar de lançamentos nacionais
+ * Parser para lançamentos nacionais: suporta linhas inline, markdown de tabela ou blocos colunares.
  */
-function parseNacionaisColunar(
-  lines: string[],
-  globalIdx: { current: number },
-): StructuredCardRecord[] {
+function parseNacionais(lines: string[], globalIdx: { current: number }): StructuredCardRecord[] {
   const records: StructuredCardRecord[] = []
 
-  // Extrai datas (DD/MM), descrições e valores (R$...)
-  const dates: string[] = []
-  const descs: string[] = []
-  const values: number[] = []
-
-  // Delimitador de ignorar seções de rodapé/resumo
-  let ignoreSection = false
+  // Extrai trecho entre Lançamentos nacionais e rodapés
+  let inNacionais = false
+  const candidateLines: string[] = []
 
   for (const raw of lines) {
     const l = raw.trim()
     if (!l) continue
 
-    // Verifica se entrou em seção de resumo/rodapé/encargos
+    if (/lan[cç]amentos\s+nacionais/i.test(l)) {
+      inNacionais = true
+      continue
+    }
+
     if (
-      /resumo\s+da\s+fatura/i.test(l) ||
-      /saldo\s+da\s+fatura\s+anterior/i.test(l) ||
       /lan[cç]amentos\s+internacionais/i.test(l) ||
       /produtos,\s*servi[cç]os\s+e\s+encargos/i.test(l) ||
       /encargos\s+desta\s+fatura/i.test(l) ||
-      /encargos\s+e\s+custo\s+efetivo/i.test(l)
+      /encargos\s+e\s+custo\s+efetivo/i.test(l) ||
+      /resumo\s+da\s+fatura/i.test(l) ||
+      /saldo\s+da\s+fatura\s+anterior/i.test(l) ||
+      /rotativo\s*\(pagamento/i.test(l) ||
+      /compras\s+parceladas/i.test(l)
     ) {
-      ignoreSection = true
+      inNacionais = false
       continue
     }
 
-    if (/lan[cç]amentos\s+nacionais/i.test(l)) {
-      ignoreSection = false
-      continue
+    if (inNacionais) {
+      candidateLines.push(l)
     }
+  }
 
-    if (ignoreSection) continue
+  const targetLines = candidateLines.length > 0 ? candidateLines : lines
+
+  // 1. Tenta formato inline em cada linha
+  // Linhas podem ser "DD/MM Descrição R$ Valor" ou em formato tabela "| DD/MM | Descrição | R$ Valor |"
+  const colunarDates: string[] = []
+  const colunarDescs: string[] = []
+  const colunarValues: number[] = []
+
+  for (const raw of targetLines) {
+    const l = raw.trim()
+    if (!l) continue
     if (isFooterOrTotalLine(l)) continue
     if (/^(data|descri[cç][aã]o|valor)$/i.test(l)) continue
+    if (/^[A-Z\s]{4,}\s*-\s*FINAL\s*\d{4}$/i.test(l)) continue
 
-    // Detecta titular de cartão caso apareça (ex: "ANTONIO SERGIO EGYDIO RAME - FINAL 9662")
-    if (/^[A-Z\s]{4,}\s*-\s*FINAL\s*\d{4}$/i.test(l)) {
-      continue
+    // Checa formato de linha de tabela Markdown: | 19/08 | MERCADOLIVRE*TITAN11/12 | R$112,32 |
+    if (l.includes('|')) {
+      const parts = l
+        .split('|')
+        .map((p) => p.trim())
+        .filter(Boolean)
+      if (parts.length >= 3 && /^\d{2}\/\d{2}$/.test(parts[0])) {
+        const d = parts[0]
+        const desc = parts[1]
+        const valStr = parts[2]
+        const num = normalizeMoneyValue(valStr)
+        if (!isFooterOrTotalLine(desc) && !isFooterOrTotalLine(valStr)) {
+          records.push({
+            id: `pdf-rec-nat-${globalIdx.current++}`,
+            data: normalizeCardDate(d),
+            estabelecimento: desc,
+            valor: Math.abs(num),
+          })
+          continue
+        }
+      }
     }
 
-    // Linha de estorno ou lançamento nacional inline já montado
     const inline = parseInlineInvoiceLine(l, globalIdx.current)
     if (inline) {
       records.push(inline)
@@ -382,37 +380,25 @@ function parseNacionaisColunar(
       continue
     }
 
-    // Token Data: "DD/MM"
+    // Se não bateu inline, armazena para possível recomposição colunar
     if (/^\d{2}\/\d{2}$/.test(l)) {
-      dates.push(l)
-      continue
-    }
-
-    // Token Valor: "-R$18,75", "R$1.114,06", "R$18,75", "-18,75", "R$1,813.34"
-    if (/^-?R?\$\s*[\d.,]+\d{2}$/i.test(l)) {
-      const num = normalizeMoneyValue(l)
-      values.push(Math.abs(num))
-      continue
-    }
-
-    // Descrição de estabelecimento (ex: "SWIFT PIRACUAMA", "MERCADOLIVRE*TITAN11/12", etc.)
-    if (
-      l.length >= 3 &&
-      !/^(data|descri[cç][aã]o|valor)$/i.test(l) &&
-      !/total\s+de\s+lan[cç]amentos/i.test(l)
-    ) {
-      descs.push(l)
+      colunarDates.push(l)
+    } else if (/^-?R?\$\s*[\d.,]+\d{2}$/i.test(l)) {
+      colunarValues.push(Math.abs(normalizeMoneyValue(l)))
+    } else if (l.length >= 3 && !/total\s+de\s+lan[cç]amentos/i.test(l)) {
+      colunarDescs.push(l)
     }
   }
 
-  // Se encontrou dados em blocos colunares paralelos
-  // Geralmente descrições e valores têm contagens muito próximas
-  if (descs.length > 0 && values.length > 0) {
-    const pairCount = Math.min(descs.length, values.length)
+  // Se não obteve registros suficientes via inline, e há dados colunares, sincroniza
+  if (records.length === 0 && colunarDescs.length > 0 && colunarValues.length > 0) {
+    const pairCount = Math.min(colunarDescs.length, colunarValues.length)
     for (let i = 0; i < pairCount; i++) {
-      const desc = descs[i]
-      const val = values[i]
-      const dt = dates[i] || (dates.length > 0 ? dates[dates.length - 1] : '01/06')
+      const desc = colunarDescs[i]
+      const val = colunarValues[i]
+      const dt =
+        colunarDates[i] ||
+        (colunarDates.length > 0 ? colunarDates[colunarDates.length - 1] : '01/06')
 
       if (val > 0) {
         records.push({
