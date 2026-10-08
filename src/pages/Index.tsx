@@ -8,19 +8,21 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   Database,
-  FileSpreadsheet,
+  FileText,
   ArrowRight,
   RefreshCw,
   Wand2,
   Loader2,
   AlertTriangle,
 } from 'lucide-react'
-import { bankLabels, bankThemes } from '@/lib/bank-config'
-import { parseFile } from '@/lib/file-parser'
-import { mapSystemRecords, mapCardRecords } from '@/lib/csv-parser'
+import { bankLabels } from '@/lib/bank-config'
+import { parseSystemFile, parseCardPdfFile } from '@/lib/file-parser'
+import { mapSystemRecords } from '@/lib/csv-parser'
 import { reconcileData } from '@/lib/reconciliation'
-import { generateSystemCSV, generateCardCSV, downloadCSV } from '@/lib/sample-csv'
+import { generateSystemCSV, downloadCSV } from '@/lib/sample-csv'
+import { createMockInvoicePdfFile } from '@/lib/sample-pdf'
 import { MOCK_SYSTEM_RECORDS, MOCK_CARD_RECORDS } from '@/lib/mock-data'
+import type { StructuredCardRecord } from '@/lib/card-pdf-parser'
 import type { BankType, SystemRecord, CardRecord, ReconciliationResult } from '@/lib/types'
 
 type Step = 'upload' | 'confirm' | 'results'
@@ -32,15 +34,17 @@ export default function Index() {
   const [cardFile, setCardFile] = useState<File | null>(null)
   const [systemRecords, setSystemRecords] = useState<SystemRecord[]>([])
   const [cardRecords, setCardRecords] = useState<CardRecord[]>([])
+  const [previewCardRecords, setPreviewCardRecords] = useState<
+    (CardRecord | StructuredCardRecord)[]
+  >([])
   const [sysDetected, setSysDetected] = useState(0)
   const [cardDetected, setCardDetected] = useState(0)
+  const [cardPdfPages, setCardPdfPages] = useState<number | undefined>(undefined)
   const [results, setResults] = useState<ReconciliationResult[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [warning, setWarning] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [parseError, setParseError] = useState<string | null>(null)
-
-  const theme = bankThemes[bank]
 
   const handleBankChange = (b: BankType) => {
     setBank(b)
@@ -48,6 +52,7 @@ export default function Index() {
     setCardFile(null)
     setSystemRecords([])
     setCardRecords([])
+    setPreviewCardRecords([])
     setResults([])
     setWarning(null)
     setImportError(null)
@@ -66,49 +71,64 @@ export default function Index() {
       let cardRecs: CardRecord[]
       let sysDet = 0
       let cardDet = 0
-      let hasSanitized = false
+      let pdfPages: number | undefined
+      let identifiedWarning: string | null = null
 
+      // 1. Processar Planilha do Sistema (Odoo): .xlsx ou .csv
       if (systemFile) {
-        const parsed = await parseFile(systemFile, bank, 'system')
-        sysDet = parsed.detectedRows
-        sysRecords = mapSystemRecords(parsed)
-        if (bank === 'itau' && parsed.detectedRows > parsed.rows.length) {
-          hasSanitized = true
-        }
+        const sysParsed = await parseSystemFile(systemFile, bank)
+        sysDet = sysParsed.detectedRows
+        sysRecords = mapSystemRecords(sysParsed)
       } else {
         sysRecords = MOCK_SYSTEM_RECORDS
         sysDet = sysRecords.length
       }
 
+      // 2. Processar Fatura do Cartão (Direto em PDF sem macro)
       if (cardFile) {
-        const parsed = await parseFile(cardFile, bank, 'card')
-        cardDet = parsed.detectedRows
-        cardRecs = mapCardRecords(parsed)
-        if (bank === 'itau' && parsed.detectedRows > parsed.rows.length) {
-          hasSanitized = true
+        const cardParsed = await parseCardPdfFile(cardFile, bank)
+        pdfPages = cardParsed.numPages
+
+        if (cardParsed.isScannedOrEmpty) {
+          throw new Error(
+            'Não foi possível identificar dados estruturados neste arquivo PDF. Ele parece ser escaneado ou uma imagem. O sistema requer um PDF pesquisável/legível ou com texto estruturado.',
+          )
+        }
+
+        if (cardParsed.records.length === 0) {
+          throw new Error(
+            'Não foi possível identificar os dados da fatura neste PDF. Verifique se o arquivo está legível e tente novamente.',
+          )
+        }
+
+        cardDet = cardParsed.detectedRows
+        cardRecs = cardParsed.records
+        setPreviewCardRecords(cardParsed.records)
+
+        if (cardParsed.warning) {
+          identifiedWarning = cardParsed.warning
         }
       } else {
+        // Dados de demonstração como se viessem de PDF estruturado
         cardRecs = MOCK_CARD_RECORDS
         cardDet = cardRecs.length
+        pdfPages = 2
+        setPreviewCardRecords(MOCK_CARD_RECORDS)
       }
 
       setSystemRecords(sysRecords)
       setCardRecords(cardRecs)
       setSysDetected(sysDet)
       setCardDetected(cardDet)
-
-      if (hasSanitized) {
-        setWarning(
-          `Linhas administrativas foram detectadas e removidas automaticamente dos arquivos ${bankLabels[bank]}.`,
-        )
-      }
+      setCardPdfPages(pdfPages)
+      setWarning(identifiedWarning)
 
       setStep('confirm')
     } catch (err) {
       setParseError(
         err instanceof Error
           ? err.message
-          : 'Erro ao processar arquivos. Verifique o formato e tente novamente.',
+          : 'Erro ao processar arquivos. Verifique os formatos (.xlsx/.csv para Sistema e .pdf para Fatura) e tente novamente.',
       )
     } finally {
       setIsProcessing(false)
@@ -127,6 +147,7 @@ export default function Index() {
     setCardFile(null)
     setSystemRecords([])
     setCardRecords([])
+    setPreviewCardRecords([])
     setResults([])
     setWarning(null)
     setImportError(null)
@@ -134,12 +155,20 @@ export default function Index() {
   }
 
   const handleDemoData = () => {
+    // Configura os arquivos de demonstração com XLSX para Sistema e PDF para Fatura
+    const demoSysFile = new File([''], 'odoo_relatorio_sistema.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const demoCardPdf = createMockInvoicePdfFile(bank)
+
     setSystemRecords(MOCK_SYSTEM_RECORDS)
     setCardRecords(MOCK_CARD_RECORDS)
+    setPreviewCardRecords(MOCK_CARD_RECORDS)
     setSysDetected(MOCK_SYSTEM_RECORDS.length)
     setCardDetected(MOCK_CARD_RECORDS.length)
-    setSystemFile(null)
-    setCardFile(null)
+    setCardPdfPages(2)
+    setSystemFile(demoSysFile)
+    setCardFile(demoCardPdf)
     setWarning(null)
     setImportError(null)
     setParseError(null)
@@ -147,11 +176,7 @@ export default function Index() {
   }
 
   const handleDownloadSystemSample = () => {
-    downloadCSV(generateSystemCSV(bank), `modelo_sistema_${bank}.csv`)
-  }
-
-  const handleDownloadCardSample = () => {
-    downloadCSV(generateCardCSV(bank), `modelo_fatura_${bank}.csv`)
+    downloadCSV(generateSystemCSV(bank), `modelo_sistema_odoo_${bank}.csv`)
   }
 
   if (step === 'confirm') {
@@ -161,10 +186,13 @@ export default function Index() {
         cardTotal={cardRecords.length}
         sysDetected={sysDetected}
         cardDetected={cardDetected}
-        sysFileName={systemFile?.name ?? ''}
-        cardFileName={cardFile?.name ?? ''}
+        sysFileName={systemFile?.name ?? 'odoo_relatorio_sistema.xlsx'}
+        cardFileName={cardFile?.name ?? `fatura_cartao_${bank}.pdf`}
         warning={warning}
         importError={importError}
+        cardPreviewRecords={previewCardRecords}
+        isPdfSource={true}
+        numPagesPdf={cardPdfPages}
         onConfirm={handleConfirm}
         onBack={handleReset}
         bank={bank}
@@ -254,34 +282,39 @@ export default function Index() {
         </Alert>
       )}
 
-      {/* Cards de Upload */}
+      {/* Cards de Upload com clara distinção de formato */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Campo 1: Sistema (Odoo) - Planilha */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between px-1">
             <h2 className="font-bold text-sm text-[#004A46] dark:text-[#20BFA9] flex items-center gap-2">
               <Database className="w-4 h-4 text-[#00796F]" /> Sistema (Odoo)
             </h2>
-            <span className="text-[11px] font-semibold text-[#647875] dark:text-[#A7C4C0]">
-              Relatório Contábil
+            <span className="text-[11px] font-semibold text-[#00796F] dark:text-[#20BFA9] bg-[#F4F8F7] dark:bg-[#071F1D] px-2 py-0.5 rounded-full border border-[#00796F]/10">
+              Planilha do Sistema (.xlsx / .csv)
             </span>
           </div>
           <UploadZone
-            title="Sistema (Odoo)"
+            title="Planilha do Sistema (Odoo)"
             id="system-file"
             file={systemFile}
             onChange={setSystemFile}
             onDownloadSample={handleDownloadSystemSample}
+            acceptType="spreadsheet"
+            description="Arraste seu arquivo Excel ou CSV aqui ou clique para buscar"
+            badgeText="Planilha do Sistema"
           />
         </div>
 
+        {/* Campo 2: Fatura do Cartão - PDF Direto (Sem Macro) */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between px-1">
-            <h2 className="font-bold text-sm text-[#004A46] dark:text-[#20BFA9] flex items-center gap-2">
-              <FileSpreadsheet className="w-4 h-4 text-[#00796F] dark:text-[#20BFA9]" />
+            <h2 className="font-bold text-sm text-rose-700 dark:text-rose-400 flex items-center gap-2">
+              <FileText className="w-4 h-4 text-rose-600" />
               Fatura do Cartão ({bankLabels[bank]})
             </h2>
-            <span className="text-[11px] font-semibold text-[#647875] dark:text-[#A7C4C0]">
-              Arquivo Bancário
+            <span className="text-[11px] font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded-full border border-rose-200/50">
+              Fatura em PDF (.pdf) • Sem Macro
             </span>
           </div>
           <UploadZone
@@ -289,7 +322,9 @@ export default function Index() {
             id="card-file"
             file={cardFile}
             onChange={setCardFile}
-            onDownloadSample={handleDownloadCardSample}
+            acceptType="pdf"
+            description="Arraste sua fatura em PDF aqui ou clique para buscar"
+            badgeText="Fatura em PDF"
           />
         </div>
       </div>
