@@ -15,6 +15,8 @@ import {
 } from 'lucide-react'
 import type { StructuredCardRecord } from '@/lib/card-pdf-parser'
 
+import type { SystemRecord } from '@/lib/types'
+
 interface ImportStatsProps {
   sysTotal: number
   cardTotal: number
@@ -25,6 +27,7 @@ interface ImportStatsProps {
   warning: string | null
   importError: string | null
   cardPreviewRecords?: (CardRecord | StructuredCardRecord)[]
+  systemPreviewRecords?: SystemRecord[]
   isPdfSource?: boolean
   numPagesPdf?: number
   onConfirm: () => void
@@ -42,6 +45,7 @@ export function ImportStats({
   warning,
   importError,
   cardPreviewRecords = [],
+  systemPreviewRecords = [],
   isPdfSource = true,
   numPagesPdf,
   onConfirm,
@@ -52,7 +56,8 @@ export function ImportStats({
   const hasImportError = !!importError
 
   // Mostra até 8 registros representativos na pré-visualização
-  const previewSlice = cardPreviewRecords.slice(0, 8)
+  const cardSlice = cardPreviewRecords.slice(0, 8)
+  const systemSlice = systemPreviewRecords.slice(0, 8)
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-fade-in pb-12">
@@ -138,9 +143,12 @@ export function ImportStats({
                 {sysTotal} registros importados
               </p>
             </div>
+            <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Arquivo Excel lido corretamente
+            </div>
             {sysDetected > sysTotal && (
               <p className="text-xs text-rose-600 font-semibold">
-                {sysDetected} registros detectados no arquivo
+                ⚠ {sysDetected - sysTotal} registros não puderam ser identificados
               </p>
             )}
           </CardContent>
@@ -154,7 +162,7 @@ export function ImportStats({
               Fatura do Cartão ({bankLabels[bank]})
             </CardTitle>
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200/50">
-              Origem: Fatura PDF
+              Origem: Fatura em PDF
             </span>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -172,8 +180,11 @@ export function ImportStats({
                 {cardTotal} registros encontrados
               </p>
             </div>
+            <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-semibold">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Arquivo PDF lido corretamente
+            </div>
             <div className="text-[11px] text-[#647875] dark:text-[#A7C4C0] flex items-center gap-2">
-              <span>Leitura direta de PDF sem macro</span>
+              <span>Leitura direta sem macro</span>
               {numPagesPdf && (
                 <span>
                   • {numPagesPdf} {numPagesPdf === 1 ? 'página' : 'páginas'}
@@ -184,20 +195,21 @@ export function ImportStats({
         </Card>
       </div>
 
-      {/* Seção de Pré-Visualização dos Dados Extraídos da Fatura */}
-      {previewSlice.length > 0 && (
-        <div className="rounded-2xl border border-[#00796F]/20 bg-white dark:bg-[#0D3834] overflow-hidden shadow-sm">
-          <div className="p-4 sm:p-5 border-b border-[#00796F]/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 bg-[#F4F8F7]/50 dark:bg-[#071F1D]/50">
+      {/* Prévia: Amostra da Fatura em PDF */}
+      {cardSlice.length > 0 && (
+        <div className="rounded-2xl border border-rose-300/30 dark:border-rose-900/30 bg-white dark:bg-[#0D3834] overflow-hidden shadow-sm">
+          <div className="p-4 sm:p-5 border-b border-rose-200/40 dark:border-rose-900/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 bg-rose-50/30 dark:bg-rose-950/20">
             <div>
               <h3 className="font-bold text-base text-[#163A38] dark:text-[#F1F5F4] flex items-center gap-2">
-                <Eye className="w-4 h-4 text-[#00796F] dark:text-[#20BFA9]" />
-                Fatura do Cartão — dados identificados
+                <FileText className="w-4 h-4 text-rose-600" />
+                Prévia da Fatura (Origem PDF)
               </h3>
               <p className="text-xs text-[#647875] dark:text-[#A7C4C0] mt-0.5">
-                Prévia da extração estruturada do PDF ({cardTotal} registros encontrados no total)
+                Amostra de registros extraídos da fatura (Data | Descrição | Valor em R$, incluindo
+                internacionais)
               </p>
             </div>
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300">
               {cardTotal} registros encontrados
             </span>
           </div>
@@ -207,15 +219,13 @@ export function ImportStats({
               <thead className="bg-[#F4F8F7] dark:bg-[#071F1D] text-[#004A46] dark:text-[#20BFA9] font-bold border-b border-[#00796F]/10">
                 <tr>
                   <th className="py-3 px-4">Data</th>
-                  <th className="py-3 px-4">Número</th>
-                  <th className="py-3 px-4">Referência</th>
-                  <th className="py-3 px-4">Estabelecimento</th>
-                  <th className="py-3 px-4">Categoria</th>
-                  <th className="py-3 px-4 text-right">Valor (R$)</th>
+                  <th className="py-3 px-4">Descrição</th>
+                  <th className="py-3 px-4">Tipo / Detalhes</th>
+                  <th className="py-3 px-4 text-right">Valor em Reais (R$)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#00796F]/10">
-                {previewSlice.map((rec, idx) => {
+                {cardSlice.map((rec, idx) => {
                   const structured = rec as StructuredCardRecord
                   return (
                     <tr
@@ -225,17 +235,20 @@ export function ImportStats({
                       <td className="py-2.5 px-4 font-mono font-medium text-[#163A38] dark:text-[#F1F5F4]">
                         {rec.data || '-'}
                       </td>
-                      <td className="py-2.5 px-4 text-[#647875] dark:text-[#A7C4C0]">
-                        {structured.numero || '-'}
-                      </td>
-                      <td className="py-2.5 px-4 text-[#647875] dark:text-[#A7C4C0]">
-                        {structured.referencia || '-'}
-                      </td>
                       <td className="py-2.5 px-4 font-medium text-[#163A38] dark:text-[#F1F5F4]">
                         {rec.estabelecimento}
                       </td>
-                      <td className="py-2.5 px-4 text-[#647875] dark:text-[#A7C4C0]">
-                        {rec.categoria || '-'}
+                      <td className="py-2.5 px-4 text-xs text-[#647875] dark:text-[#A7C4C0]">
+                        {structured.isInternacional ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 font-semibold text-[10px]">
+                            Internacional{' '}
+                            {structured.moedaGlobal ? `(${structured.moedaGlobal})` : ''}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 font-semibold text-[10px]">
+                            Nacional
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-4 text-right font-mono font-bold text-[#163A38] dark:text-[#F1F5F4]">
                         R$ {rec.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -246,9 +259,76 @@ export function ImportStats({
               </tbody>
             </table>
           </div>
-          {cardTotal > previewSlice.length && (
+          {cardTotal > cardSlice.length && (
             <div className="py-2 px-4 text-center bg-[#F4F8F7]/30 dark:bg-[#071F1D]/30 border-t border-[#00796F]/10 text-xs text-[#647875] dark:text-[#A7C4C0]">
-              Exibindo 8 de {cardTotal} registros identificados na fatura. Todos serão conciliados.
+              Exibindo 8 de {cardTotal} registros encontrados na fatura em PDF.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Prévia: Amostra do Sistema Odoo */}
+      {systemSlice.length > 0 && (
+        <div className="rounded-2xl border border-[#00796F]/20 bg-white dark:bg-[#0D3834] overflow-hidden shadow-sm">
+          <div className="p-4 sm:p-5 border-b border-[#00796F]/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 bg-[#F4F8F7]/50 dark:bg-[#071F1D]/50">
+            <div>
+              <h3 className="font-bold text-base text-[#163A38] dark:text-[#F1F5F4] flex items-center gap-2">
+                <Database className="w-4 h-4 text-[#00796F] dark:text-[#20BFA9]" />
+                Prévia do Sistema Odoo (Planilha Contábil)
+              </h3>
+              <p className="text-xs text-[#647875] dark:text-[#A7C4C0] mt-0.5">
+                Amostra de lançamentos lidos da planilha (Data | Número | Parceiro | Total)
+              </p>
+            </div>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#DDF5F0] dark:bg-[#00796F]/20 text-[#004A46] dark:text-[#20BFA9]">
+              {sysTotal} registros importados
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs sm:text-sm">
+              <thead className="bg-[#F4F8F7] dark:bg-[#071F1D] text-[#004A46] dark:text-[#20BFA9] font-bold border-b border-[#00796F]/10">
+                <tr>
+                  <th className="py-3 px-4">Data</th>
+                  <th className="py-3 px-4">Número</th>
+                  <th className="py-3 px-4">Parceiro</th>
+                  <th className="py-3 px-4">Referência / Diário</th>
+                  <th className="py-3 px-4 text-right">Total (R$)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#00796F]/10">
+                {systemSlice.map((rec, idx) => {
+                  const val =
+                    rec.total !== null && rec.total !== undefined ? rec.total : rec.credito
+                  return (
+                    <tr
+                      key={rec.id || idx}
+                      className="hover:bg-[#F4F8F7]/60 dark:hover:bg-[#071F1D]/60 transition-colors"
+                    >
+                      <td className="py-2.5 px-4 font-mono font-medium text-[#163A38] dark:text-[#F1F5F4]">
+                        {rec.data || '-'}
+                      </td>
+                      <td className="py-2.5 px-4 font-mono text-xs text-[#647875] dark:text-[#A7C4C0]">
+                        {rec.numero || '-'}
+                      </td>
+                      <td className="py-2.5 px-4 font-medium text-[#163A38] dark:text-[#F1F5F4]">
+                        {rec.parceiro}
+                      </td>
+                      <td className="py-2.5 px-4 text-xs text-[#647875] dark:text-[#A7C4C0]">
+                        {rec.referencia || rec.lancamentoDiario || '-'}
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-mono font-bold text-[#163A38] dark:text-[#F1F5F4]">
+                        R$ {val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {sysTotal > systemSlice.length && (
+            <div className="py-2 px-4 text-center bg-[#F4F8F7]/30 dark:bg-[#071F1D]/30 border-t border-[#00796F]/10 text-xs text-[#647875] dark:text-[#A7C4C0]">
+              Exibindo 8 de {sysTotal} registros importados do Odoo.
             </div>
           )}
         </div>

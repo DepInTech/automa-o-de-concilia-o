@@ -53,7 +53,23 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
     return matchSearch && (filter === 'ALL' || r.status === filter)
   })
 
-  const getRowClass = (status: string) => {
+  const getRowClass = (r: ReconciliationResult) => {
+    if (r.classificacao === 'POSSIVEL_CORRESPONDENCIA') {
+      return 'bg-blue-50/70 hover:bg-blue-100/70 text-blue-950 border-blue-200 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 dark:text-blue-200 dark:border-blue-900/40'
+    }
+    switch (r.status) {
+      case 'GREEN':
+        return 'bg-emerald-50/70 hover:bg-emerald-100/70 text-emerald-950 border-emerald-200 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-900/40'
+      case 'YELLOW':
+        return 'bg-amber-50/70 hover:bg-amber-100/70 text-amber-950 border-amber-200 dark:bg-amber-950/20 dark:hover:bg-amber-900/30 dark:text-amber-200 dark:border-amber-900/40'
+      case 'RED':
+        return 'bg-rose-50/70 hover:bg-rose-100/70 text-rose-950 border-rose-200 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 dark:text-rose-200 dark:border-rose-900/40'
+      default:
+        return ''
+    }
+  }
+
+  const getRowClassStatus = (status: string) => {
     switch (status) {
       case 'GREEN':
         return 'bg-emerald-50/70 hover:bg-emerald-100/70 text-emerald-950 border-emerald-200 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-900/40'
@@ -65,6 +81,63 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
         return ''
     }
   }
+
+  const renderBadge = (r: ReconciliationResult) => {
+    if (r.classificacao === 'POSSIVEL_CORRESPONDENCIA') {
+      return (
+        <Badge
+          variant="outline"
+          className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-blue-100/80 text-blue-800 border-blue-300 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800"
+        >
+          ? Possível Correspondência
+        </Badge>
+      )
+    }
+
+    if (r.status === 'GREEN') {
+      return (
+        <Badge
+          variant="outline"
+          className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-emerald-100/80 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
+        >
+          ✓ Conciliado
+        </Badge>
+      )
+    }
+
+    if (r.status === 'YELLOW') {
+      return (
+        <Badge
+          variant="outline"
+          className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-amber-100/80 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800"
+        >
+          ⚠ Divergente
+        </Badge>
+      )
+    }
+
+    // Status RED
+    if (r.origem === 'SISTEMA') {
+      return (
+        <Badge
+          variant="outline"
+          className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-rose-100/80 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800"
+        >
+          ! Somente Sistema
+        </Badge>
+      )
+    }
+
+    return (
+      <Badge
+        variant="outline"
+        className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-rose-100/80 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800"
+      >
+        ! Somente Fatura
+      </Badge>
+    )
+  }
+
   const statusLabel = (s: string) =>
     s === 'GREEN' ? 'Conciliado' : s === 'YELLOW' ? 'Divergente' : 'Não Encontrado'
 
@@ -170,6 +243,9 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
                 <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Diferença
                 </TableHead>
+                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                  Motivo / Observação
+                </TableHead>
                 <TableHead className="text-center font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Status
                 </TableHead>
@@ -177,7 +253,7 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
             </TableHeader>
             <TableBody>
               {filtered.map((r) => (
-                <TableRow key={r.id} className={`${getRowClass(r.status)} transition-colors`}>
+                <TableRow key={r.id} className={`${getRowClass(r)} transition-colors`}>
                   <TableCell className="whitespace-nowrap font-semibold text-xs sm:text-sm">
                     {r.data}
                   </TableCell>
@@ -202,7 +278,7 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
                   <TableCell className="whitespace-nowrap font-medium text-xs sm:text-sm">
                     {r.estabelecimento}
                   </TableCell>
-                  <TableCell className="whitespace-nowrap text-xs">{r.categoria}</TableCell>
+                  <TableCell className="whitespace-nowrap text-xs">{r.categoria || '-'}</TableCell>
                   <TableCell className="text-right whitespace-nowrap font-semibold text-xs sm:text-sm">
                     {formatCurrency(r.credito)}
                   </TableCell>
@@ -212,20 +288,10 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
                   <TableCell className="text-right whitespace-nowrap font-bold text-xs sm:text-sm">
                     {formatCurrency(r.diferenca)}
                   </TableCell>
-                  <TableCell className="text-center">
-                    <Badge
-                      variant="outline"
-                      className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none ${
-                        r.status === 'GREEN'
-                          ? 'bg-emerald-100/80 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
-                          : r.status === 'YELLOW'
-                            ? 'bg-amber-100/80 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
-                            : 'bg-rose-100/80 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800'
-                      }`}
-                    >
-                      {statusLabel(r.status)}
-                    </Badge>
+                  <TableCell className="whitespace-nowrap text-xs text-[#647875] dark:text-[#A7C4C0]">
+                    {r.motivo || '-'}
                   </TableCell>
+                  <TableCell className="text-center">{renderBadge(r)}</TableCell>
                 </TableRow>
               ))}
               {filtered.length === 0 && (
@@ -247,9 +313,14 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
         {filtered.map((r) => (
           <ResultRowMobile
             key={r.id}
-            r={r}
+            r={{
+              ...r,
+              categoria: r.motivo
+                ? `${r.categoria ? `${r.categoria} • ` : ''}${r.motivo}`
+                : r.categoria,
+            }}
             bank={bank}
-            getRowClass={getRowClass}
+            getRowClass={getRowClassStatus}
             statusLabel={statusLabel}
           />
         ))}

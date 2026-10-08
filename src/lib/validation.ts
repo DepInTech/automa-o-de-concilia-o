@@ -29,17 +29,12 @@ export function validateExport(
     errors.push('Soma de statuses inconsistente (GREEN + YELLOW + RED != total).')
   }
 
-  const yellowWithNullDiff = results.filter((r) => r.status === 'YELLOW' && r.diferenca === null)
-  if (yellowWithNullDiff.length > 0) {
-    errors.push(`${yellowWithNullDiff.length} registro(s) divergente(s) sem diferença calculada.`)
-  }
-
   return { isValid: errors.length === 0, errors }
 }
 
 export function generateExportCSV(results: ReconciliationResult[]): string {
   const header =
-    'Data;Número;Referência;Lançamento Diário;Parceiro;Estabelecimento;Categoria;Crédito;Valor Fatura;Diferença;Status;Origem'
+    'Data;Número;Referência;Lançamento Diário;Parceiro;Estabelecimento;Categoria;Crédito;Valor Fatura;Diferença;Classificação;Motivo;Status;Origem'
   const rows = results.map((r) =>
     [
       r.data,
@@ -49,9 +44,11 @@ export function generateExportCSV(results: ReconciliationResult[]): string {
       r.parceiro,
       r.estabelecimento,
       r.categoria ?? '',
-      r.credito?.toFixed(2) ?? '',
-      r.valorFatura?.toFixed(2) ?? '',
-      r.diferenca?.toFixed(2) ?? '',
+      r.credito !== null && r.credito !== undefined ? r.credito.toFixed(2) : '',
+      r.valorFatura !== null && r.valorFatura !== undefined ? r.valorFatura.toFixed(2) : '',
+      r.diferenca !== null && r.diferenca !== undefined ? r.diferenca.toFixed(2) : '',
+      r.classificacao ?? '',
+      r.motivo ?? '',
       r.status,
       r.origem,
     ].join(';'),

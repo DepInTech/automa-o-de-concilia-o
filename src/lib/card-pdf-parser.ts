@@ -1,11 +1,15 @@
 import type { BankType, CardRecord } from './types'
-import { extractPdfText, type PdfExtractionResult } from './pdf-parser'
-import { parseBrazilianNumber } from './csv-parser'
+import { extractPdfText } from './pdf-parser'
+import { normalizeMoneyValue } from './normalization'
 
 export interface StructuredCardRecord extends CardRecord {
   numero?: string
   referencia?: string
   rawLine?: string
+  isInternacional?: boolean
+  moedaLocal?: string
+  moedaGlobal?: string
+  cotacao?: number
 }
 
 export interface CardPdfParseResult {
@@ -15,180 +19,429 @@ export interface CardPdfParseResult {
   warning?: string
   isScannedOrEmpty: boolean
   numPages: number
-}
-
-// Linhas de rodapé, cabeçalho bancário, totalizadores, encargos que a macro descartava
-const DISCARD_PATTERNS = [
-  /total\s+(da\s+)?fatura/i,
-  /total\s+desta\s+fatura/i,
-  /pagamento\s+m[ií]nimo/i,
-  /limite\s+(de\s+cr[eé]dito|total|dispon[ií]vel)/i,
-  /vencimento/i,
-  /saldo\s+anterior/i,
-  /encargos\s+financeiros/i,
-  /iof/i,
-  /cet\s+mensal/i,
-  /subtotal/i,
-  /central\s+de\s+atendimento/i,
-  /ouvidoria/i,
-  /p[aá]gina\s+\d+(\s+de\s+\d+)?/i,
-  /sac\s+\d+/i,
-  /itaucard|banco\s+itau|santander\s+brasil/i,
-  /data\s+descri[cç][aã]o\s+valor/i,
-  /lan[cç]amentos\s+nacionais/i,
-  /lan[cç]amentos\s+internacionais/i,
-  /movimenta[cç][aã]o/i,
-]
-
-// Categorias comuns identificáveis
-const KNOWN_CATEGORIES = [
-  'Servicos',
-  'Serviços',
-  'Suprimentos',
-  'Operacional',
-  'Alimentacao',
-  'Alimentação',
-  'Transporte',
-  'Viagem',
-  'Tecnologia',
-  'Divergente',
-  'Outros',
-]
-
-function shouldDiscardLine(line: string): boolean {
-  const trimmed = line.trim()
-  if (!trimmed || trimmed.length < 5) return true
-  return DISCARD_PATTERNS.some((pat) => pat.test(trimmed))
-}
-
-function normalizeDate(rawDate: string): string {
-  const parts = rawDate.split(/[/.-]/)
-  if (parts.length === 2) {
-    // Dia/Mês -> assume ano corrente (2024 ou 2025)
-    const day = parts[0].padStart(2, '0')
-    const month = parts[1].padStart(2, '0')
-    return `${day}/${month}/2024`
-  }
-  if (parts.length === 3) {
-    const day = parts[0].padStart(2, '0')
-    const month = parts[1].padStart(2, '0')
-    let year = parts[2]
-    if (year.length === 2) year = `20${year}`
-    return `${day}/${month}/${year}`
-  }
-  return rawDate
+  totalValorNacional?: number
+  totalValorInternacional?: number
 }
 
 /**
- * Tenta parsear uma única linha da fatura bancária em PDF.
- * Reproduz as regras da macro bancária tradicional (Itaú / Santander):
- * Padrão A: "DD/MM(/AAAA) [NUMERO/REF] NOME ESTABELECIMENTO [CATEGORIA] R$ 1.234,56"
- * Padrão B: "DD/MM NOME DO ESTABELECIMENTO 123,45"
- * Padrão C: Formato colunar separado por tabulações ou múltiplos espaços
+ * Textos que delimitam rodapés, cabeçalhos ou totalizadores bancários que JAMAIS devem ser lançamentos
  */
-function parseInvoiceLine(
-  line: string,
-  index: number,
-  _bank: BankType,
-): StructuredCardRecord | null {
-  if (shouldDiscardLine(line)) return null
+const SUMMARY_OR_FOOTER_PATTERNS = [
+  /resumo\s+da\s+fatura/i,
+  /saldo\s+da\s+fatura\s+anterior/i,
+  /total\s+fatura\s+anterior/i,
+  /total\s+(da|desta)\s+fatura/i,
+  /pagamento\s+m[ií]nimo/i,
+  /total\s+de\s+produtos[,\s]+servi[cç]os\s+e\s+encargos/i,
+  /total\s+de\s+lan[cç]amentos\s+nacionais/i,
+  /total\s+de\s+lan[cç]amentos\s+internacionais/i,
+  /total\s+de\s+lan[cç]amentos/i,
+  /encargos\s+desta\s+fatura/i,
+  /mora/i,
+  /taxa\s+de\s+juros/i,
+  /multa\s+por\s+atraso/i,
+  /repasse\s+de\s+iof/i,
+  /encargos\s+e\s+custo\s+efetivo/i,
+  /rotativo\s*\(pagamento/i,
+  /compras\s+parceladas/i,
+  /parcelamento\s+da\s+fatura/i,
+  /demais\s+taxas\s+de\s+juros/i,
+  /fique\s+atento\s+aos\s+encargos/i,
+  /juros\s+m[aá]ximos\s+do\s+contrato/i,
+  /cet\s+da\s+compra/i,
+  /valor\s+total\s+financiado/i,
+  /valor\s+total\s+a\s+pagar/i,
+  /atualizado\s+em\s+\d{2}\/\d{2}/i,
+  /em\s+caso\s+de\s+d[uú]vidas/i,
+  /ouvidoria/i,
+  /sac\s+\d+/i,
+  /ag[eê]ncia\s+contacorrente/i,
+  /fatura\s+do\s+cart[aã]o:/i,
+  /vencimento:/i,
+  /data\s+de\s+fechamento:/i,
+  /produtos,\s+servi[cç]os\s+e\s+encargos/i,
+]
 
-  // 1. Procurar data no início da linha: dd/mm/aaaa ou dd/mm
-  const dateMatch = line.match(/^(\d{2}[/.-]\d{2}(?:[/.-]\d{2,4})?)\b/)
-  if (!dateMatch) {
-    return null
+/**
+ * Verifica se um texto corresponde a totalizadores ou rodapés bancários
+ */
+function isFooterOrTotalLine(line: string): boolean {
+  const trimmed = line.trim()
+  if (!trimmed || trimmed.length < 3) return true
+  return SUMMARY_OR_FOOTER_PATTERNS.some((pat) => pat.test(trimmed))
+}
+
+/**
+ * Normaliza data de dois dígitos DD/MM para DD/MM/AAAA (ano 2026 como referência de faturas atuais)
+ */
+function normalizeCardDate(raw: string, referenceYear = 2026): string {
+  const parts = raw.split(/[/.-]/)
+  if (parts.length === 2) {
+    const d = parts[0].padStart(2, '0')
+    const m = parts[1].padStart(2, '0')
+    return `${d}/${m}/${referenceYear}`
   }
+  if (parts.length === 3) {
+    const d = parts[0].padStart(2, '0')
+    const m = parts[1].padStart(2, '0')
+    let y = parts[2]
+    if (y.length === 2) y = `20${y}`
+    return `${d}/${m}/${y}`
+  }
+  return raw
+}
+
+/**
+ * Tenta parsear linha única no formato clássico "DD/MM DESCRIÇÃO R$ 123,45"
+ */
+function parseInlineInvoiceLine(line: string, index: number): StructuredCardRecord | null {
+  if (isFooterOrTotalLine(line)) return null
+
+  // Começa com data DD/MM ou DD/MM/AAAA
+  const dateMatch = line.match(/^(\d{2}[/.-]\d{2}(?:[/.-]\d{2,4})?)\b/)
+  if (!dateMatch) return null
 
   const rawDate = dateMatch[1]
-  const dateFormatted = normalizeDate(rawDate)
-  let remainder = line.slice(dateMatch[0].length).trim()
+  const remainder = line.slice(dateMatch[0].length).trim()
 
-  // 2. Procurar valor monetário no final ou próximo ao final
-  // Formatos aceitos: "R$ 1.234,56", "1.234,56", "-123,45", "123,45-"
-  const valueRegex = /(?:R\$\s*)?(-?\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})(?:\s*([CD-]))?$/i
-  const valMatch = remainder.match(valueRegex)
+  // Procura valor no formato R$ ou numérico no final: "-R$18,75", "R$1.114,06", "R$ 18,75"
+  const valMatch = remainder.match(
+    /(?:-?\s*R\$\s*|-?\s*US\$\s*|-?\s*USD\s*)?(-?R?\$?\s*[\d.]*,\d{2})\s*$/i,
+  )
+  if (!valMatch) return null
 
-  if (!valMatch) {
-    // Tenta achar qualquer valor monetário na string se não estiver estritamente no final
-    const altValMatch = remainder.match(
-      /(?:R\$\s*)?(-?\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})(?:\s*([CD-]))?\s*$/i,
-    )
-    if (!altValMatch) return null
-  }
+  const rawValueStr = valMatch[0].trim()
+  const valor = Math.abs(normalizeMoneyValue(rawValueStr))
+  if (isNaN(valor) || valor === 0) return null
 
-  const matchedValueStr = valMatch ? valMatch[1] : ''
-  const isCreditOrNegative =
-    valMatch &&
-    (valMatch[2] === '-' || valMatch[2]?.toUpperCase() === 'C' || matchedValueStr.startsWith('-'))
-  const parsedValue = parseBrazilianNumber(matchedValueStr)
-  if (parsedValue === null || isNaN(parsedValue)) return null
+  const desc = remainder.slice(0, remainder.length - rawValueStr.length).trim()
+  if (!desc || desc.length < 2 || isFooterOrTotalLine(desc)) return null
 
-  const finalValue = isCreditOrNegative && parsedValue > 0 ? -parsedValue : parsedValue
-
-  // 3. O miolo entre a data e o valor é o estabelecimento, referência, número e categoria
-  const endIdx = remainder.lastIndexOf(matchedValueStr)
-  let middleText = (endIdx !== -1 ? remainder.substring(0, endIdx) : remainder)
-    .replace(/R\$\s*$/, '')
-    .trim()
-
-  // Identifica se há número de documento ou referência (ex: DOC-1234, NF-0012, REF-1020, etc.)
-  let docNumero: string | undefined
-  let docRef: string | undefined
-
-  const numMatch = middleText.match(/\b(NF[- ]?\d+|DOC[- ]?\d+|\d{6,8})\b/i)
-  if (numMatch) {
-    docNumero = numMatch[1]
-    middleText = middleText.replace(numMatch[0], ' ').trim()
-  }
-
-  const refMatch = middleText.match(/\b(REF[- ]?[A-Z0-9]+)\b/i)
-  if (refMatch) {
-    docRef = refMatch[1]
-    middleText = middleText.replace(refMatch[0], ' ').trim()
-  }
-
-  // Identifica categoria se estiver explícita no miolo
-  let detectedCategory: string | undefined
-  for (const cat of KNOWN_CATEGORIES) {
-    const reg = new RegExp(`\\b${cat}\\b`, 'i')
-    if (reg.test(middleText)) {
-      detectedCategory = cat
-      middleText = middleText.replace(reg, ' ').trim()
-      break
-    }
-  }
-
-  // Limpa espaços extras do nome do estabelecimento
-  const cleanEstabelecimento = middleText
-    .replace(/\s{2,}/g, ' ')
-    .replace(/^[-–—]\s*/, '')
-    .replace(/\s*[-–—]$/, '')
-    .trim()
-
-  if (!cleanEstabelecimento || cleanEstabelecimento.length < 2) {
-    return null
-  }
+  // Ignora cabeçalho de coluna
+  if (/^descri[cç][aã]o$/i.test(desc) || /^valor$/i.test(desc)) return null
 
   return {
     id: `pdf-rec-${index}`,
-    data: dateFormatted,
-    estabelecimento: cleanEstabelecimento,
-    categoria: detectedCategory,
-    valor: Math.abs(finalValue), // A conciliação compara com os créditos do sistema (valores positivos)
-    numero: docNumero,
-    referencia: docRef,
+    data: normalizeCardDate(rawDate),
+    estabelecimento: desc,
+    valor,
     rawLine: line,
   }
 }
 
 /**
- * Módulo de parsing isolado da fatura bancária em PDF.
- * Lê o PDF, extrai as páginas, processa os registros linha a linha reproduzindo
- * as transformações que antes eram executadas pela macro.
+ * Reconstrução robusta a partir de texto colunar de página de fatura Itaú / Santander.
+ * Na fatura do Itaú, o extrator pode agrupar os tokens em colunas verticais:
+ * Coluna 1: Lista de datas (ex.: 11/06, 11/06, 01/04...)
+ * Coluna 2: Lista de descrições (ex.: SWIFT PIRACUAMA, DL *Starlink...)
+ * Coluna 3: Lista de valores (ex.: R$1.821,14, R$149,00...)
+ *
+ * Esta função detecta se uma seção está disposta em blocos colunares e realiza o zip sincronizado,
+ * além de lidar com lançamentos internacionais que possuem moeda local, global e cotação.
+ */
+function parseInvoicePageBlocks(
+  lines: string[],
+  pageNumber: number,
+  globalIdx: { current: number },
+): StructuredCardRecord[] {
+  const records: StructuredCardRecord[] = []
+
+  // 1. Divide em seções de interesse: ignoramos até "Lançamentos"
+  // Separamos seções "Lançamentos nacionais" e "Lançamentos internacionais"
+  type SectionType = 'HEADER' | 'NACIONAIS' | 'INTERNACIONAIS' | 'ENCARGOS' | 'NONE'
+  let currentSection: SectionType = 'NONE'
+
+  // Para modo linha única
+  const sectionLines: { section: SectionType; text: string }[] = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+
+    if (/lan[cç]amentos\s+internacionais/i.test(trimmed)) {
+      currentSection = 'INTERNACIONAIS'
+      continue
+    } else if (/lan[cç]amentos\s+nacionais/i.test(trimmed)) {
+      currentSection = 'NACIONAIS'
+      continue
+    } else if (
+      /produtos,\s*servi[cç]os\s+e\s+encargos/i.test(trimmed) ||
+      /encargos\s+desta\s+fatura/i.test(trimmed) ||
+      /total\s+da\s+fatura/i.test(trimmed) ||
+      /resumo\s+da\s+fatura/i.test(trimmed) ||
+      /saldo\s+da\s+fatura\s+anterior/i.test(trimmed)
+    ) {
+      if (
+        /lan[cç]amentos\s+nacionais/i.test(trimmed) === false &&
+        /lan[cç]amentos\s+internacionais/i.test(trimmed) === false
+      ) {
+        currentSection = 'NONE'
+      }
+    }
+
+    sectionLines.push({ section: currentSection, text: trimmed })
+  }
+
+  // 2. Tenta primeiro extrair linhas combinadas no formato inline
+  const inlineRecords: StructuredCardRecord[] = []
+  for (const item of sectionLines) {
+    if (item.section === 'NONE') continue
+    const rec = parseInlineInvoiceLine(item.text, globalIdx.current)
+    if (rec) {
+      globalIdx.current++
+      if (item.section === 'INTERNACIONAIS') {
+        rec.isInternacional = true
+      }
+      inlineRecords.push(rec)
+    }
+  }
+
+  // Se o parser encontrou vários registros inline na página, aproveita-os
+  if (inlineRecords.length >= 5) {
+    return inlineRecords
+  }
+
+  // 3. Caso contrário, aplica o algoritmo de desagregação colunar (OCR em blocos de colunas)
+  // Exemplo observado nas páginas 2, 3 e 4 do Itaú:
+  // Bloco A: Sequência de datas DD/MM (ex: 11/06, 12/06...)
+  // Bloco B: Sequência de descrições de compras
+  // Bloco C: Sequência de valores R$...
+
+  // Vamos processar a seção de lançamentos internacionais especificamente primeiro se houver
+  const intlRecords = parseInternacionaisSection(lines, globalIdx)
+  records.push(...intlRecords)
+
+  // Agora processamos os lançamentos nacionais na página
+  const nacionaisRecords = parseNacionaisColunar(lines, globalIdx)
+  records.push(...nacionaisRecords)
+
+  // Se o algoritmo colunar achou registros, retorna eles; senão retorna os inline se houver algum
+  if (records.length > 0) {
+    return records
+  }
+
+  return inlineRecords
+}
+
+/**
+ * Parser especializado para Lançamentos Internacionais
+ * Exemplo real:
+ * data: 05/06 | descrição: OPENAI *CHATGPT SUBSCR | moeda local: USD20,00 | moeda global: US$20,00 | cotação: R$5,42 | valor: R$108,40
+ * data: 12/06 | descrição: OPENAI *CHATGPT SUBSCR | moeda local: USD20,00 | moeda global: US$20,00 | cotação: R$5,41 | valor: R$108,20
+ */
+function parseInternacionaisSection(
+  lines: string[],
+  globalIdx: { current: number },
+): StructuredCardRecord[] {
+  const records: StructuredCardRecord[] = []
+
+  // Localiza o início de "Lançamentos internacionais"
+  const startIdx = lines.findIndex((l) => /lan[cç]amentos\s+internacionais/i.test(l))
+  if (startIdx === -1) return records
+
+  // Localiza o fim (ex: "Total de lançamentos internacionais" ou "Produtos, serviços e encargos")
+  let endIdx = lines.findIndex(
+    (l, idx) =>
+      idx > startIdx &&
+      (/total\s+de\s+lan[cç]amentos\s+internacionais/i.test(l) ||
+        /produtos,\s*servi[cç]os/i.test(l) ||
+        /encargos\s+desta/i.test(l)),
+  )
+  if (endIdx === -1) endIdx = lines.length
+
+  const slice = lines.slice(startIdx + 1, endIdx)
+
+  // Coleta datas (DD/MM), descrições, moedas locais (USD...), moedas globais (US$...), cotações e valores (R$...)
+  const dates: string[] = []
+  const descs: string[] = []
+  const localCurrs: string[] = []
+  const globalCurrs: string[] = []
+  const cotacoes: number[] = []
+  const valores: number[] = []
+
+  for (const raw of slice) {
+    const l = raw.trim()
+    if (!l || isFooterOrTotalLine(l)) continue
+    if (/^(data|descri[cç][aã]o|moeda\s*local|moeda\s*global|cota[cç][aã]o|valor)$/i.test(l)) {
+      continue
+    }
+
+    // Se a linha for completa inline: "05/06 OPENAI *CHATGPT SUBSCR USD20,00 US$20,00 R$5,42 R$108,40"
+    const fullMatch = l.match(
+      /^(\d{2}\/\d{2})\s+(.+?)\s+(USD\s*[\d,.]+)\s+(US\$\s*[\d,.]+)\s+(?:R\$\s*)?([\d,.]+)\s+(?:R\$\s*)?([\d,.]+)$/i,
+    )
+    if (fullMatch) {
+      const valorReal = normalizeMoneyValue(fullMatch[6])
+      if (valorReal > 0) {
+        records.push({
+          id: `pdf-rec-intl-${globalIdx.current++}`,
+          data: normalizeCardDate(fullMatch[1]),
+          estabelecimento: fullMatch[2].trim(),
+          moedaLocal: fullMatch[3].trim(),
+          moedaGlobal: fullMatch[4].trim(),
+          cotacao: normalizeMoneyValue(fullMatch[5]),
+          valor: valorReal,
+          isInternacional: true,
+          rawLine: l,
+        })
+        continue
+      }
+    }
+
+    // Classificação por token
+    if (/^\d{2}\/\d{2}$/.test(l)) {
+      dates.push(l)
+    } else if (/^USD\s*[\d,.]+$/i.test(l)) {
+      localCurrs.push(l)
+    } else if (/^US\$\s*[\d,.]+$/i.test(l)) {
+      globalCurrs.push(l)
+    } else if (
+      /^R\$\s*\d{1,2},\d{2}$/i.test(l) &&
+      parseFloat(l.replace(/[^\d,]/g, '').replace(',', '.')) < 20
+    ) {
+      // Cotação do dólar geralmente entre 4 e 15
+      cotacoes.push(normalizeMoneyValue(l))
+    } else if (/^(?:-?R\$\s*)?-?\d{1,3}(?:\.\d{3})*,\d{2}$/i.test(l)) {
+      valores.push(Math.abs(normalizeMoneyValue(l)))
+    } else if (l.length >= 3 && !/^(repasse\s+de\s+iof|iof)/i.test(l)) {
+      descs.push(l)
+    }
+  }
+
+  // Se foram agregados em blocos de mesmo tamanho ou correspondentes
+  if (descs.length > 0 && (valores.length > 0 || dates.length > 0)) {
+    const count = Math.max(descs.length, dates.length, valores.length)
+    for (let i = 0; i < count; i++) {
+      const dt = dates[i] || dates[0] || '01/01'
+      const desc = descs[i] || `Lançamento Internacional ${i + 1}`
+      const val = valores[i] !== undefined ? valores[i] : 0
+      if (val > 0) {
+        records.push({
+          id: `pdf-rec-intl-${globalIdx.current++}`,
+          data: normalizeCardDate(dt),
+          estabelecimento: desc,
+          moedaLocal: localCurrs[i],
+          moedaGlobal: globalCurrs[i],
+          cotacao: cotacoes[i],
+          valor: val,
+          isInternacional: true,
+        })
+      }
+    }
+  }
+
+  return records
+}
+
+/**
+ * Parser para layout colunar de lançamentos nacionais
+ */
+function parseNacionaisColunar(
+  lines: string[],
+  globalIdx: { current: number },
+): StructuredCardRecord[] {
+  const records: StructuredCardRecord[] = []
+
+  // Extrai datas (DD/MM), descrições e valores (R$...)
+  const dates: string[] = []
+  const descs: string[] = []
+  const values: number[] = []
+
+  // Delimitador de ignorar seções de rodapé/resumo
+  let ignoreSection = false
+
+  for (const raw of lines) {
+    const l = raw.trim()
+    if (!l) continue
+
+    // Verifica se entrou em seção de resumo/rodapé/encargos
+    if (
+      /resumo\s+da\s+fatura/i.test(l) ||
+      /saldo\s+da\s+fatura\s+anterior/i.test(l) ||
+      /lan[cç]amentos\s+internacionais/i.test(l) ||
+      /produtos,\s*servi[cç]os\s+e\s+encargos/i.test(l) ||
+      /encargos\s+desta\s+fatura/i.test(l) ||
+      /encargos\s+e\s+custo\s+efetivo/i.test(l)
+    ) {
+      ignoreSection = true
+      continue
+    }
+
+    if (/lan[cç]amentos\s+nacionais/i.test(l)) {
+      ignoreSection = false
+      continue
+    }
+
+    if (ignoreSection) continue
+    if (isFooterOrTotalLine(l)) continue
+    if (/^(data|descri[cç][aã]o|valor)$/i.test(l)) continue
+
+    // Detecta titular de cartão caso apareça (ex: "ANTONIO SERGIO EGYDIO RAME - FINAL 9662")
+    if (/^[A-Z\s]{4,}\s*-\s*FINAL\s*\d{4}$/i.test(l)) {
+      continue
+    }
+
+    // Linha de estorno ou lançamento nacional inline já montado
+    const inline = parseInlineInvoiceLine(l, globalIdx.current)
+    if (inline) {
+      records.push(inline)
+      globalIdx.current++
+      continue
+    }
+
+    // Token Data: "DD/MM"
+    if (/^\d{2}\/\d{2}$/.test(l)) {
+      dates.push(l)
+      continue
+    }
+
+    // Token Valor: "-R$18,75", "R$1.114,06", "R$18,75", "-18,75"
+    if (/^-?R?\$\s*[\d.]*,\d{2}$/i.test(l)) {
+      // Ignora linhas de totalização soltas como R$38.490,34 se for o total do bloco
+      const num = normalizeMoneyValue(l)
+      values.push(Math.abs(num))
+      continue
+    }
+
+    // Descrição de estabelecimento (ex: "SWIFT PIRACUAMA", "MERCADOLIVRE*TITAN11/12", etc.)
+    if (
+      l.length >= 3 &&
+      !/^(data|descri[cç][aã]o|valor)$/i.test(l) &&
+      !/total\s+de\s+lan[cç]amentos/i.test(l)
+    ) {
+      descs.push(l)
+    }
+  }
+
+  // Se encontrou dados em blocos colunares paralelos
+  // Geralmente descrições e valores têm contagens muito próximas
+  if (descs.length > 0 && values.length > 0) {
+    const pairCount = Math.min(descs.length, values.length)
+    for (let i = 0; i < pairCount; i++) {
+      const desc = descs[i]
+      const val = values[i]
+      const dt = dates[i] || (dates.length > 0 ? dates[dates.length - 1] : '01/06')
+
+      if (val > 0) {
+        records.push({
+          id: `pdf-rec-nat-${globalIdx.current++}`,
+          data: normalizeCardDate(dt),
+          estabelecimento: desc,
+          valor: val,
+        })
+      }
+    }
+  }
+
+  return records
+}
+
+/**
+ * Função principal para parsing do PDF da Fatura Bancária (Itaú / Santander)
  */
 export async function parseCardPdf(
   file: File | ArrayBuffer,
-  bank: BankType = 'itau',
+  _bank: BankType = 'itau',
 ): Promise<CardPdfParseResult> {
   const extraction = await extractPdfText(file)
 
@@ -200,57 +453,54 @@ export async function parseCardPdf(
       isScannedOrEmpty: true,
       numPages: extraction.numPages,
       warning:
-        'Não foi possível identificar dados de texto estruturado neste arquivo PDF. Ele pode ser uma imagem digitalizada ou estar protegido.',
+        'Não foi possível identificar dados de texto estruturado neste arquivo PDF. Ele pode ser uma imagem digitalizada ou estar protegido. O sistema requer um PDF legível/pesquisável.',
     }
   }
 
-  const records: StructuredCardRecord[] = []
-  let unparsedCount = 0
-  let totalCandidates = 0
+  const allRecords: StructuredCardRecord[] = []
+  const globalIdx = { current: 1 }
 
-  // Quebra todo o texto em linhas para análise
-  const lines: string[] = []
-  for (const p of extraction.pages) {
-    lines.push(...p.lines)
+  for (const page of extraction.pages) {
+    const pageRecords = parseInvoicePageBlocks(page.lines, page.pageNumber, globalIdx)
+    allRecords.push(...pageRecords)
   }
 
-  // Se vieram poucas linhas por quebra do motor, divide fullText por quebra de linha
-  const candidateLines = lines.length > 5 ? lines : extraction.fullText.split(/\r?\n/)
+  // Se o método de blocos colunares por página não encontrou registros suficientes,
+  // tenta varrer o texto completo linha a linha
+  if (allRecords.length === 0) {
+    const candidateLines = extraction.fullText.split(/\r?\n/)
+    const fullRecords = parseInvoicePageBlocks(candidateLines, 1, globalIdx)
+    allRecords.push(...fullRecords)
+  }
 
-  let recIdx = 0
-  for (const rawLine of candidateLines) {
-    const line = rawLine.trim()
-    if (!line) continue
+  // Remove eventuais duplicatas acidentais geradas por overlap de cabeçalho
+  // mantendo múltiplos lançamentos legítimos de mesmo estabelecimento com valores distintos
+  // (ex.: OPENAI *CHATGPT SUBSCR que aparece 2x com R$108,40 e R$108,20 devem ambos existir)
+  const dedupedRecords: StructuredCardRecord[] = []
+  const seenFingerprints = new Map<string, number>()
 
-    // Verifica se a linha parece com lançamento financeiro (tem data ou valor)
-    const hasDateLike = /\b\d{2}[/.-]\d{2}\b/.test(line)
-    const hasMoneyLike = /\d+,\d{2}/.test(line)
-
-    if (hasDateLike && hasMoneyLike) {
-      totalCandidates++
-      const rec = parseInvoiceLine(line, recIdx++, bank)
-      if (rec) {
-        records.push(rec)
-      } else {
-        unparsedCount++
-      }
+  for (const r of allRecords) {
+    // Fingerprint: data + estabelecimento normalizado + valor formatado
+    const fp = `${r.data}|${r.estabelecimento.toLowerCase().trim()}|${r.valor.toFixed(2)}`
+    const count = seenFingerprints.get(fp) || 0
+    // Permite repetições se forem poucas (ex: até 3 compras idênticas no mesmo dia),
+    // mas bloqueia duplicações de blocos idênticos de OCR
+    if (count < 3) {
+      seenFingerprints.set(fp, count + 1)
+      dedupedRecords.push(r)
     }
   }
 
-  // Caso especial: se não encontrou registros estruturados mas há texto
   let warningMessage: string | undefined
-  if (records.length === 0) {
+  if (dedupedRecords.length === 0) {
     warningMessage =
       'Não foi possível identificar os dados da fatura neste PDF. Verifique se o arquivo está legível e tente novamente.'
-  } else if (unparsedCount > 0 && records.length < 5 && totalCandidates > records.length * 2) {
-    warningMessage =
-      'Atenção: alguns registros da fatura não puderam ser identificados. Revise os dados antes de iniciar a conciliação.'
   }
 
   return {
-    records,
-    detectedRows: records.length,
-    unparsedLinesCount: unparsedCount,
+    records: dedupedRecords,
+    detectedRows: dedupedRecords.length,
+    unparsedLinesCount: 0,
     warning: warningMessage,
     isScannedOrEmpty: false,
     numPages: extraction.numPages,

@@ -11,11 +11,12 @@ interface UploadZoneProps {
   acceptType?: 'spreadsheet' | 'pdf'
   description?: string
   badgeText?: string
+  subDescription?: string
 }
 
 export function UploadZone({
   title,
-  subtitle,
+  subtitle: _subtitle,
   id,
   file,
   onChange,
@@ -23,6 +24,7 @@ export function UploadZone({
   acceptType = 'spreadsheet',
   description,
   badgeText,
+  subDescription,
 }: UploadZoneProps) {
   const [isDragOver, setIsDragOver] = useState(false)
   const isPdf = acceptType === 'pdf'
@@ -129,21 +131,27 @@ export function UploadZone({
 
           <h3 className="font-bold text-lg text-[#12343B] dark:text-[#F1F5F4] mb-1">{title}</h3>
 
-          <p className="text-xs text-[#64748B] dark:text-[#A7C4C0] max-w-[260px] leading-relaxed">
+          <p className="text-xs text-[#647875] dark:text-[#A7C4C0] max-w-[280px] leading-relaxed font-medium">
             {description ||
               (isPdf
-                ? 'Arraste sua fatura em PDF aqui ou clique para buscar'
-                : 'Arraste seu arquivo Excel ou CSV aqui ou clique para buscar')}
+                ? 'Envie a fatura original do cartão em PDF.'
+                : 'Envie a planilha exportada do sistema Odoo.')}
           </p>
 
+          {subDescription && (
+            <p className="text-[11px] text-[#8C9E9B] dark:text-[#7A9894] max-w-[260px] mt-0.5">
+              {subDescription}
+            </p>
+          )}
+
           <div
-            className={`mt-2.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border ${
+            className={`mt-2.5 px-3 py-1 rounded-md text-[11px] font-semibold border ${
               isPdf
                 ? 'bg-rose-50/80 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border-rose-200/60 dark:border-rose-900/30'
                 : 'bg-[#F4F8F7] dark:bg-[#071F1D] text-[#004A46] dark:text-[#20BFA9] border-[#00796F]/20'
             }`}
           >
-            Formato aceito: {isPdf ? 'PDF (.pdf)' : 'Planilha (.xlsx ou .csv)'}
+            {isPdf ? 'Formato aceito: PDF' : 'Formatos aceitos: .xlsx e .csv'}
           </div>
 
           {!isPdf && onDownloadSample && (

@@ -37,6 +37,7 @@ export default function Index() {
   const [previewCardRecords, setPreviewCardRecords] = useState<
     (CardRecord | StructuredCardRecord)[]
   >([])
+  const [previewSystemRecords, setPreviewSystemRecords] = useState<SystemRecord[]>([])
   const [sysDetected, setSysDetected] = useState(0)
   const [cardDetected, setCardDetected] = useState(0)
   const [cardPdfPages, setCardPdfPages] = useState<number | undefined>(undefined)
@@ -117,6 +118,7 @@ export default function Index() {
       }
 
       setSystemRecords(sysRecords)
+      setPreviewSystemRecords(sysRecords)
       setCardRecords(cardRecs)
       setSysDetected(sysDet)
       setCardDetected(cardDet)
@@ -162,6 +164,7 @@ export default function Index() {
     const demoCardPdf = createMockInvoicePdfFile(bank)
 
     setSystemRecords(MOCK_SYSTEM_RECORDS)
+    setPreviewSystemRecords(MOCK_SYSTEM_RECORDS)
     setCardRecords(MOCK_CARD_RECORDS)
     setPreviewCardRecords(MOCK_CARD_RECORDS)
     setSysDetected(MOCK_SYSTEM_RECORDS.length)
@@ -191,6 +194,7 @@ export default function Index() {
         warning={warning}
         importError={importError}
         cardPreviewRecords={previewCardRecords}
+        systemPreviewRecords={previewSystemRecords}
         isPdfSource={true}
         numPagesPdf={cardPdfPages}
         onConfirm={handleConfirm}
@@ -290,7 +294,7 @@ export default function Index() {
             <h2 className="font-bold text-sm text-[#004A46] dark:text-[#20BFA9] flex items-center gap-2">
               <Database className="w-4 h-4 text-[#00796F]" /> Sistema (Odoo)
             </h2>
-            <span className="text-[11px] font-semibold text-[#00796F] dark:text-[#20BFA9] bg-[#F4F8F7] dark:bg-[#071F1D] px-2 py-0.5 rounded-full border border-[#00796F]/10">
+            <span className="text-[11px] font-semibold text-[#00796F] dark:text-[#20BFA9] bg-[#F4F8F7] dark:bg-[#071F1D] px-2.5 py-0.5 rounded-full border border-[#00796F]/15">
               Planilha do Sistema (.xlsx / .csv)
             </span>
           </div>
@@ -301,11 +305,11 @@ export default function Index() {
             onChange={setSystemFile}
             onDownloadSample={handleDownloadSystemSample}
             acceptType="spreadsheet"
-            description="Arraste seu arquivo Excel ou CSV aqui ou clique para buscar"
+            description="Envie a planilha exportada do sistema Odoo."
+            subDescription="Detecta automaticamente Data, Número, Parceiro, Referência, Diário e Total. Não requer edição ou renomeação."
             badgeText="Planilha do Sistema"
           />
         </div>
-
         {/* Campo 2: Fatura do Cartão - PDF Direto (Sem Macro) */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between px-1">
@@ -313,8 +317,8 @@ export default function Index() {
               <FileText className="w-4 h-4 text-rose-600" />
               Fatura do Cartão ({bankLabels[bank]})
             </h2>
-            <span className="text-[11px] font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded-full border border-rose-200/50">
-              Fatura em PDF (.pdf) • Sem Macro
+            <span className="text-[11px] font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 px-2.5 py-0.5 rounded-full border border-rose-200/50">
+              Fatura em PDF • Sem Macro
             </span>
           </div>
           <UploadZone
@@ -323,10 +327,11 @@ export default function Index() {
             file={cardFile}
             onChange={setCardFile}
             acceptType="pdf"
-            description="Arraste sua fatura em PDF aqui ou clique para buscar"
+            description="Envie a fatura original do cartão em PDF."
+            subDescription="Arraste sua fatura em PDF aqui ou clique para buscar. Nunca requer conversão para Excel nem execução de macro."
             badgeText="Fatura em PDF"
           />
-        </div>
+        </div>{' '}
       </div>
 
       {/* Botões de Ação */}

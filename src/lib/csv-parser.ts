@@ -15,16 +15,29 @@ function normalizeHeader(text: string): string {
     .replace(/\s+/g, ' ')
 }
 
-export function parseBrazilianNumber(value: string): number | null {
-  if (!value) return null
-  let v = value.trim().replace(/R\$/g, '').replace(/\s/g, '')
+export function parseBrazilianNumber(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'number') {
+    return isNaN(value) ? null : Math.round(value * 100) / 100
+  }
+  let v = String(value).trim().replace(/R\$/gi, '').replace(/\s/g, '')
+  if (!v) return null
+
+  // Se tem parênteses ou sinal negativo
+  const isNegative = v.startsWith('-') || v.endsWith('-') || (v.startsWith('(') && v.endsWith(')'))
+  v = v.replace(/[()-]/g, '')
+
   if (v.includes(',') && v.includes('.')) {
+    // 1.114,06
     v = v.replace(/\./g, '').replace(',', '.')
   } else if (v.includes(',')) {
+    // 1114,06
     v = v.replace(',', '.')
   }
   const n = Number(v)
-  return isNaN(n) ? null : n
+  if (isNaN(n)) return null
+  const result = Math.round(n * 100) / 100
+  return isNegative ? -result : result
 }
 
 function detectDelimiter(line: string): string {
@@ -92,27 +105,46 @@ function findColumn(headers: string[], aliases: string[]): string | null {
 }
 
 export function mapSystemRecords(parsed: ParsedCSV): SystemRecord[] {
-  const data = findColumn(parsed.headers, ['Data'])
-  const parceiro = findColumn(parsed.headers, ['Parceiro', 'Fornecedor', 'Partner', 'Nome'])
+  const data = findColumn(parsed.headers, ['Data', 'Date'])
+  const parceiro = findColumn(parsed.headers, ['Parceiro', 'Partner', 'Fornecedor', 'Nome'])
   const lancamento = findColumn(parsed.headers, [
+    'Diário',
+    'Diario',
     'Lançamento Diário',
     'Lancamento Diario',
     'Lancamento',
-    'Diario',
+    'Journal',
   ])
-  const numero = findColumn(parsed.headers, ['Número', 'Numero', 'NF', 'Nota Fiscal'])
-  const referencia = findColumn(parsed.headers, ['Referência', 'Referencia', 'Ref'])
-  const debito = findColumn(parsed.headers, ['Débito', 'Debito'])
+  const numero = findColumn(parsed.headers, ['Número', 'Numero', 'Number', 'NF', 'Nota Fiscal'])
+  const referencia = findColumn(parsed.headers, ['Referência', 'Referencia', 'Reference', 'Ref'])
+  const debito = findColumn(parsed.headers, ['Débito', 'Debito', 'Debit'])
   const total = findColumn(parsed.headers, ['Total'])
-  const credito = findColumn(parsed.headers, ['Crédito', 'Credito', 'Valor', 'Total'])
-  const categoria = findColumn(parsed.headers, ['Categoria'])
+  const credito = findColumn(parsed.headers, ['Crédito', 'Credito', 'Credit', 'Valor', 'Total'])
+  const categoria = findColumn(parsed.headers, ['Categoria', 'Category'])
 
   return parsed.rows.map((row, index) => {
-    const totalVal = total ? parseBrazilianNumber(row[total]) : null
-    const creditoVal = credito ? (parseBrazilianNumber(row[credito]) ?? 0) : 0
+    // Normalização flexível de número/moeda brasileira ou padrão numérico do Excel
+    const rawTotal = total ? row[total] : undefined
+    const rawCredito = credito ? row[credito] : undefined
+    const totalVal = rawTotal !== undefined ? parseBrazilianNumber(rawTotal) : null
+    const creditoVal =
+      rawCredito !== undefined ? (parseBrazilianNumber(rawCredito) ?? 0) : (totalVal ?? 0)
+
+    // Formata a data se for objeto Date ou formato textual extenso (ex: "Wed Jul 01 2026...")
+    let rawDateStr = data ? row[data] : ''
+    if (rawDateStr && !/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawDateStr.trim())) {
+      const parsedTs = Date.parse(rawDateStr)
+      if (!isNaN(parsedTs)) {
+        const d = new Date(parsedTs)
+        const day = String(d.getUTCDate()).padStart(2, '0')
+        const mon = String(d.getUTCMonth() + 1).padStart(2, '0')
+        rawDateStr = `${day}/${mon}/${d.getUTCFullYear()}`
+      }
+    }
+
     return {
       id: String(index),
-      data: data ? row[data] : '',
+      data: rawDateStr,
       parceiro: parceiro ? row[parceiro] : '',
       lancamentoDiario: lancamento ? row[lancamento] : undefined,
       numero: numero ? row[numero] : undefined,

@@ -19,7 +19,19 @@ export interface CardRecord {
   estabelecimento: string
   categoria?: string
   valor: number
+  moedaLocal?: string
+  moedaGlobal?: string
+  cotacao?: number
+  isInternacional?: boolean
+  cartaoTitular?: string
 }
+
+export type MatchClassification =
+  | 'CONCILIADO'
+  | 'DIVERGENTE'
+  | 'SOMENTE_SISTEMA'
+  | 'SOMENTE_FATURA'
+  | 'POSSIVEL_CORRESPONDENCIA'
 
 export interface ReconciliationResult {
   id: string
@@ -36,4 +48,7 @@ export interface ReconciliationResult {
   diferenca: number | null
   status: 'GREEN' | 'YELLOW' | 'RED'
   origem: 'SISTEMA' | 'FATURA' | 'AMBOS'
+  classificacao?: MatchClassification
+  motivo?: string
+  scoreConfianca?: number
 }

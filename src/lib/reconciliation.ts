@@ -1,245 +1,368 @@
-import type { SystemRecord, CardRecord, ReconciliationResult } from './types'
-import type { BankType } from './types'
+import type {
+  SystemRecord,
+  CardRecord,
+  ReconciliationResult,
+  BankType,
+  MatchClassification,
+} from './types'
+import {
+  calculateNameSimilarity,
+  normalizeMoneyValue,
+  calculateDateDifferenceInDays,
+  parseFlexibleDate,
+} from './normalization'
 
-function parseBrazilianDate(dateStr: string): number {
-  if (!dateStr) return 0
-  const parts = dateStr.trim().split(/[/\-.]/)
-  if (parts.length >= 3) {
-    const d = parseInt(parts[0], 10)
-    const m = parseInt(parts[1], 10)
-    const y = parseInt(parts[2], 10)
-    if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
-      return new Date(y, m - 1, d).getTime()
+/**
+ * Extrai o valor do sistema com prioridade para Total e Crédito
+ */
+export function getSystemValue(sys: SystemRecord, bank: BankType): number {
+  if (bank === 'itau') {
+    const val = sys.total !== null && sys.total !== undefined ? sys.total : sys.credito
+    return Math.abs(normalizeMoneyValue(val))
+  }
+  const val = sys.credito !== null && sys.credito !== undefined ? sys.credito : sys.total
+  return Math.abs(normalizeMoneyValue(val))
+}
+
+/**
+ * Extrai o valor da fatura de forma tolerante
+ */
+export function getCardValue(card: CardRecord): number {
+  return Math.abs(normalizeMoneyValue(card.valor))
+}
+
+function parseBrazilianDateTimestamp(dateStr: string): number {
+  const parts = parseFlexibleDate(dateStr)
+  if (!parts) return 0
+  const y = parts.year || 2026
+  return new Date(y, parts.month - 1, parts.day).getTime()
+}
+
+/**
+ * Estrutura interna para avaliar o par candidato (SystemRecord x CardRecord)
+ */
+interface MatchCandidate {
+  sys: SystemRecord
+  card: CardRecord
+  sysVal: number
+  cardVal: number
+  diffVal: number
+  nameSim: number
+  dateDiffDays: number | null
+  refMatch: boolean
+  totalScore: number
+  classification: MatchClassification
+  reason: string
+}
+
+/**
+ * Avalia a compatibilidade de um par (Sistema x Fatura) atribuindo uma pontuação de 0 a 100
+ * Critérios combinados com pontuação, prioridade:
+ * 1) VALOR (peso dominante — valores iguais são pré-requisito forte, mas nunca suficientes sozinhos)
+ * 2) ESTABELECIMENTO/PARCEIRO (similaridade de tokens, normalização de prefixos/sufixos)
+ * 3) DATA/PERÍODO (tolerância de até 30 dias entre data de compra e lançamento contábil)
+ * 4) REFERÊNCIA / NÚMERO quando disponível
+ */
+function evaluatePair(
+  sys: SystemRecord,
+  card: CardRecord,
+  sysVal: number,
+  cardVal: number,
+): MatchCandidate {
+  const diffVal = Math.round((cardVal - sysVal) * 100) / 100
+  const absDiff = Math.abs(diffVal)
+  const isValueExact = absDiff < 0.01
+  const isValueClose = absDiff <= 2.0 // Diferença pequena até R$ 2,00 (ex: taxas ou arredondamentos)
+
+  const nameSim = calculateNameSimilarity(sys.parceiro, card.estabelecimento)
+  const dateDiffDays = calculateDateDifferenceInDays(sys.data, card.data)
+
+  // Checagem de referência ou número no nome ou campo
+  let refMatch = false
+  if (sys.referencia && sys.referencia.length >= 3) {
+    if (
+      card.estabelecimento.toLowerCase().includes(sys.referencia.toLowerCase()) ||
+      (card as any).referencia?.toLowerCase().includes(sys.referencia.toLowerCase())
+    ) {
+      refMatch = true
     }
   }
-  const parsed = Date.parse(dateStr)
-  return isNaN(parsed) ? 0 : parsed
+  if (sys.numero && sys.numero.length >= 4) {
+    if (card.estabelecimento.toLowerCase().includes(sys.numero.toLowerCase())) {
+      refMatch = true
+    }
+  }
+
+  // CÁLCULO DO SCORE (0 a 100)
+  let score = 0
+
+  // 1. Componente Valor (até 45 pontos)
+  if (isValueExact) {
+    score += 45
+  } else if (isValueClose) {
+    score += 30 - absDiff * 5
+  } else if (absDiff < 20.0) {
+    score += 15
+  }
+
+  // 2. Componente Nome / Estabelecimento (até 40 pontos)
+  // Regra crítica: se o nome tiver similaridade quase nula (estabelecimentos totalmente diferentes),
+  // a pontuação de nome é 0 e penaliza
+  if (nameSim >= 0.85) {
+    score += 40
+  } else if (nameSim >= 0.6) {
+    score += 30
+  } else if (nameSim >= 0.4) {
+    score += 20
+  } else if (nameSim >= 0.2) {
+    score += 10
+  }
+
+  // 3. Componente Data (até 10 pontos)
+  if (dateDiffDays !== null) {
+    if (dateDiffDays <= 3) {
+      score += 10
+    } else if (dateDiffDays <= 10) {
+      score += 8
+    } else if (dateDiffDays <= 20) {
+      score += 5
+    } else if (dateDiffDays <= 35) {
+      score += 2
+    }
+  } else {
+    // Se não há data clara, pontuação neutra
+    score += 4
+  }
+
+  // 4. Componente Referência (até 5 pontos extras)
+  if (refMatch) {
+    score += 5
+  }
+
+  // CLASSIFICAÇÃO E MOTIVO
+  let classification: MatchClassification
+  let reason = ''
+
+  if (isValueExact && nameSim >= 0.35) {
+    // CONCILIADO: valor idêntico + estabelecimento compatível
+    classification = 'CONCILIADO'
+    reason = 'Valor e estabelecimento compatíveis'
+  } else if (isValueExact && nameSim < 0.2) {
+    // Valores iguais mas parceiros completamente diferentes NÃO devem ser conciliados automaticamente
+    // Ex.: dois lançamentos de R$ 100,00 de estabelecimentos distintos
+    classification = 'DIVERGENTE'
+    reason = 'Estabelecimento não identificado'
+    score = Math.min(score, 35) // Trava o score para não casar falso-positivo
+  } else if (isValueExact && nameSim >= 0.2 && nameSim < 0.35) {
+    // Possível correspondência: mesmo valor mas nome com similaridade marginal
+    classification = 'POSSIVEL_CORRESPONDENCIA'
+    reason = 'Possível correspondência (verificar parceiro)'
+  } else if (!isValueExact && nameSim >= 0.5) {
+    // Mesmo estabelecimento mas valor diferente
+    if (dateDiffDays !== null && dateDiffDays > 35) {
+      classification = 'DIVERGENTE'
+      reason = 'Valor diferente e data fora da tolerância'
+    } else {
+      classification = 'DIVERGENTE'
+      reason = `Valor diferente (${absDiff > 0 ? `dif. R$ ${absDiff.toFixed(2)}` : ''})`
+    }
+  } else if (dateDiffDays !== null && dateDiffDays > 35 && isValueExact) {
+    classification = 'DIVERGENTE'
+    reason = 'Data fora da tolerância'
+  } else if (score >= 45) {
+    classification = 'POSSIVEL_CORRESPONDENCIA'
+    reason = 'Possível correspondência (revisão recomendada)'
+  } else {
+    classification = 'DIVERGENTE'
+    reason = 'Divergência não conciliada'
+  }
+
+  return {
+    sys,
+    card,
+    sysVal,
+    cardVal,
+    diffVal,
+    nameSim,
+    dateDiffDays,
+    refMatch,
+    totalScore: score,
+    classification,
+    reason,
+  }
 }
 
 /**
- * Função utilitária para extrair e normalizar valores monetários de qualquer formato (Texto ou Número)
+ * Motor de Conciliação Financeira com Matching Inteligente
+ * Garante Unicidade Estrita (1 registro do Sistema <-> no máximo 1 da Fatura e vice-versa)
  */
-function safeParseValue(val: any): number {
-  if (typeof val === 'number') return val
-  if (!val) return 0
-
-  // Remove R$, espaços e pontos de milhar, ajustando a vírgula para ponto decimal
-  const cleanStr = String(val)
-    .replace(/[^\d,.-]/g, '')
-    .trim()
-  if (cleanStr.includes(',') && cleanStr.includes('.')) {
-    return parseFloat(cleanStr.replace(/\./g, '').replace(',', '.'))
-  } else if (cleanStr.includes(',')) {
-    return parseFloat(cleanStr.replace(',', '.'))
-  }
-  return parseFloat(cleanStr) || 0
-}
-
-/**
- * Retorna o valor de crédito do registro do Sistema de forma flexível (suporta "total" ou "credito")
- */
-function getSystemValue(sys: any, bank: BankType): number {
-  if (bank === 'itau') {
-    // No Itaú, o valor do sistema está na coluna "Total" (que pode vir como .total ou .credito após o upload)
-    return safeParseValue(sys.total ?? sys.credito ?? sys.Total)
-  }
-  return safeParseValue(sys.credito ?? sys.total ?? sys.Credito)
-}
-
-/**
- * Retorna o valor da fatura do Cartão de forma flexível (suporta "valor" ou "Valor (R$)")
- */
-function getCardValue(card: any): number {
-  // Procura por qualquer variação de propriedade que contenha "valor"
-  const keys = Object.keys(card || {})
-  const valueKey = keys.find((k) => k.toLowerCase().includes('valor'))
-  if (valueKey) {
-    return safeParseValue(card[valueKey])
-  }
-  return safeParseValue(card.valor ?? card.total)
-}
-
-function sortSystemRecordsByValueDesc(records: SystemRecord[], bank: BankType): SystemRecord[] {
-  return [...records].sort((a, b) => {
-    return getSystemValue(b, bank) - getSystemValue(a, bank)
-  })
-}
-
-function sortCardRecordsByValueDesc(records: CardRecord[]): CardRecord[] {
-  return [...records].sort((a, b) => getCardValue(b) - getCardValue(a))
-}
-
-function normalize(text: string): string {
-  return (text || '')
-    .toLowerCase()
-    .trim()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s-]/g, ' ')
-    .replace(/\s+/g, ' ')
-}
-
-const IGNORE_WORDS = new Set([
-  'ltda',
-  'servicos',
-  'me',
-  'eireli',
-  's/a',
-  'sa',
-  'vindi',
-  'pag',
-  'de',
-  'da',
-  'do',
-])
-
-function isSameEstablishment(parceiro: string, estabelecimento: string): boolean {
-  const p = normalize(parceiro)
-  const e = normalize(estabelecimento)
-  if (!p || !e) return false
-
-  const wordsP = p.split(/[\s-]+/).filter((w) => w.length > 3 && !IGNORE_WORDS.has(w))
-  const wordsE = e.split(/[\s-]+/).filter((w) => w.length > 3 && !IGNORE_WORDS.has(w))
-  return wordsP.filter((w) => wordsE.includes(w)).length > 0
-}
-
-function isExactMatch(a: number, b: number): boolean {
-  return Math.abs(a - b) < 0.001
-}
-
-function calcDifference(credito: number, valor: number): number {
-  return Number((valor - credito).toFixed(2))
-}
-
 export function reconcileData(
   systemRecords: SystemRecord[],
   cardRecords: CardRecord[],
   bank: BankType = 'itau',
 ): ReconciliationResult[] {
-  // 1. Aplica a ordenação decrescente completa por valor/total antes de iniciar o cruzamento
-  const sortedSystemRecords = sortSystemRecordsByValueDesc(systemRecords, bank)
-  const sortedCardRecords = sortCardRecordsByValueDesc(cardRecords)
-
   const results: ReconciliationResult[] = []
-  const matchedSystem = new Set<string>()
-  const matchedCard = new Set<string>()
 
-  for (const sys of sortedSystemRecords) {
-    if (matchedSystem.has(sys.id)) continue
+  const matchedSystemIds = new Set<string>()
+  const matchedCardIds = new Set<string>()
 
-    const sysVal = getSystemValue(sys, bank)
+  // Pré-calcula valores de cada registro
+  const sysWithVals = systemRecords.map((sys) => ({
+    sys,
+    val: getSystemValue(sys, bank),
+  }))
 
-    // Filtra os candidatos usando a lista devidamente ordenada de cartões
-    const candidates = sortedCardRecords.filter(
-      (card) =>
-        !matchedCard.has(card.id) && isSameEstablishment(sys.parceiro, card.estabelecimento),
-    )
-    if (candidates.length === 0) continue
+  const cardWithVals = cardRecords.map((card) => ({
+    card,
+    val: getCardValue(card),
+  }))
 
-    // Busca exata (Verde) utilizando o array ordenado por valor
-    const exactMatch = sortedCardRecords.find(
-      (card) =>
-        !matchedCard.has(card.id) &&
-        isSameEstablishment(sys.parceiro, card.estabelecimento) &&
-        isExactMatch(sysVal, getCardValue(card)),
-    )
+  // Gera todos os pares possíveis candidatos
+  const candidates: MatchCandidate[] = []
+  for (const s of sysWithVals) {
+    for (const c of cardWithVals) {
+      const candidate = evaluatePair(s.sys, c.card, s.val, c.val)
+      candidates.push(candidate)
+    }
+  }
 
-    if (exactMatch) {
-      const matchVal = getCardValue(exactMatch)
-      matchedSystem.add(sys.id)
-      matchedCard.add(exactMatch.id)
-      results.push({
-        id: `GREEN-${sys.id}-${exactMatch.id}`,
-        data: sys.data,
-        numero: sys.numero,
-        referencia: sys.referencia,
-        lancamentoDiario: sys.lancamentoDiario,
-        parceiro: sys.parceiro,
-        estabelecimento: exactMatch.estabelecimento,
-        categoria: exactMatch.categoria || sys.categoria || '',
-        debito: sys.debito,
-        credito: sysVal,
-        valorFatura: matchVal,
-        diferenca: calcDifference(sysVal, matchVal),
-        status: 'GREEN',
-        origem: 'AMBOS',
-      })
+  // Ordena os candidatos por prioridade de matching:
+  // 1) Score total descrescente
+  // 2) Maior similaridade de nome
+  // 3) Menor diferença de valor
+  candidates.sort((a, b) => {
+    if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore
+    if (b.nameSim !== a.nameSim) return b.nameSim - a.nameSim
+    return Math.abs(a.diffVal) - Math.abs(b.diffVal)
+  })
+
+  // FASE 1: Pareamento dos "CONCILIADO" com alta confiança
+  for (const cand of candidates) {
+    if (matchedSystemIds.has(cand.sys.id) || matchedCardIds.has(cand.card.id)) {
       continue
     }
 
-    // Se não encontrou exato, pega o de menor diferença (Amarelo) mantendo a prioridade da ordenação
-    let yellowMatch = candidates[0]
-    let minDiff = Math.abs(sysVal - getCardValue(yellowMatch))
-    for (const c of candidates) {
-      const d = Math.abs(sysVal - getCardValue(c))
-      if (d < minDiff) {
-        minDiff = d
-        yellowMatch = c
-      }
-    }
+    if (cand.classification === 'CONCILIADO' && cand.totalScore >= 60) {
+      matchedSystemIds.add(cand.sys.id)
+      matchedCardIds.add(cand.card.id)
 
-    const yellowVal = getCardValue(yellowMatch)
-    matchedSystem.add(sys.id)
-    matchedCard.add(yellowMatch.id)
-    results.push({
-      id: `YELLOW-${sys.id}-${yellowMatch.id}`,
-      data: sys.data,
-      numero: sys.numero,
-      referencia: sys.referencia,
-      lancamentoDiario: sys.lancamentoDiario,
-      parceiro: sys.parceiro,
-      estabelecimento: yellowMatch.estabelecimento,
-      categoria: yellowMatch.categoria || sys.categoria || '',
-      debito: sys.debito,
-      credito: sysVal,
-      valorFatura: yellowVal,
-      diferenca: calcDifference(sysVal, yellowVal),
-      status: 'YELLOW',
-      origem: 'AMBOS',
-    })
+      results.push({
+        id: `GREEN-${cand.sys.id}-${cand.card.id}`,
+        data: cand.sys.data || cand.card.data,
+        numero: cand.sys.numero,
+        referencia: cand.sys.referencia,
+        lancamentoDiario: cand.sys.lancamentoDiario,
+        parceiro: cand.sys.parceiro,
+        estabelecimento: cand.card.estabelecimento,
+        categoria: cand.card.categoria || cand.sys.categoria || '',
+        debito: cand.sys.debito,
+        credito: cand.sysVal,
+        valorFatura: cand.cardVal,
+        diferenca: 0,
+        status: 'GREEN',
+        origem: 'AMBOS',
+        classificacao: 'CONCILIADO',
+        motivo: cand.reason,
+        scoreConfianca: cand.totalScore,
+      })
+    }
   }
 
-  // Registros que ficaram só no sistema
-  for (const sys of sortedSystemRecords) {
-    if (matchedSystem.has(sys.id)) continue
-    const sysVal = getSystemValue(sys, bank)
+  // FASE 2: Pareamento de "POSSÍVEL CORRESPONDÊNCIA" ou "DIVERGENTE" com afinidade
+  for (const cand of candidates) {
+    if (matchedSystemIds.has(cand.sys.id) || matchedCardIds.has(cand.card.id)) {
+      continue
+    }
+
+    // Só casa registros se tiverem pelo menos boa similaridade de nome (>= 0.4) ou mesmo valor com nome aceitável
+    const isViablePair =
+      (cand.nameSim >= 0.4 && (Math.abs(cand.diffVal) <= 50 || cand.totalScore >= 50)) ||
+      (Math.abs(cand.diffVal) < 0.01 && cand.nameSim >= 0.25)
+
+    if (isViablePair) {
+      matchedSystemIds.add(cand.sys.id)
+      matchedCardIds.add(cand.card.id)
+
+      const isYellow = cand.classification === 'POSSIVEL_CORRESPONDENCIA' || cand.diffVal !== 0
+      const status = isYellow ? 'YELLOW' : 'GREEN'
+
+      results.push({
+        id: `YELLOW-${cand.sys.id}-${cand.card.id}`,
+        data: cand.sys.data || cand.card.data,
+        numero: cand.sys.numero,
+        referencia: cand.sys.referencia,
+        lancamentoDiario: cand.sys.lancamentoDiario,
+        parceiro: cand.sys.parceiro,
+        estabelecimento: cand.card.estabelecimento,
+        categoria: cand.card.categoria || cand.sys.categoria || '',
+        debito: cand.sys.debito,
+        credito: cand.sysVal,
+        valorFatura: cand.cardVal,
+        diferenca: cand.diffVal,
+        status,
+        origem: 'AMBOS',
+        classificacao: cand.classification,
+        motivo: cand.reason,
+        scoreConfianca: cand.totalScore,
+      })
+    }
+  }
+
+  // FASE 3: Registros que ficaram SOMENTE no Sistema (Odoo)
+  for (const s of sysWithVals) {
+    if (matchedSystemIds.has(s.sys.id)) continue
+
     results.push({
-      id: `RED-SYS-${sys.id}`,
-      data: sys.data,
-      numero: sys.numero,
-      referencia: sys.referencia,
-      lancamentoDiario: sys.lancamentoDiario,
-      parceiro: sys.parceiro,
+      id: `RED-SYS-${s.sys.id}`,
+      data: s.sys.data,
+      numero: s.sys.numero,
+      referencia: s.sys.referencia,
+      lancamentoDiario: s.sys.lancamentoDiario,
+      parceiro: s.sys.parceiro,
       estabelecimento: '-',
-      categoria: sys.categoria || '',
-      debito: sys.debito,
-      credito: sysVal,
+      categoria: s.sys.categoria || '',
+      debito: s.sys.debito,
+      credito: s.val,
       valorFatura: null,
       diferenca: null,
       status: 'RED',
       origem: 'SISTEMA',
+      classificacao: 'SOMENTE_SISTEMA',
+      motivo: 'Não encontrado na fatura do cartão',
+      scoreConfianca: 0,
     })
   }
 
-  // Registros que ficaram só na fatura
-  for (const card of sortedCardRecords) {
-    if (matchedCard.has(card.id)) continue
-    const cardVal = getCardValue(card)
+  // FASE 4: Registros que ficaram SOMENTE na Fatura (PDF)
+  for (const c of cardWithVals) {
+    if (matchedCardIds.has(c.card.id)) continue
+
     results.push({
-      id: `RED-CARD-${card.id}`,
-      data: card.data,
+      id: `RED-CARD-${c.card.id}`,
+      data: c.card.data,
       parceiro: '-',
-      estabelecimento: card.estabelecimento,
-      categoria: card.categoria || '',
+      estabelecimento: c.card.estabelecimento,
+      categoria: c.card.categoria || (c.card.isInternacional ? 'Internacional' : ''),
       debito: null,
       credito: null,
-      valorFatura: cardVal,
+      valorFatura: c.val,
       diferenca: null,
       status: 'RED',
       origem: 'FATURA',
+      classificacao: 'SOMENTE_FATURA',
+      motivo: 'Não encontrado no lançamento do Odoo',
+      scoreConfianca: 0,
     })
   }
 
-  // Ao final, organiza o output decrescente por data para exibição na tela
-  return results.sort((a, b) => parseBrazilianDate(b.data) - parseBrazilianDate(a.data))
+  // Ao final, organiza o output em ordem decrescente por data para a visualização
+  return results.sort((a, b) => {
+    const tsA = parseBrazilianDateTimestamp(a.data)
+    const tsB = parseBrazilianDateTimestamp(b.data)
+    if (tsB !== tsA) return tsB - tsA
+    // Se datas iguais, ordena por maior valor
+    const valA = Math.max(a.credito || 0, a.valorFatura || 0)
+    const valB = Math.max(b.credito || 0, b.valorFatura || 0)
+    return valB - valA
+  })
 }

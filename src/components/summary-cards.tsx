@@ -26,13 +26,17 @@ export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
   const conciliated = results.filter((r) => r.status === 'GREEN')
   const divergent = results.filter((r) => r.status === 'YELLOW')
 
-  // Identifica "Somente Sistema" se não tiver Estabelecimento atribuído
+  // Identifica "Somente Sistema"
   const onlySystem = results.filter(
-    (r) => r.status === 'RED' && (!r.estabelecimento || r.estabelecimento === '-'),
+    (r) =>
+      r.classificacao === 'SOMENTE_SISTEMA' ||
+      (r.status === 'RED' && (!r.estabelecimento || r.estabelecimento === '-')),
   )
-  // Identifica "Somente Fatura" se não tiver Parceiro atribuído
+  // Identifica "Somente Fatura"
   const onlyInvoice = results.filter(
-    (r) => r.status === 'RED' && (!r.parceiro || r.parceiro === '-'),
+    (r) =>
+      r.classificacao === 'SOMENTE_FATURA' ||
+      (r.status === 'RED' && (!r.parceiro || r.parceiro === '-')),
   )
 
   // Contadores baseados na existência real dos dados
