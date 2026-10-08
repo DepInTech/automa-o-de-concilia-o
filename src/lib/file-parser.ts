@@ -53,9 +53,9 @@ export async function parseSystemFile(file: File, bank: BankType): Promise<Parse
 export async function parseCardPdfFile(file: File, bank: BankType): Promise<CardPdfParseResult> {
   const name = file.name.toLowerCase()
 
-  if (!name.endsWith('.pdf') && file.type !== 'application/pdf') {
+  if (!name.endsWith('.pdf') && file.type !== 'application/pdf' && file.type !== '') {
     throw new Error(
-      'Formato inválido. O campo da Fatura do Cartão agora aceita exclusivamente arquivos em PDF.',
+      'Formato inválido. O campo da Fatura do Cartão aceita exclusivamente arquivos em formato PDF (.pdf).',
     )
   }
 

@@ -23,57 +23,60 @@ export interface PdfExtractionResult {
   isScannedOrEmpty: boolean
 }
 
-async function decompressFlate(data: Uint8Array): Promise<Uint8Array | null> {
-  // Tenta descompressão via DecompressionStream ('deflate-raw' ou 'deflate')
-  try {
-    const ds = new DecompressionStream('deflate-raw')
-    const blob = new Blob([data as unknown as BlobPart])
-    const stream = blob.stream().pipeThrough(ds)
-    const reader = stream.getReader()
-    const chunks: Uint8Array[] = []
-    let total = 0
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
+async function readStreamAll(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (value) {
       chunks.push(value)
       total += value.length
     }
-    const out = new Uint8Array(total)
-    let pos = 0
-    for (const c of chunks) {
-      out.set(c, pos)
-      pos += c.length
-    }
-    return out
+  }
+  const out = new Uint8Array(total)
+  let pos = 0
+  for (const c of chunks) {
+    out.set(c, pos)
+    pos += c.length
+  }
+  return out
+}
+
+async function decompressFlate(data: Uint8Array): Promise<Uint8Array | null> {
+  if (data.length === 0) return null
+
+  // 1. Tenta formato padrão zlib RFC 1950 via format 'deflate'
+  try {
+    const ds = new DecompressionStream('deflate')
+    const blob = new Blob([data as unknown as BlobPart])
+    return await readStreamAll(blob.stream().pipeThrough(ds))
   } catch {
-    // Tenta formato zlib com cabeçalho de 2 bytes pulado
+    // Segue para tentativas alternativas
+  }
+
+  // 2. Tenta formato raw deflate RFC 1951 via 'deflate-raw'
+  try {
+    const ds = new DecompressionStream('deflate-raw')
+    const blob = new Blob([data as unknown as BlobPart])
+    return await readStreamAll(blob.stream().pipeThrough(ds))
+  } catch {
+    // Segue para tentativa com pulo manual de cabeçalho
+  }
+
+  // 3. Tenta pular cabeçalho zlib (2 bytes) e rodar deflate-raw
+  if (data.length > 2) {
     try {
-      if (data.length > 2) {
-        const sliced = data.subarray(2)
-        const ds = new DecompressionStream('deflate-raw')
-        const blob = new Blob([sliced as unknown as BlobPart])
-        const stream = blob.stream().pipeThrough(ds)
-        const reader = stream.getReader()
-        const chunks: Uint8Array[] = []
-        let total = 0
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          chunks.push(value)
-          total += value.length
-        }
-        const out = new Uint8Array(total)
-        let pos = 0
-        for (const c of chunks) {
-          out.set(c, pos)
-          pos += c.length
-        }
-        return out
-      }
+      const sliced = data.subarray(2)
+      const ds = new DecompressionStream('deflate-raw')
+      const blob = new Blob([sliced as unknown as BlobPart])
+      return await readStreamAll(blob.stream().pipeThrough(ds))
     } catch {
-      // Falha na descompressão
+      // Falha
     }
   }
+
   return null
 }
 
@@ -185,19 +188,25 @@ function extractTextFromContentStream(streamText: string): string {
 declare global {
   interface Window {
     pdfjsLib?: any
+    'pdfjs-dist/build/pdf'?: any
   }
+}
+
+function getGlobalPdfJs(): any {
+  if (typeof window === 'undefined') return null
+  return window.pdfjsLib || window['pdfjs-dist/build/pdf'] || null
 }
 
 async function tryLoadPdfJs(): Promise<any> {
   if (typeof window === 'undefined') return null
-  if (window.pdfjsLib) return window.pdfjsLib
+  const current = getGlobalPdfJs()
+  if (current) return current
 
   try {
-    // Carrega dinamicamente a versão 3.11.174 do cdnjs de forma resiliente
     await new Promise<void>((resolve, reject) => {
       const existing = document.querySelector('script[data-pdfjs="true"]')
       if (existing) {
-        if (window.pdfjsLib) return resolve()
+        if (getGlobalPdfJs()) return resolve()
         existing.addEventListener('load', () => resolve())
         existing.addEventListener('error', (e) => reject(e))
         return
@@ -207,18 +216,19 @@ async function tryLoadPdfJs(): Promise<any> {
       script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
       script.dataset.pdfjs = 'true'
       script.onload = () => {
-        if (window.pdfjsLib) {
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        const lib = getGlobalPdfJs()
+        if (lib) {
+          lib.GlobalWorkerOptions.workerSrc =
             'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
           resolve()
         } else {
-          reject(new Error('pdfjsLib não disponível'))
+          resolve()
         }
       }
-      script.onerror = (e) => reject(e)
+      script.onerror = () => resolve()
       document.head.appendChild(script)
     })
-    return window.pdfjsLib
+    return getGlobalPdfJs()
   } catch {
     return null
   }
@@ -232,7 +242,11 @@ async function extractWithPdfJs(
   data: ArrayBuffer,
 ): Promise<PdfExtractionResult | null> {
   try {
-    const loadingTask = pdfjs.getDocument({ data: new Uint8Array(data) })
+    const loadingTask = pdfjs.getDocument({
+      data: new Uint8Array(data.slice(0)),
+      isEvalSupported: false,
+      useSystemFonts: true,
+    })
     const pdf = await loadingTask.promise
     const numPages: number = pdf.numPages
     const pages: ExtractedPdfPage[] = []
@@ -293,43 +307,66 @@ async function extractNative(data: ArrayBuffer): Promise<PdfExtractionResult> {
   const pageMatches = pdfString.match(/\/Type\s*\/Page\b/g)
   const numPages = Math.max(1, pageMatches ? pageMatches.length : 1)
 
-  // Extrai objetos stream ... endstream
-  const streamRegex = /stream\r?\n([\s\S]*?)endstream/g
-  let match: RegExpExecArray | null
+  // Extrai objetos stream com posicionamento preciso em bytes
+  const streamKeyword = 'stream'
+  const endStreamKeyword = 'endstream'
   const extractedPieces: string[] = []
 
-  // Localiza todos os streams com seus metadados precedentes
-  let searchIdx = 0
-  while ((match = streamRegex.exec(pdfString)) !== null) {
-    const streamStartInMatch = match.index + match[0].indexOf('stream')
-    const headerSlice = pdfString.substring(
-      Math.max(0, streamStartInMatch - 400),
-      streamStartInMatch,
-    )
+  let searchPos = 0
+  while (true) {
+    const streamIdx = pdfString.indexOf(streamKeyword, searchPos)
+    if (streamIdx === -1) break
+
+    // Garante que é palavra-chave de stream (precedida por quebra de linha ou espaço)
+    const prevChar = streamIdx > 0 ? pdfString[streamIdx - 1] : '\n'
+    if (!/[\r\n\s]/.test(prevChar)) {
+      searchPos = streamIdx + 6
+      continue
+    }
+
+    // A linha de metadados anterior (até 400 bytes antes)
+    const headerSlice = pdfString.substring(Math.max(0, streamIdx - 400), streamIdx)
     const isFlate = /Filter\s*(\/FlateDecode|\[\s*\/FlateDecode\s*\])/i.test(headerSlice)
 
-    const rawStreamContent = match[1]
-    const streamByteOffset = match.index + (match[0].indexOf('\n') + 1)
-    const streamByteLen = rawStreamContent.length
+    // O conteúdo binário do stream começa após o 'stream\r\n' ou 'stream\n'
+    let contentStart = streamIdx + 6
+    if (bytes[contentStart] === 0x0d && bytes[contentStart + 1] === 0x0a) {
+      contentStart += 2
+    } else if (bytes[contentStart] === 0x0a) {
+      contentStart += 1
+    }
+
+    const endIdx = pdfString.indexOf(endStreamKeyword, contentStart)
+    if (endIdx === -1) break
+
+    let contentEnd = endIdx
+    // Remove quebra de linha final antes de endstream
+    if (contentEnd > contentStart && bytes[contentEnd - 1] === 0x0a) {
+      contentEnd--
+      if (contentEnd > contentStart && bytes[contentEnd - 1] === 0x0d) {
+        contentEnd--
+      }
+    }
+
+    const streamSlice = bytes.subarray(contentStart, contentEnd)
 
     if (isFlate) {
-      // Pega os bytes reais do Uint8Array
-      const slice = bytes.subarray(streamByteOffset, streamByteOffset + streamByteLen)
-      const decompressed = await decompressFlate(slice)
+      const decompressed = await decompressFlate(streamSlice)
       if (decompressed) {
         const streamText = new TextDecoder('latin1').decode(decompressed)
         const text = extractTextFromContentStream(streamText)
         if (text.trim()) extractedPieces.push(text)
       }
     } else {
-      const text = extractTextFromContentStream(rawStreamContent)
+      const rawText = new TextDecoder('latin1').decode(streamSlice)
+      const text = extractTextFromContentStream(rawText)
       if (text.trim()) extractedPieces.push(text)
     }
 
-    searchIdx++
+    searchPos = endIdx + 9
   }
 
-  // Se não extraiu streams, tenta encontrar texto em formato puro no arquivo
+  // Se não extraiu streams, tenta encontrar texto puro no arquivo
   if (extractedPieces.length === 0) {
     const rawText = extractTextFromContentStream(pdfString)
     if (rawText.trim()) extractedPieces.push(rawText)
@@ -367,7 +404,7 @@ async function extractNative(data: ArrayBuffer): Promise<PdfExtractionResult> {
 export async function extractPdfText(file: File | ArrayBuffer): Promise<PdfExtractionResult> {
   const buffer = file instanceof File ? await file.arrayBuffer() : file
 
-  // Timeout para tentar PDF.js (máx 1.5s para não travar a experiência)
+  // Timeout para tentar PDF.js (máx 2.5s para permitir carregamento do script)
   const pdfJsPromise = tryLoadPdfJs().then((pdfjs) => {
     if (pdfjs) {
       return extractWithPdfJs(pdfjs, buffer)
@@ -375,23 +412,23 @@ export async function extractPdfText(file: File | ArrayBuffer): Promise<PdfExtra
     return null
   })
 
-  const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500))
+  const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500))
 
   const pdfJsResult = await Promise.race([pdfJsPromise, timeoutPromise]).catch(() => null)
-  if (pdfJsResult && !pdfJsResult.isScannedOrEmpty) {
+  if (pdfJsResult && !pdfJsResult.isScannedOrEmpty && pdfJsResult.fullText.length > 50) {
     return pdfJsResult
   }
 
-  // Usa motor nativo robusto
+  // Usa motor nativo robusto offline
   const nativeResult = await extractNative(buffer)
 
   // Se o nativo conseguiu texto, retorna ele
-  if (!nativeResult.isScannedOrEmpty) {
+  if (!nativeResult.isScannedOrEmpty && nativeResult.fullText.length > 50) {
     return nativeResult
   }
 
-  // Se o PDF.js vier com resultado mesmo vazio, retorna ele
-  if (pdfJsResult) {
+  // Se o PDF.js trouxe algum resultado (mesmo parcial), prefere-o
+  if (pdfJsResult && !pdfJsResult.isScannedOrEmpty) {
     return pdfJsResult
   }
 

@@ -83,6 +83,9 @@ export function normalizeEntityName(raw: string): string {
     cleaned = cleaned.replace(suf, ' ')
   }
 
+  // 5b. Remove prefixos de aviso/alerta comuns do Odoo (ex: ⚠️)
+  cleaned = cleaned.replace(/[⚠️\u26A0\uFE0F]/g, ' ')
+
   // 6. Substitui pontuação, asteriscos, hífens e traços por espaço
   cleaned = cleaned.replace(/[^a-z0-9]/g, ' ')
 

@@ -38,17 +38,20 @@ export function sanitizeParsedCSV(parsed: ParsedCSV, fileType: 'system' | 'card'
   if (headersMatch) return parsed
 
   for (let i = 0; i < parsed.rows.length; i++) {
-    const rowValues = Object.values(parsed.rows[i])
-    const normalizedValues = rowValues.map((v) => normalizeText(v))
+    const row = parsed.rows[i]
+    // Utiliza a ordem dos headers originais para preservar alinhamento exato de colunas
+    const orderedValues = parsed.headers.map((h) => row[h] ?? '')
+    const normalizedValues = orderedValues.map((v) => normalizeText(v))
     const hasAllKeywords = keywords.every((kw) => normalizedValues.some((v) => v.includes(kw)))
     if (hasAllKeywords) {
-      const newHeaders = rowValues
+      const newHeaders = orderedValues.map((v, idx) => v || `Col${idx}`)
       const newRows: Record<string, string>[] = []
       for (let j = i + 1; j < parsed.rows.length; j++) {
-        const oldRowValues = Object.values(parsed.rows[j])
+        const oldRow = parsed.rows[j]
+        const oldOrderedValues = parsed.headers.map((h) => oldRow[h] ?? '')
         const newRow: Record<string, string> = {}
         newHeaders.forEach((header, idx) => {
-          newRow[header] = oldRowValues[idx] ?? ''
+          newRow[header] = oldOrderedValues[idx] ?? ''
         })
         newRows.push(newRow)
       }

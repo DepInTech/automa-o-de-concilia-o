@@ -143,17 +143,34 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
   if (grid.size === 0) return { headers: [], rows: [], detectedRows: 0 }
 
   const headers: string[] = []
-  for (let c = 0; c <= maxCol; c++) headers.push(grid.get(`0,${c}`) || '')
+  // Localiza a linha do cabeçalho caso existam linhas em branco ou títulos antes
+  let headerRowIndex = 0
+  for (let r = 0; r <= Math.min(10, maxRow); r++) {
+    const rowValues: string[] = []
+    for (let c = 0; c <= maxCol; c++) {
+      const val = grid.get(`${r},${c}`)?.trim() || ''
+      if (val) rowValues.push(val)
+    }
+    if (rowValues.length >= 2) {
+      headerRowIndex = r
+      break
+    }
+  }
+
+  for (let c = 0; c <= maxCol; c++) {
+    const h = grid.get(`${headerRowIndex},${c}`)?.trim() || `Col${c}`
+    headers.push(h)
+  }
 
   const rows: Record<string, string>[] = []
-  for (let r = 1; r <= maxRow; r++) {
+  for (let r = headerRowIndex + 1; r <= maxRow; r++) {
     const row: Record<string, string> = {}
     let hasData = false
     for (let c = 0; c <= maxCol; c++) {
       const val = grid.get(`${r},${c}`) || ''
       const header = headers[c] || `Col${c}`
       row[header] = val
-      if (val) hasData = true
+      if (val.trim()) hasData = true
     }
     if (hasData) rows.push(row)
   }

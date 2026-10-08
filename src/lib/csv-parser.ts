@@ -130,15 +130,20 @@ export function mapSystemRecords(parsed: ParsedCSV): SystemRecord[] {
     const creditoVal =
       rawCredito !== undefined ? (parseBrazilianNumber(rawCredito) ?? 0) : (totalVal ?? 0)
 
-    // Formata a data se for objeto Date ou formato textual extenso (ex: "Wed Jul 01 2026...")
-    let rawDateStr = data ? row[data] : ''
-    if (rawDateStr && !/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawDateStr.trim())) {
-      const parsedTs = Date.parse(rawDateStr)
-      if (!isNaN(parsedTs)) {
-        const d = new Date(parsedTs)
-        const day = String(d.getUTCDate()).padStart(2, '0')
-        const mon = String(d.getUTCMonth() + 1).padStart(2, '0')
-        rawDateStr = `${day}/${mon}/${d.getUTCFullYear()}`
+    // Formata a data se for ISO "AAAA-MM-DD", objeto Date ou formato textual extenso (ex: "Wed Jul 01 2026...")
+    let rawDateStr = data ? row[data]?.trim() : ''
+    if (rawDateStr) {
+      const isoMatch = rawDateStr.match(/^(\d{4})-(\d{2})-(\d{2})/)
+      if (isoMatch) {
+        rawDateStr = `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`
+      } else if (!/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawDateStr)) {
+        const parsedTs = Date.parse(rawDateStr)
+        if (!isNaN(parsedTs)) {
+          const d = new Date(parsedTs)
+          const day = String(d.getUTCDate()).padStart(2, '0')
+          const mon = String(d.getUTCMonth() + 1).padStart(2, '0')
+          rawDateStr = `${day}/${mon}/${d.getUTCFullYear()}`
+        }
       }
     }
 

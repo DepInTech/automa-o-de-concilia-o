@@ -97,16 +97,19 @@ function normalizeCardDate(raw: string, referenceYear = 2026): string {
 function parseInlineInvoiceLine(line: string, index: number): StructuredCardRecord | null {
   if (isFooterOrTotalLine(line)) return null
 
+  // Normaliza múltiplos espaços e separadores de tabela (ex: markdown "|" ou tabs)
+  const cleanLine = line.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim()
+
   // Começa com data DD/MM ou DD/MM/AAAA
-  const dateMatch = line.match(/^(\d{2}[/.-]\d{2}(?:[/.-]\d{2,4})?)\b/)
+  const dateMatch = cleanLine.match(/^(\d{2}[/.-]\d{2}(?:[/.-]\d{2,4})?)\b/)
   if (!dateMatch) return null
 
   const rawDate = dateMatch[1]
-  const remainder = line.slice(dateMatch[0].length).trim()
+  const remainder = cleanLine.slice(dateMatch[0].length).trim()
 
-  // Procura valor no formato R$ ou numérico no final: "-R$18,75", "R$1.114,06", "R$ 18,75"
+  // Procura valor no formato R$ ou numérico no final: "-R$18,75", "R$1.114,06", "R$ 18,75", "1,813.34"
   const valMatch = remainder.match(
-    /(?:-?\s*R\$\s*|-?\s*US\$\s*|-?\s*USD\s*)?(-?R?\$?\s*[\d.]*,\d{2})\s*$/i,
+    /(?:-?\s*R\$\s*|-?\s*US\$\s*|-?\s*USD\s*)?(-?R?\$?\s*[\d.,]+\d{2})\s*$/i,
   )
   if (!valMatch) return null
 
@@ -114,11 +117,14 @@ function parseInlineInvoiceLine(line: string, index: number): StructuredCardReco
   const valor = Math.abs(normalizeMoneyValue(rawValueStr))
   if (isNaN(valor) || valor === 0) return null
 
-  const desc = remainder.slice(0, remainder.length - rawValueStr.length).trim()
+  const desc = remainder
+    .slice(0, remainder.length - rawValueStr.length)
+    .replace(/^[-:| ]+|[-:| ]+$/g, '')
+    .trim()
   if (!desc || desc.length < 2 || isFooterOrTotalLine(desc)) return null
 
   // Ignora cabeçalho de coluna
-  if (/^descri[cç][aã]o$/i.test(desc) || /^valor$/i.test(desc)) return null
+  if (/^descri[cç][aã]o$/i.test(desc) || /^valor$/i.test(desc) || /^data$/i.test(desc)) return null
 
   return {
     id: `pdf-rec-${index}`,
@@ -182,45 +188,32 @@ function parseInvoicePageBlocks(
     sectionLines.push({ section: currentSection, text: trimmed })
   }
 
-  // 2. Tenta primeiro extrair linhas combinadas no formato inline
+  // 2. Processa lançamentos internacionais primeiro (seção delimitada)
+  const intlRecords = parseInternacionaisSection(lines, globalIdx)
+  records.push(...intlRecords)
+
+  // 3. Tenta extrair linhas no formato inline
   const inlineRecords: StructuredCardRecord[] = []
   for (const item of sectionLines) {
-    if (item.section === 'NONE') continue
+    if (item.section === 'NONE' || item.section === 'INTERNACIONAIS') continue
     const rec = parseInlineInvoiceLine(item.text, globalIdx.current)
     if (rec) {
       globalIdx.current++
-      if (item.section === 'INTERNACIONAIS') {
-        rec.isInternacional = true
-      }
       inlineRecords.push(rec)
     }
   }
 
-  // Se o parser encontrou vários registros inline na página, aproveita-os
-  if (inlineRecords.length >= 5) {
-    return inlineRecords
-  }
-
-  // 3. Caso contrário, aplica o algoritmo de desagregação colunar (OCR em blocos de colunas)
-  // Exemplo observado nas páginas 2, 3 e 4 do Itaú:
-  // Bloco A: Sequência de datas DD/MM (ex: 11/06, 12/06...)
-  // Bloco B: Sequência de descrições de compras
-  // Bloco C: Sequência de valores R$...
-
-  // Vamos processar a seção de lançamentos internacionais especificamente primeiro se houver
-  const intlRecords = parseInternacionaisSection(lines, globalIdx)
-  records.push(...intlRecords)
-
-  // Agora processamos os lançamentos nacionais na página
-  const nacionaisRecords = parseNacionaisColunar(lines, globalIdx)
-  records.push(...nacionaisRecords)
-
-  // Se o algoritmo colunar achou registros, retorna eles; senão retorna os inline se houver algum
-  if (records.length > 0) {
+  // Se o parser encontrou registros inline na página (mesmo 1 ou 2), prioriza-os
+  if (inlineRecords.length > 0) {
+    records.push(...inlineRecords)
     return records
   }
 
-  return inlineRecords
+  // 4. Caso contrário, aplica o algoritmo de desagregação colunar (OCR em blocos verticais)
+  const nacionaisRecords = parseNacionaisColunar(lines, globalIdx)
+  records.push(...nacionaisRecords)
+
+  return records
 }
 
 /**
@@ -395,9 +388,8 @@ function parseNacionaisColunar(
       continue
     }
 
-    // Token Valor: "-R$18,75", "R$1.114,06", "R$18,75", "-18,75"
-    if (/^-?R?\$\s*[\d.]*,\d{2}$/i.test(l)) {
-      // Ignora linhas de totalização soltas como R$38.490,34 se for o total do bloco
+    // Token Valor: "-R$18,75", "R$1.114,06", "R$18,75", "-18,75", "R$1,813.34"
+    if (/^-?R?\$\s*[\d.,]+\d{2}$/i.test(l)) {
       const num = normalizeMoneyValue(l)
       values.push(Math.abs(num))
       continue

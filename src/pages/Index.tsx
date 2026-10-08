@@ -98,7 +98,7 @@ export default function Index() {
 
         if (cardParsed.records.length === 0) {
           throw new Error(
-            'Não foi possível identificar os dados da fatura neste PDF. Verifique se o arquivo está legível e tente novamente.',
+            'Não foi possível identificar os lançamentos de transações neste PDF da fatura. Verifique se o arquivo enviado é a fatura analítica do cartão (com detalhamento das compras) e se não é uma imagem escaneada ou PDF protegido.',
           )
         }
 
