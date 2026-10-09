@@ -143,43 +143,32 @@ function evaluatePair(
   let classification: MatchClassification
   let reason = ''
 
-  const isDateAcceptable = dateDiffDays === null || dateDiffDays <= 45
+  // Data é critério AUXILIAR: tolerância contábil ampla até 60 dias (ou null)
+  const isDateAcceptable = dateDiffDays === null || dateDiffDays <= 60
 
   if (isValueExact && nameSim >= 0.35 && isDateAcceptable) {
-    // CONCILIADO: valor idêntico + estabelecimento compatível dentro da janela de lançamento
+    // CONCILIADO: valor idêntico + estabelecimento compatível
     classification = 'CONCILIADO'
     reason = 'Valor e estabelecimento compatíveis'
   } else if (isValueExact && nameSim >= 0.35 && !isDateAcceptable) {
-    // Mesmo estabelecimento e mesmo valor, porém lançamentos contábeis e de fatura muito distantes (> 45 dias)
+    // Mesmo estabelecimento e mesmo valor, porém datas extremamente distantes (> 60 dias)
     classification = 'DIVERGENTE'
     reason = `Data fora da tolerância contábil (${dateDiffDays} dias)`
   } else if (isValueExact && nameSim < 0.2) {
     // Valores iguais mas estabelecimentos totalmente diferentes NÃO devem ser casados automaticamente
-    // Devem ir para revisão ou divergência para evitar falso-positivo
     classification = 'POSSIVEL_CORRESPONDENCIA'
     reason = 'Mesmo valor, mas estabelecimentos não relacionados'
-    score = Math.min(score, 30) // Trava o score para não casar acidentalmente antes de pares válidos
+    score = Math.min(score, 25)
   } else if (isValueExact && nameSim >= 0.2 && nameSim < 0.35) {
-    // Possível correspondência: mesmo valor mas similaridade de nome moderada/marginal
+    // Possível correspondência: mesmo valor mas similaridade de nome limítrofe
     classification = 'POSSIVEL_CORRESPONDENCIA'
     reason = 'Possível correspondência (verificar parceiro)'
-  } else if (!isValueExact && nameSim >= 0.5) {
-    // Mesmo estabelecimento mas valor diferente
-    if (dateDiffDays !== null && dateDiffDays > 45) {
-      classification = 'DIVERGENTE'
-      reason = `Valor diferente (${absDiff > 0 ? `dif. R$ ${absDiff.toFixed(2)}` : ''}) e data fora da tolerância`
-    } else {
-      classification = 'DIVERGENTE'
-      reason = `Valor diferente (${absDiff > 0 ? `dif. R$ ${absDiff.toFixed(2)}` : ''})`
-    }
-  } else if (dateDiffDays !== null && dateDiffDays > 45 && isValueExact) {
+  } else if (!isValueExact && nameSim >= 0.4) {
+    // DIVERGENTE: mesmo estabelecimento (ou semelhante), mas valores DIFERENTES
+    const difStr = absDiff > 0 ? `dif. R$ ${absDiff.toFixed(2).replace('.', ',')}` : ''
     classification = 'DIVERGENTE'
-    reason = 'Data fora da tolerância contábil'
-  } else if (score >= 45) {
-    classification = 'POSSIVEL_CORRESPONDENCIA'
-    reason = 'Possível correspondência (revisão recomendada)'
+    reason = `Mesmo estabelecimento com valor diferente (${difStr})`
   } else {
-    // Se não há afinidade mínima nem de valor nem de nome, permanece como possível apenas se houver algum indício
     classification = 'POSSIVEL_CORRESPONDENCIA'
     reason = 'Verificação manual recomendada'
   }
@@ -243,13 +232,16 @@ export function reconcileData(
     return Math.abs(a.diffVal) - Math.abs(b.diffVal)
   })
 
-  // FASE 1: Pareamento dos "CONCILIADO" com alta confiança
+  // FASE 1: Pareamento dos "CONCILIADO" (mesmo estabelecimento / semelhante + mesmo valor)
+  // Ordem já prioriza score total, nameSim e menor diferença de valor
   for (const cand of candidates) {
     if (matchedSystemIds.has(cand.sys.id) || matchedCardIds.has(cand.card.id)) {
       continue
     }
 
-    if (cand.classification === 'CONCILIADO' && cand.totalScore >= 60) {
+    const isExactVal = Math.abs(cand.diffVal) < 0.01
+    // Se o valor for exato e houver similaridade razoável de nome (>= 0.3)
+    if (isExactVal && cand.nameSim >= 0.3) {
       matchedSystemIds.add(cand.sys.id)
       matchedCardIds.add(cand.card.id)
 
@@ -269,32 +261,61 @@ export function reconcileData(
         status: 'GREEN',
         origem: 'AMBOS',
         classificacao: 'CONCILIADO',
-        motivo: cand.reason,
+        motivo: cand.reason || 'Valor e estabelecimento compatíveis',
         scoreConfianca: cand.totalScore,
       })
     }
   }
 
-  // FASE 2: Pareamento de "DIVERGENTE" legítimo (mesmo estabelecimento, valor diferente)
-  // ou "POSSÍVEL CORRESPONDÊNCIA" com afinidade comprovada
+  // FASE 1b: Pareamento de valor exato com similaridade marginal (0.2 a 0.3) apenas se não houver outra opção
   for (const cand of candidates) {
     if (matchedSystemIds.has(cand.sys.id) || matchedCardIds.has(cand.card.id)) {
       continue
     }
 
-    // Só casa pares divergentes se houver correspondência clara de estabelecimento (nameSim >= 0.4)
-    // ou mesmo valor com similaridade razoável (>= 0.28)
-    const isLegitimateDivergent =
-      cand.nameSim >= 0.4 && Math.abs(cand.diffVal) > 0.01 && Math.abs(cand.diffVal) <= 100
-    const isLegitimatePossible = Math.abs(cand.diffVal) < 0.01 && cand.nameSim >= 0.28
-
-    if (isLegitimateDivergent || isLegitimatePossible) {
+    const isExactVal = Math.abs(cand.diffVal) < 0.01
+    if (isExactVal && cand.nameSim >= 0.22 && cand.refMatch) {
       matchedSystemIds.add(cand.sys.id)
       matchedCardIds.add(cand.card.id)
 
-      const classification = isLegitimateDivergent ? 'DIVERGENTE' : 'POSSIVEL_CORRESPONDENCIA'
-      const status = 'YELLOW'
+      results.push({
+        id: `GREEN-${cand.sys.id}-${cand.card.id}`,
+        data: cand.sys.data || cand.card.data,
+        numero: cand.sys.numero,
+        referencia: cand.sys.referencia,
+        lancamentoDiario: cand.sys.lancamentoDiario,
+        parceiro: cand.sys.parceiro,
+        estabelecimento: cand.card.estabelecimento,
+        categoria: cand.card.categoria || cand.sys.categoria || '',
+        debito: cand.sys.debito,
+        credito: cand.sysVal,
+        valorFatura: cand.cardVal,
+        diferenca: 0,
+        status: 'GREEN',
+        origem: 'AMBOS',
+        classificacao: 'CONCILIADO',
+        motivo: 'Valor e referência compatíveis',
+        scoreConfianca: cand.totalScore,
+      })
+    }
+  }
 
+  // FASE 2: Pareamento de "DIVERGENTE" (mesmo estabelecimento ou semelhante, mas valores DIFERENTES)
+  // Regra obrigatória da usuária: "se o estabelecimento aparece várias vezes, primeiro procurar correspondência
+  // exata de valor antes de concluir divergência". Como a FASE 1 já consumiu todas as correspondências exatas,
+  // aqui só sobram os registros que realmente não têm par exato de valor.
+  for (const cand of candidates) {
+    if (matchedSystemIds.has(cand.sys.id) || matchedCardIds.has(cand.card.id)) {
+      continue
+    }
+
+    // Para ser divergente (amarelo), precisa haver correspondência substancial de estabelecimento (nameSim >= 0.4)
+    // e valores diferentes.
+    if (cand.nameSim >= 0.4 && Math.abs(cand.diffVal) >= 0.01) {
+      matchedSystemIds.add(cand.sys.id)
+      matchedCardIds.add(cand.card.id)
+
+      const difAbs = Math.abs(cand.diffVal).toFixed(2).replace('.', ',')
       results.push({
         id: `YELLOW-${cand.sys.id}-${cand.card.id}`,
         data: cand.sys.data || cand.card.data,
@@ -308,10 +329,10 @@ export function reconcileData(
         credito: cand.sysVal,
         valorFatura: cand.cardVal,
         diferenca: cand.diffVal,
-        status,
+        status: 'YELLOW',
         origem: 'AMBOS',
-        classificacao: classification,
-        motivo: cand.reason,
+        classificacao: 'DIVERGENTE',
+        motivo: `Mesmo estabelecimento com valores diferentes (dif. R$ ${difAbs})`,
         scoreConfianca: cand.totalScore,
       })
     }

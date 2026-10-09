@@ -91,15 +91,15 @@ export function normalizeEntityName(raw: string): string {
   // 6. Substitui pontuação, asteriscos, hífens e traços por espaço
   cleaned = cleaned.replace(/[^a-z0-9]/g, ' ')
 
-  // 7. Remove sufixos empresariais (duas passagens para capturar sequências como "servicos de internet ltda")
-  for (let pass = 0; pass < 2; pass++) {
+  // 7. Remove sufixos empresariais e termos societários (três passagens para capturar sequências como "servicos de internet ltda")
+  for (let pass = 0; pass < 3; pass++) {
     for (const suf of CORPORATE_SUFFIXES) {
       cleaned = cleaned.replace(suf, ' ')
     }
     cleaned = cleaned.trim()
   }
 
-  // 7. Remove múltiplos espaços
+  // 8. Remove múltiplos espaços
   cleaned = cleaned.replace(/\s+/g, ' ').trim()
 
   return cleaned

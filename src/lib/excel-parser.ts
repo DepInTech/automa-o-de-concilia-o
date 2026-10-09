@@ -166,13 +166,29 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
   for (let r = headerRowIndex + 1; r <= maxRow; r++) {
     const row: Record<string, string> = {}
     let hasData = false
+    let nonEmptyCount = 0
+    let rowTextCombined = ''
     for (let c = 0; c <= maxCol; c++) {
       const val = grid.get(`${r},${c}`) || ''
       const header = headers[c] || `Col${c}`
       row[header] = val
-      if (val.trim()) hasData = true
+      if (val.trim()) {
+        hasData = true
+        nonEmptyCount++
+        rowTextCombined += ' ' + val.trim().toLowerCase()
+      }
     }
-    if (hasData) rows.push(row)
+    if (hasData) {
+      // Ignora apenas se for explicitamente uma linha de total ou rodapé da planilha (ex: "Total", "Total Geral", "Soma")
+      const isPureTotalRow =
+        (rowTextCombined.includes('total geral') ||
+          rowTextCombined.includes('totais') ||
+          rowTextCombined.trim() === 'total') &&
+        nonEmptyCount <= 3
+      if (!isPureTotalRow) {
+        rows.push(row)
+      }
+    }
   }
 
   return { headers, rows, detectedRows: rows.length }

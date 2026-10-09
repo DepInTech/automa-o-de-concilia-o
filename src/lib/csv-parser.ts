@@ -113,8 +113,15 @@ function findColumn(headers: string[], aliases: string[]): string | null {
 }
 
 export function mapSystemRecords(parsed: ParsedCSV): SystemRecord[] {
-  const data = findColumn(parsed.headers, ['Data', 'Date'])
-  const parceiro = findColumn(parsed.headers, ['Parceiro', 'Partner', 'Fornecedor', 'Nome'])
+  const data = findColumn(parsed.headers, ['Data', 'Date', 'Data Contábil', 'Data do Lançamento'])
+  const parceiro = findColumn(parsed.headers, [
+    'Parceiro',
+    'Partner',
+    'Fornecedor',
+    'Nome',
+    'Contato',
+    'Razão Social',
+  ])
   const lancamento = findColumn(parsed.headers, [
     'Diário',
     'Diario',
@@ -122,21 +129,49 @@ export function mapSystemRecords(parsed: ParsedCSV): SystemRecord[] {
     'Lancamento Diario',
     'Lancamento',
     'Journal',
+    'Diário de Pagamento',
   ])
-  const numero = findColumn(parsed.headers, ['Número', 'Numero', 'Number', 'NF', 'Nota Fiscal'])
+  const numero = findColumn(parsed.headers, [
+    'Número',
+    'Numero',
+    'Number',
+    'NF',
+    'Nota Fiscal',
+    'Documento',
+    'Doc',
+  ])
   const referencia = findColumn(parsed.headers, ['Referência', 'Referencia', 'Reference', 'Ref'])
   const debito = findColumn(parsed.headers, ['Débito', 'Debito', 'Debit'])
-  const total = findColumn(parsed.headers, ['Total'])
-  const credito = findColumn(parsed.headers, ['Crédito', 'Credito', 'Credit', 'Valor', 'Total'])
-  const categoria = findColumn(parsed.headers, ['Categoria', 'Category'])
+  const total = findColumn(parsed.headers, ['Total', 'Valor Total', 'Montante'])
+  const credito = findColumn(parsed.headers, [
+    'Total',
+    'Crédito',
+    'Credito',
+    'Credit',
+    'Valor',
+    'Valor Pago',
+  ])
+  const categoria = findColumn(parsed.headers, [
+    'Categoria',
+    'Category',
+    'Conta',
+    'Conta Analítica',
+  ])
 
-  return parsed.rows.map((row, index) => {
+  const mapped: SystemRecord[] = []
+
+  parsed.rows.forEach((row, index) => {
     // Normalização flexível de número/moeda brasileira ou padrão numérico do Excel
     const rawTotal = total ? row[total] : undefined
     const rawCredito = credito ? row[credito] : undefined
     const totalVal = rawTotal !== undefined ? parseBrazilianNumber(rawTotal) : null
+    const parsedCredito = rawCredito !== undefined ? parseBrazilianNumber(rawCredito) : null
     const creditoVal =
-      rawCredito !== undefined ? (parseBrazilianNumber(rawCredito) ?? 0) : (totalVal ?? 0)
+      totalVal !== null && totalVal !== 0
+        ? totalVal
+        : parsedCredito !== null
+          ? parsedCredito
+          : (totalVal ?? 0)
 
     // Formata a data se for ISO "AAAA-MM-DD", objeto Date ou formato textual extenso (ex: "Wed Jul 01 2026...")
     let rawDateStr = data ? row[data]?.trim() : ''
@@ -155,19 +190,27 @@ export function mapSystemRecords(parsed: ParsedCSV): SystemRecord[] {
       }
     }
 
-    return {
-      id: String(index),
+    const partnerName = parceiro ? row[parceiro]?.trim() || '' : ''
+    // Ignora linhas totalmente vazias sem parceiro e com valor zero
+    if (!partnerName && creditoVal === 0 && !rawDateStr) {
+      return
+    }
+
+    mapped.push({
+      id: `sys-${index}`,
       data: rawDateStr,
-      parceiro: parceiro ? row[parceiro] : '',
+      parceiro: partnerName || (row[parceiro || ''] ?? ''),
       lancamentoDiario: lancamento ? row[lancamento] : undefined,
       numero: numero ? row[numero] : undefined,
       referencia: referencia ? row[referencia] : undefined,
       categoria: categoria ? row[categoria] : undefined,
       debito: debito ? parseBrazilianNumber(row[debito]) : null,
       credito: creditoVal,
-      total: totalVal,
-    }
+      total: totalVal !== null ? totalVal : creditoVal,
+    })
   })
+
+  return mapped
 }
 
 export function mapCardRecords(parsed: ParsedCSV): CardRecord[] {

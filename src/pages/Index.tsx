@@ -265,7 +265,11 @@ export default function Index() {
         </div>
 
         {/* Indicadores Redesenhados */}
-        <SummaryCards results={results} />
+        <SummaryCards
+          results={results}
+          systemRecordsCount={systemRecords.length}
+          cardRecordsCount={cardRecords.length}
+        />
 
         {/* Tabela de Resultados */}
         <ResultsTable

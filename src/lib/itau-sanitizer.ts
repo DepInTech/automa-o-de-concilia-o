@@ -37,6 +37,22 @@ export function sanitizeParsedCSV(parsed: ParsedCSV, fileType: 'system' | 'card'
   const headersMatch = keywords.every((kw) => normalizedHeaders.some((h) => h.includes(kw)))
   if (headersMatch) return parsed
 
+  // Se os headers originais contêm 'data' e ('parceiro' ou 'total' ou 'valor' ou 'numero' ou 'credito')
+  const hasDataCol = normalizedHeaders.some((h) => h.includes('data'))
+  const hasPartnerOrTotal = normalizedHeaders.some(
+    (h) =>
+      h.includes('parceiro') ||
+      h.includes('total') ||
+      h.includes('valor') ||
+      h.includes('debito') ||
+      h.includes('credito') ||
+      h.includes('numero') ||
+      h.includes('diario'),
+  )
+  if (hasDataCol && hasPartnerOrTotal) {
+    return parsed
+  }
+
   for (let i = 0; i < parsed.rows.length; i++) {
     const row = parsed.rows[i]
     // Utiliza a ordem dos headers originais para preservar alinhamento exato de colunas
@@ -57,20 +73,6 @@ export function sanitizeParsedCSV(parsed: ParsedCSV, fileType: 'system' | 'card'
       }
       return { headers: newHeaders, rows: newRows, detectedRows: newRows.length }
     }
-  }
-
-  // Se nenhum cabeçalho continha exatamente keywords combinadas, mas os headers originais contêm 'data' e ('parceiro' ou 'total' ou 'valor')
-  const hasDataCol = normalizedHeaders.some((h) => h.includes('data'))
-  const hasPartnerOrTotal = normalizedHeaders.some(
-    (h) =>
-      h.includes('parceiro') ||
-      h.includes('total') ||
-      h.includes('valor') ||
-      h.includes('debito') ||
-      h.includes('credito'),
-  )
-  if (hasDataCol && hasPartnerOrTotal) {
-    return parsed
   }
 
   return parsed

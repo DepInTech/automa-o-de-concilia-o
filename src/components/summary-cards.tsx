@@ -22,37 +22,56 @@ interface MetricConfig {
   bg: string
 }
 
-export function SummaryCards({ results }: { results: ReconciliationResult[] }) {
+export function SummaryCards({
+  results,
+  systemRecordsCount,
+  cardRecordsCount,
+}: {
+  results: ReconciliationResult[]
+  systemRecordsCount?: number
+  cardRecordsCount?: number
+}) {
   const conciliated = results.filter((r) => r.status === 'GREEN')
   const divergent = results.filter((r) => r.status === 'YELLOW')
 
-  // Identifica "Somente Sistema"
+  // Identifica "Somente Sistema" (RED originário de SISTEMA)
   const onlySystem = results.filter(
     (r) =>
       r.classificacao === 'SOMENTE_SISTEMA' ||
       (r.status === 'RED' && (!r.estabelecimento || r.estabelecimento === '-')),
   )
-  // Identifica "Somente Fatura"
+  // Identifica "Somente Fatura" (RED originário de FATURA)
   const onlyInvoice = results.filter(
     (r) =>
       r.classificacao === 'SOMENTE_FATURA' ||
       (r.status === 'RED' && (!r.parceiro || r.parceiro === '-')),
   )
 
-  // Contadores baseados na existência real dos dados
-  const totalSystem = results.filter((r) => r.parceiro && r.parceiro !== '-').length
-  const totalInvoice = results.filter((r) => r.estabelecimento && r.estabelecimento !== '-').length
+  // Registros reais válidos de cada fonte:
+  // Se informados diretamente pelas coleções de entrada, utiliza-os;
+  // senão calcula pelos resultados onde parceiro/estabelecimento estão presentes
+  const totalSystem =
+    systemRecordsCount !== undefined
+      ? systemRecordsCount
+      : results.filter((r) => r.parceiro && r.parceiro !== '-').length
+
+  const totalInvoice =
+    cardRecordsCount !== undefined
+      ? cardRecordsCount
+      : results.filter((r) => r.estabelecimento && r.estabelecimento !== '-').length
 
   const totalCreditoSistema = results.reduce((acc, r) => acc + (r.credito || 0), 0)
   const totalValorFatura = results.reduce((acc, r) => acc + (r.valorFatura || 0), 0)
 
-  // Soma a diferença APENAS dos registros Amarelos (Divergentes)
+  // Diferença total entre os valores do Sistema e da Fatura
   const diferencaTotal =
     Math.round(
       results.filter((r) => r.status === 'YELLOW').reduce((acc, r) => acc + (r.diferenca || 0), 0) *
         100,
     ) / 100
 
+  // Percentual de Conciliação:
+  // Proporção de pares conciliados em relação ao total de lançamentos únicos processados
   const percentual = results.length > 0 ? (conciliated.length / results.length) * 100 : 0
 
   const metrics: MetricConfig[] = [
