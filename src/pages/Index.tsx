@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { BankSelector } from '@/components/bank-selector'
 import { UploadZone } from '@/components/upload-zone'
-import { StageAudit } from '@/components/stage-audit'
 import { SummaryCards } from '@/components/summary-cards'
 import { ResultsTable } from '@/components/results-table'
 import { StructuredValidation } from '@/components/structured-validation'
@@ -354,16 +353,7 @@ export default function Index() {
           </div>
         </div>
 
-        {/* 1. Área de Auditoria Técnica Obrigatória por Etapa */}
-        <StageAudit
-          invoiceConversion={invoiceConversion}
-          odooImport={odooImport}
-          results={results}
-          onDownloadConvertedInvoice={handleDownloadConvertedInvoice}
-          hasConvertedInvoice={!!invoiceConversion?.excelBlob}
-        />
-
-        {/* 2. Indicadores e Totais Separados */}
+        {/* Indicadores e Totais Separados */}
         <SummaryCards
           results={results}
           systemRecordsCount={systemRecords.length}
