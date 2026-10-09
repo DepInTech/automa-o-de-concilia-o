@@ -72,20 +72,28 @@ export default function Index() {
     setParseError(null)
 
     try {
-      // 1. Processamento e conversão da Fatura PDF para Excel Estruturado
+      // 1. Processamento e conversão da Fatura (PDF ou Planilha .xlsx/.csv) para Excel Estruturado
       let convResult: InvoiceConversionResult
       if (cardFile) {
         convResult = await convertInvoicePdfToExcel(cardFile, cardFile.name)
-        if (!convResult.sucesso) {
+        if (!convResult.sucesso || convResult.registros.length === 0) {
+          const detail = convResult.erroCritico || convResult.resumo?.avisos?.join(' ')
           throw new Error(
-            convResult.erroCritico ||
-              'Não foi possível converter a fatura em PDF para Excel. Verifique se o arquivo está legível.',
+            detail ||
+              'Aviso: nenhuma transação foi identificada na fatura enviada. O arquivo pode ser escaneado (precisa de OCR), estar corrompido ou ter layout não reconhecido. A conciliação não pode ser iniciada com a fatura zerada.',
           )
         }
       } else {
         // Fallback de demonstração caso nenhum arquivo tenha sido selecionado
         const demoCardPdf = createMockInvoicePdfFile(bank)
         convResult = await convertInvoicePdfToExcel(demoCardPdf, `fatura_${bank}_exemplo.pdf`)
+      }
+
+      // Verificação de segurança: impede conciliação com fatura zerada/sem lançamentos
+      if (!convResult.registros || convResult.registros.length === 0) {
+        throw new Error(
+          'Nenhuma transação foi detectada na fatura. Verifique se o arquivo enviado está legível e possui texto pesquisável (não imagem escaneada).',
+        )
       }
 
       // 2. Importação independente do Odoo (Planilha .xlsx ou .csv)

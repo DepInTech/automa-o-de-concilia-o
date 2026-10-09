@@ -6,7 +6,10 @@ import {
   calculateDateDifferenceInDays,
 } from './normalization'
 import { reconcileData, calculateReconciliationMetrics } from './reconciliation'
-import { convertInvoicePdfToExcel } from './pdf-to-excel-converter'
+import {
+  convertInvoicePdfToExcel,
+  convertInvoiceSpreadsheetToExcel,
+} from './pdf-to-excel-converter'
 import { importOdooFile } from './odoo-importer'
 import { generateXlsxBlob } from './xlsx-generator'
 import { extractZip } from './zip-reader'
@@ -575,5 +578,155 @@ trailer << /Root 1 0 R >>
     const csvOutput = generateExportCSV(results)
     expect(csvOutput).toContain('SWIFT')
     expect(csvOutput).toContain('STARLINK')
+  })
+
+  // =========================================================================
+  // TESTES DE DIAGNÓSTICO (CAUSAS 1, 2 E 3 RESOLVIDAS)
+  // =========================================================================
+
+  // CAUSA 1: Linhas de fatura em blocos adjacentes/quebrados e com colunas extras (IOF/cotação/parcelamento)
+  it('19. Extração de fatura com linhas em blocos separados (data, descrição, valor) e colunas intermediárias', async () => {
+    // Simula PDF onde o extrator nativo/PDF.js separou data na linha 1, descrição na linha 2, cotação na linha 3 e valor na linha 4
+    const fakePdfText = `
+%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R >>
+stream
+BT
+/F1 10 Tf
+(15/06) Tj
+(OPENAI *CHATGPT SUBSCR) Tj
+(USD 20,00) Tj
+(Cotacao R$ 5,42) Tj
+(R$ 108,40) Tj
+(23/06) Tj
+(SWIFT PIRACUAMA) Tj
+(Parcela 01/01) Tj
+(R$ 1.954,12) Tj
+(12/06) Tj
+(DL *Starlink Brazil) Tj
+(1.199,00) Tj
+ET
+endstream
+endobj
+xref
+trailer << /Root 1 0 R >>
+%%EOF`
+
+    const encoder = new TextEncoder()
+    const pdfBuffer = encoder.encode(fakePdfText).buffer
+
+    const convResult = await convertInvoicePdfToExcel(pdfBuffer, 'fatura_itau_blocos.pdf')
+    expect(convResult.sucesso).toBe(true)
+    expect(convResult.registros.length).toBe(3)
+
+    const swift = convResult.registros.find((r) => r.nomeNormalizado.includes('SWIFT'))
+    expect(swift).toBeDefined()
+    expect(swift?.valorReais).toBe(1954.12)
+    expect(swift?.data).toBe('23/06/2026')
+
+    const starlink = convResult.registros.find((r) => r.nomeNormalizado.includes('STARLINK'))
+    expect(starlink).toBeDefined()
+    expect(starlink?.valorReais).toBe(1199.0)
+
+    const openai = convResult.registros.find((r) => r.nomeNormalizado.includes('OPENAI'))
+    expect(openai).toBeDefined()
+    expect(openai?.valorReais).toBe(108.4)
+  })
+
+  // CAUSA 2: Fatura recebida como planilha .xlsx ou .csv alimentando a conciliação
+  it('20. Fatura recebida como .xlsx/.csv é processada e alimenta a conciliação corretamente', async () => {
+    // Cria uma planilha XLSX de fatura com colunas Data, Descrição, Valor em Reais
+    const invoiceSheet = {
+      name: 'Fatura Cartao',
+      headers: ['Data', 'Estabelecimento', 'Valor em Reais (R$)', 'Portador'],
+      rows: [
+        ['23/06/2026', 'SWIFT PIRACUAMA', 1954.12, 'DIRETORIA'],
+        ['12/06/2026', 'DL *Starlink Brazil', 1199.0, 'TI'],
+      ],
+    }
+
+    const xlsxBlob = generateXlsxBlob([invoiceSheet])
+    const arrayBuffer = await xlsxBlob.arrayBuffer()
+
+    const convResult = await convertInvoicePdfToExcel(arrayBuffer, 'fatura_cartao_itau.xlsx')
+    expect(convResult.sucesso).toBe(true)
+    expect(convResult.registros).toHaveLength(2)
+    expect(convResult.resumo.totalValorReais).toBe(3153.12)
+
+    // Alimenta o motor de conciliação
+    const mappedCards: CardRecord[] = convResult.registros.map((r) => ({
+      id: r.id,
+      data: r.data,
+      estabelecimento: r.descricaoOriginal,
+      valor: r.valorReais,
+    }))
+
+    const sysRecords: SystemRecord[] = [
+      {
+        id: 'sys-swift',
+        data: '01/07/2026',
+        parceiro: 'SWIFT PIRACUAMA',
+        credito: 1954.12,
+        total: 1954.12,
+        debito: null,
+      },
+      {
+        id: 'sys-starlink',
+        data: '01/07/2026',
+        parceiro: 'STARLINK BRAZIL SERVICOS DE INTERNET LTDA.',
+        credito: 1199.0,
+        total: 1199.0,
+        debito: null,
+      },
+    ]
+
+    const reconciled = reconcileData(sysRecords, mappedCards, 'itau')
+    expect(reconciled).toHaveLength(2)
+    expect(reconciled.every((r) => r.status === 'GREEN')).toBe(true)
+    expect(reconciled[0].valorFatura).toBeGreaterThan(0)
+    expect(reconciled[1].valorFatura).toBeGreaterThan(0)
+
+    const metrics = calculateReconciliationMetrics(
+      reconciled,
+      sysRecords.length,
+      mappedCards.length,
+    )
+    expect(metrics.totalValorFatura).toBe(3153.12)
+    expect(metrics.totalValorSistema).toBe(3153.12)
+    expect(metrics.diferencaTotal).toBe(0)
+  })
+
+  // CAUSA 3: PDF sem transações detectadas gera erro explícito e impede conciliação com fatura zerada
+  it('21. PDF sem transações gera aviso explícito e bloqueia avanço', async () => {
+    // PDF apenas com rodapés e aviso legal, sem nenhuma transação
+    const fakeEmptyPdfText = `
+%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R >>
+stream
+BT
+/F1 10 Tf
+(RESUMO DA FATURA) Tj
+(Central de Atendimento 0800 123 4567) Tj
+(Ouvidoria 0800 765 4321) Tj
+ET
+endstream
+endobj
+xref
+trailer << /Root 1 0 R >>
+%%EOF`
+
+    const encoder = new TextEncoder()
+    const pdfBuffer = encoder.encode(fakeEmptyPdfText).buffer
+
+    const convResult = await convertInvoicePdfToExcel(pdfBuffer, 'fatura_vazia.pdf')
+    expect(convResult.sucesso).toBe(false)
+    expect(convResult.registros).toHaveLength(0)
+    expect(convResult.resumo.totalValorReais).toBe(0)
+    expect(convResult.erroCritico).toBeDefined()
+    expect(convResult.erroCritico).toMatch(/nenhum lançamento identificado/i)
   })
 })

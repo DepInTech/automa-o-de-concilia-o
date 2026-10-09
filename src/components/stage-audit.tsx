@@ -36,9 +36,24 @@ export function StageAudit({
   const invoiceSummary = invoiceConversion?.resumo
   const totalFaturaCalculado = invoiceSummary?.totalValorReais ?? metrics.totalValorFatura
   const totalOdooCalculado = odooImport?.totalMonetario ?? metrics.totalValorSistema
+  const isFaturaVazia = !invoiceConversion?.registros || invoiceConversion.registros.length === 0
 
   return (
     <div className="space-y-4">
+      {/* Alerta de bloqueio caso ocorra fatura sem transações ou zerada */}
+      {isFaturaVazia && (
+        <div className="p-4 rounded-xl border border-rose-300 bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+          <div className="space-y-1 text-xs sm:text-sm">
+            <h3 className="font-bold">Aviso Crítico: Fatura sem Transações Identificadas</h3>
+            <p>
+              O arquivo da fatura não continha lançamentos legíveis ou o layout não foi reconhecido.
+              A conciliação não pode avançar com totais zerados mascarados. Envie um arquivo com
+              texto digital ou verifique o arquivo original.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between flex-wrap gap-2 px-1">
         <div>
           <h2 className="text-lg font-black text-[#163A38] dark:text-[#F1F5F4] flex items-center gap-2">

@@ -148,17 +148,31 @@ function parseInvoiceLine(
   const remainder = clean.slice(dateMatch[0].length).trim()
 
   // Procura valor no final da linha (ex: "-18,75", "R$ 1.114,06", "1.199,00", "108,40")
-  const valMatch = remainder.match(
+  // Tolerante a colunas adicionais no final ou intermediárias (como cotação, IOF, parcelamento)
+  let valMatch = remainder.match(
     /(?:-?\s*R\$\s*|-?\s*US\$\s*|-?\s*USD\s*)?(-?\s*R?\$?\s*[\d.,]+\d{2})\s*$/i,
   )
+
+  // Se não casou no final exato (ex: há texto residual de cotação ou parcela após o valor),
+  // busca o último valor monetário presente na linha
+  if (!valMatch) {
+    const allVals = Array.from(
+      remainder.matchAll(/(?:-?\s*R\$\s*|-?\s*US\$\s*|-?\s*USD\s*)?(-?\s*R?\$?\s*[\d.,]+\d{2})/gi),
+    )
+    if (allVals.length > 0) {
+      valMatch = allVals[allVals.length - 1] as RegExpMatchArray
+    }
+  }
+
   if (!valMatch) return null
 
   const rawValStr = valMatch[0].trim()
   const valReais = normalizeMoneyValue(rawValStr)
   if (isNaN(valReais) || valReais === 0) return null
 
+  const valIndex = remainder.lastIndexOf(rawValStr)
   let desc = remainder
-    .slice(0, remainder.length - rawValStr.length)
+    .slice(0, valIndex !== -1 ? valIndex : remainder.length - rawValStr.length)
     .replace(/^[-:| ]+|[-:| ]+$/g, '')
     .trim()
   if (!desc || desc.length < 2 || isSummaryOrFooter(desc)) return null
@@ -267,22 +281,96 @@ function extractRecordsFromPage(
     }
   }
 
-  // 2. Se a página tiver quebra de linha colunar (data em uma linha, descrição na outra, valor na terceira)
-  if (records.length === 0 && lines.length >= 3) {
+  // 2. Se o parsing inline direto não encontrou lançamentos ou encontrou poucos,
+  // tenta recomposição por blocos colunares adjacentes (data na linha N, descrição na N+1, valor na N+2/N+3/N+4)
+  const isDateOnly = (s: string) => /^\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?$/.test(s.trim())
+  const isValueOnly = (s: string) =>
+    /^(?:-?\s*R\$\s*|-?\s*US\$\s*|-?\s*USD\s*)?-?\s*[\d.,]+\d{2}$/i.test(s.trim())
+
+  if (lines.length >= 2) {
+    // 2a. Recomposição em janela deslizante a partir de cada linha que seja data
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim()
-      if (/^\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?$/.test(line)) {
-        let combined = line
-        for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
-          const next = lines[j].trim()
-          if (!next) continue
-          combined += ' ' + next
-          const parsed = parseInvoiceLine(combined, page.pageNumber, startIdx.val)
-          if (parsed) {
+      if (!isDateOnly(line)) continue
+
+      // Se essa data já foi processada em um registro inline exatamente igual, checa
+      let combined = line
+      for (let j = i + 1; j < Math.min(i + 7, lines.length); j++) {
+        const next = lines[j].trim()
+        if (!next || isSummaryOrFooter(next)) continue
+        // Se encontrou outra data avulsa antes de achar valor, interrompe a janela
+        if (isDateOnly(next)) break
+
+        combined += ' ' + next
+        const parsed = parseInvoiceLine(combined, page.pageNumber, startIdx.val)
+        if (parsed) {
+          // Evita duplicar se já foi pego anteriormente
+          const alreadyExists = records.some(
+            (r) =>
+              r.data === parsed.data &&
+              r.nomeNormalizado === parsed.nomeNormalizado &&
+              Math.abs(r.valorReais - parsed.valorReais) < 0.01,
+          )
+          if (!alreadyExists) {
             records.push(parsed)
             startIdx.val++
-            i = j
-            break
+          }
+          i = j
+          break
+        }
+      }
+    }
+
+    // 2b. Recomposição colunar por colunas agregadas:
+    // Se ainda restarem poucos registros ou nenhum, detecta se o Itaú separou
+    // bloco de datas, bloco de descrições e bloco de valores na mesma página
+    if (records.length === 0) {
+      const colDates: string[] = []
+      const colDescs: string[] = []
+      const colVals: number[] = []
+
+      for (const raw of lines) {
+        const t = raw.trim()
+        if (!t || isSummaryOrFooter(t)) continue
+        if (/^(data|descri[cç][aã]o|valor|lan[cç]amentos|total)$/i.test(t)) continue
+        if (/^[A-Z\s]{4,}\s*-\s*FINAL\s*\d{4}$/i.test(t)) continue
+
+        if (isDateOnly(t)) {
+          colDates.push(t)
+        } else if (isValueOnly(t)) {
+          const v = normalizeMoneyValue(t)
+          if (!isNaN(v) && v !== 0) {
+            colVals.push(v)
+          }
+        } else if (t.length >= 2 && !/^(iof|repasse\s+de\s+iof|cota[cç][aã]o)/i.test(t)) {
+          colDescs.push(t)
+        }
+      }
+
+      // Se temos descrições e valores colunares (mesmo com tolerância de tamanho)
+      if (colDescs.length > 0 && colVals.length > 0) {
+        const matchCount = Math.min(colDescs.length, colVals.length)
+        for (let k = 0; k < matchCount; k++) {
+          const dt = colDates[k] || colDates[colDates.length - 1] || '01/06'
+          const desc = colDescs[k]
+          const val = colVals[k]
+          if (desc && val !== 0) {
+            const isEstorno = val < 0 || /estorno|reembolso|desconto/i.test(desc)
+            const isIntl = /usd|us\$|moeda\s*local|cota[cç][aã]o/i.test(desc)
+            const nomeNorm = normalizeEntityName(desc)
+            records.push({
+              id: `fat-${page.pageNumber}-${startIdx.val++}`,
+              data: normalizeCardDateYear(dt),
+              descricaoOriginal: desc,
+              nomeNormalizado: nomeNorm,
+              valorOriginal: Math.abs(val),
+              moedaOriginal: isIntl ? 'USD' : 'BRL',
+              valorReais: val,
+              tipo: isEstorno ? 'Estorno' : isIntl ? 'Internacional' : 'Nacional',
+              paginaOrigem: page.pageNumber,
+              confianca: nomeNorm.length >= 3 ? 90 : 70,
+              rawLine: `${dt} ${desc} ${val}`,
+            })
           }
         }
       }
@@ -295,10 +383,268 @@ function extractRecordsFromPage(
 /**
  * Converte um PDF de fatura Itaú em dados estruturados e planilha .xlsx real
  */
+/**
+ * Converte uma fatura fornecida como planilha (.xlsx ou .csv) em InvoiceConversionResult
+ */
+export async function convertInvoiceSpreadsheetToExcel(
+  fileOrBuffer: File | ArrayBuffer,
+  fileName = 'fatura.xlsx',
+): Promise<InvoiceConversionResult> {
+  let parsed: { headers: string[]; rows: Record<string, string>[]; sheetName?: string }
+  try {
+    if (fileOrBuffer instanceof File) {
+      const lower = fileOrBuffer.name.toLowerCase()
+      if (lower.endsWith('.xlsx')) {
+        const { parseExcel } = await import('./excel-parser')
+        const buffer = await fileOrBuffer.arrayBuffer()
+        parsed = await parseExcel(buffer)
+      } else {
+        const { parseCSV } = await import('./csv-parser')
+        const text = await fileOrBuffer.text()
+        parsed = parseCSV(text)
+      }
+    } else {
+      const { parseExcel } = await import('./excel-parser')
+      parsed = await parseExcel(fileOrBuffer)
+    }
+  } catch (err) {
+    return {
+      sucesso: false,
+      registros: [],
+      resumo: {
+        nomeArquivo: fileName,
+        quantidadePaginas: 1,
+        quantidadeTransacoes: 0,
+        quantidadeRevisao: 0,
+        registrosComFalha: 1,
+        totalValorReais: 0,
+        paginasComFalha: [1],
+        avisos: [
+          err instanceof Error
+            ? `Erro ao ler planilha de fatura: ${err.message}`
+            : 'Erro ao ler arquivo da fatura.',
+        ],
+        isDigitalizadoOuVazio: false,
+      },
+      nomeArquivoExcel: fileName.replace(/\.[^/.]+$/, '_convertido.xlsx'),
+      erroCritico: 'Não foi possível ler a planilha da fatura enviada.',
+    }
+  }
+
+  const { headers, rows } = parsed
+  if (!headers.length || !rows.length) {
+    return {
+      sucesso: false,
+      registros: [],
+      resumo: {
+        nomeArquivo: fileName,
+        quantidadePaginas: 1,
+        quantidadeTransacoes: 0,
+        quantidadeRevisao: 0,
+        registrosComFalha: 1,
+        totalValorReais: 0,
+        paginasComFalha: [1],
+        avisos: ['A planilha de fatura enviada está vazia ou sem linhas legíveis.'],
+        isDigitalizadoOuVazio: false,
+      },
+      nomeArquivoExcel: fileName.replace(/\.[^/.]+$/, '_convertido.xlsx'),
+      erroCritico: 'A planilha de fatura está vazia ou sem transações.',
+    }
+  }
+
+  // Mapeamento inteligente de colunas da fatura
+  const normHeaders = headers.map((h) => ({
+    original: h,
+    norm: h
+      .toLowerCase()
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, ''),
+  }))
+
+  const findCol = (aliases: string[]) => {
+    for (const a of aliases) {
+      const na = a
+        .toLowerCase()
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+      const match = normHeaders.find((h) => h.norm === na || h.norm.includes(na))
+      if (match) return match.original
+    }
+    return null
+  }
+
+  const colData = findCol(['data', 'data transacao', 'data compra', 'date'])
+  const colDesc = findCol([
+    'estabelecimento',
+    'descricao',
+    'descricao original',
+    'parceiro',
+    'historico',
+    'lancamento',
+    'nome',
+  ])
+  const colValor = findCol([
+    'valor em reais',
+    'valor reais',
+    'valor r$',
+    'valor',
+    'total',
+    'montante',
+    'credito',
+    'debito',
+  ])
+  const colParcela = findCol(['parcela', 'n parcela', 'numero parcela'])
+  const colPortador = findCol(['portador', 'titular', 'cartao titular'])
+  const colTipo = findCol(['tipo', 'tipo de lancamento', 'categoria'])
+
+  const records: InvoiceExtractedRecord[] = []
+  let rowIdx = 1
+
+  for (const r of rows) {
+    const rawDesc = colDesc ? r[colDesc]?.trim() || '' : ''
+    const rawVal = colValor ? r[colValor] : undefined
+    if (!rawDesc && (!rawVal || rawVal === '')) continue
+    if (isSummaryOrFooter(rawDesc)) continue
+
+    const valReais = rawVal !== undefined ? normalizeMoneyValue(rawVal) : 0
+    if (isNaN(valReais) || valReais === 0) continue
+
+    const rawDate = colData ? r[colData]?.trim() || '' : ''
+    const normDate = normalizeCardDateYear(rawDate || '01/06')
+    const nomeNorm = normalizeEntityName(rawDesc)
+    const isEstorno = valReais < 0 || /estorno|reembolso|desconto/i.test(rawDesc)
+    const isIntl = /usd|us\$|moeda\s*local|cota[cç][aã]o/i.test(rawDesc)
+    const tipoVal = colTipo && r[colTipo]?.trim()
+    const tipo: InvoiceExtractedRecord['tipo'] =
+      tipoVal === 'Internacional' ||
+      tipoVal === 'Estorno' ||
+      tipoVal === 'Tarifa' ||
+      tipoVal === 'Nacional'
+        ? tipoVal
+        : isEstorno
+          ? 'Estorno'
+          : isIntl
+            ? 'Internacional'
+            : 'Nacional'
+
+    records.push({
+      id: `fat-sheet-${rowIdx++}`,
+      data: normDate,
+      descricaoOriginal: rawDesc,
+      nomeNormalizado: nomeNorm,
+      valorOriginal: Math.abs(valReais),
+      moedaOriginal: isIntl ? 'USD' : 'BRL',
+      valorReais: valReais,
+      portador: colPortador ? r[colPortador]?.trim() : undefined,
+      parcela: colParcela ? r[colParcela]?.trim() : undefined,
+      tipo,
+      paginaOrigem: 1,
+      confianca: nomeNorm.length >= 3 ? 98 : 80,
+    })
+  }
+
+  if (records.length === 0) {
+    return {
+      sucesso: false,
+      registros: [],
+      resumo: {
+        nomeArquivo: fileName,
+        quantidadePaginas: 1,
+        quantidadeTransacoes: 0,
+        quantidadeRevisao: 0,
+        registrosComFalha: 1,
+        totalValorReais: 0,
+        paginasComFalha: [1],
+        avisos: [
+          'Nenhum lançamento válido com descrição e valor monetário foi identificado na planilha enviada.',
+        ],
+        isDigitalizadoOuVazio: false,
+      },
+      nomeArquivoExcel: fileName.replace(/\.[^/.]+$/, '_convertido.xlsx'),
+      erroCritico:
+        'Não foi possível extrair lançamentos da planilha de fatura. Verifique se contém colunas de Estabelecimento/Descrição e Valor.',
+    }
+  }
+
+  const totalValorReais = Math.round(records.reduce((sum, r) => sum + r.valorReais, 0) * 100) / 100
+  const baseName = fileName.replace(/\.[^/.]+$/, '')
+  const nomeArquivoExcel = `${baseName}_convertido.xlsx`
+
+  const aba1Headers = [
+    'Data da Transação',
+    'Descrição Original',
+    'Nome Normalizado',
+    'Valor Original',
+    'Moeda Original',
+    'Valor em Reais (R$)',
+    'Portador',
+    'Parcela',
+    'Tipo de Lançamento',
+    'Página de Origem',
+    'Confiança (%)',
+  ]
+
+  const aba1Rows = records.map((r) => [
+    r.data,
+    r.descricaoOriginal,
+    r.nomeNormalizado,
+    r.valorOriginal ?? r.valorReais,
+    r.moedaOriginal,
+    r.valorReais,
+    r.portador || '',
+    r.parcela || '',
+    r.tipo,
+    r.paginaOrigem,
+    r.confianca,
+  ])
+
+  const aba2Headers = ['Campo', 'Valor / Descrição']
+  const aba2Rows: (string | number)[][] = [
+    ['Nome do Arquivo Original', fileName],
+    ['Quantidade de Páginas/Abas', 1],
+    ['Quantidade de Transações Extraídas', records.length],
+    ['Transações que Necessitam de Revisão', 0],
+    ['Total dos Lançamentos em Reais (R$)', totalValorReais],
+    ['Avisos Identificados', 'Importado a partir de planilha (.xlsx/.csv)'],
+  ]
+
+  const excelBlob = generateXlsxBlob([
+    { name: 'Transacoes', headers: aba1Headers, rows: aba1Rows },
+    { name: 'Resumo da Extração', headers: aba2Headers, rows: aba2Rows },
+  ])
+
+  return {
+    sucesso: true,
+    registros: records,
+    resumo: {
+      nomeArquivo: fileName,
+      quantidadePaginas: 1,
+      quantidadeTransacoes: records.length,
+      quantidadeRevisao: 0,
+      registrosComFalha: 0,
+      totalValorReais,
+      paginasComFalha: [],
+      avisos: [],
+      isDigitalizadoOuVazio: false,
+    },
+    excelBlob,
+    nomeArquivoExcel,
+  }
+}
+
 export async function convertInvoicePdfToExcel(
   fileOrBuffer: File | ArrayBuffer,
   fileName = 'fatura.pdf',
 ): Promise<InvoiceConversionResult> {
+  // Se for arquivo em formato de planilha (.xlsx ou .csv), desvia diretamente para o parser de planilhas
+  const effectiveName = fileOrBuffer instanceof File ? fileOrBuffer.name : fileName
+  const lowerName = effectiveName.toLowerCase()
+  if (lowerName.endsWith('.xlsx') || lowerName.endsWith('.csv')) {
+    return convertInvoiceSpreadsheetToExcel(fileOrBuffer, effectiveName)
+  }
+
   const extraction = await extractPdfText(fileOrBuffer)
   const avisos: string[] = []
   const paginasComFalha: number[] = []
