@@ -458,12 +458,15 @@ export async function parseCardPdf(
   const seenFingerprints = new Map<string, number>()
 
   for (const r of allRecords) {
+    // Filtro rigoroso: descarta se for termo de resumo ou rodapé residual
+    if (isFooterOrTotalLine(r.estabelecimento)) continue
+
     // Fingerprint: data + estabelecimento normalizado + valor formatado
     const fp = `${r.data}|${r.estabelecimento.toLowerCase().trim()}|${r.valor.toFixed(2)}`
     const count = seenFingerprints.get(fp) || 0
-    // Permite repetições se forem poucas (ex: até 3 compras idênticas no mesmo dia),
-    // mas bloqueia duplicações de blocos idênticos de OCR
-    if (count < 3) {
+    // Permite repetições legítimas no cartão (ex: múltiplas corridas de Uber ou compras no mesmo dia até 6 ocorrências),
+    // mas bloqueia repetições massivas provocadas por falha de quebra de página
+    if (count < 6) {
       seenFingerprints.set(fp, count + 1)
       dedupedRecords.push(r)
     }

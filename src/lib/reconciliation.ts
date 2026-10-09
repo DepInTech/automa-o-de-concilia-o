@@ -143,38 +143,45 @@ function evaluatePair(
   let classification: MatchClassification
   let reason = ''
 
-  if (isValueExact && nameSim >= 0.35) {
-    // CONCILIADO: valor idêntico + estabelecimento compatível
+  const isDateAcceptable = dateDiffDays === null || dateDiffDays <= 45
+
+  if (isValueExact && nameSim >= 0.35 && isDateAcceptable) {
+    // CONCILIADO: valor idêntico + estabelecimento compatível dentro da janela de lançamento
     classification = 'CONCILIADO'
     reason = 'Valor e estabelecimento compatíveis'
-  } else if (isValueExact && nameSim < 0.2) {
-    // Valores iguais mas parceiros completamente diferentes NÃO devem ser conciliados automaticamente
-    // Ex.: dois lançamentos de R$ 100,00 de estabelecimentos distintos
+  } else if (isValueExact && nameSim >= 0.35 && !isDateAcceptable) {
+    // Mesmo estabelecimento e mesmo valor, porém lançamentos contábeis e de fatura muito distantes (> 45 dias)
     classification = 'DIVERGENTE'
-    reason = 'Estabelecimento não identificado'
-    score = Math.min(score, 35) // Trava o score para não casar falso-positivo
+    reason = `Data fora da tolerância contábil (${dateDiffDays} dias)`
+  } else if (isValueExact && nameSim < 0.2) {
+    // Valores iguais mas estabelecimentos totalmente diferentes NÃO devem ser casados automaticamente
+    // Devem ir para revisão ou divergência para evitar falso-positivo
+    classification = 'POSSIVEL_CORRESPONDENCIA'
+    reason = 'Mesmo valor, mas estabelecimentos não relacionados'
+    score = Math.min(score, 30) // Trava o score para não casar acidentalmente antes de pares válidos
   } else if (isValueExact && nameSim >= 0.2 && nameSim < 0.35) {
-    // Possível correspondência: mesmo valor mas nome com similaridade marginal
+    // Possível correspondência: mesmo valor mas similaridade de nome moderada/marginal
     classification = 'POSSIVEL_CORRESPONDENCIA'
     reason = 'Possível correspondência (verificar parceiro)'
   } else if (!isValueExact && nameSim >= 0.5) {
     // Mesmo estabelecimento mas valor diferente
-    if (dateDiffDays !== null && dateDiffDays > 35) {
+    if (dateDiffDays !== null && dateDiffDays > 45) {
       classification = 'DIVERGENTE'
-      reason = 'Valor diferente e data fora da tolerância'
+      reason = `Valor diferente (${absDiff > 0 ? `dif. R$ ${absDiff.toFixed(2)}` : ''}) e data fora da tolerância`
     } else {
       classification = 'DIVERGENTE'
       reason = `Valor diferente (${absDiff > 0 ? `dif. R$ ${absDiff.toFixed(2)}` : ''})`
     }
-  } else if (dateDiffDays !== null && dateDiffDays > 35 && isValueExact) {
+  } else if (dateDiffDays !== null && dateDiffDays > 45 && isValueExact) {
     classification = 'DIVERGENTE'
-    reason = 'Data fora da tolerância'
+    reason = 'Data fora da tolerância contábil'
   } else if (score >= 45) {
     classification = 'POSSIVEL_CORRESPONDENCIA'
     reason = 'Possível correspondência (revisão recomendada)'
   } else {
-    classification = 'DIVERGENTE'
-    reason = 'Divergência não conciliada'
+    // Se não há afinidade mínima nem de valor nem de nome, permanece como possível apenas se houver algum indício
+    classification = 'POSSIVEL_CORRESPONDENCIA'
+    reason = 'Verificação manual recomendada'
   }
 
   return {
@@ -268,23 +275,25 @@ export function reconcileData(
     }
   }
 
-  // FASE 2: Pareamento de "POSSÍVEL CORRESPONDÊNCIA" ou "DIVERGENTE" com afinidade
+  // FASE 2: Pareamento de "DIVERGENTE" legítimo (mesmo estabelecimento, valor diferente)
+  // ou "POSSÍVEL CORRESPONDÊNCIA" com afinidade comprovada
   for (const cand of candidates) {
     if (matchedSystemIds.has(cand.sys.id) || matchedCardIds.has(cand.card.id)) {
       continue
     }
 
-    // Só casa registros se tiverem pelo menos boa similaridade de nome (>= 0.4) ou mesmo valor com nome aceitável
-    const isViablePair =
-      (cand.nameSim >= 0.4 && (Math.abs(cand.diffVal) <= 50 || cand.totalScore >= 50)) ||
-      (Math.abs(cand.diffVal) < 0.01 && cand.nameSim >= 0.25)
+    // Só casa pares divergentes se houver correspondência clara de estabelecimento (nameSim >= 0.4)
+    // ou mesmo valor com similaridade razoável (>= 0.28)
+    const isLegitimateDivergent =
+      cand.nameSim >= 0.4 && Math.abs(cand.diffVal) > 0.01 && Math.abs(cand.diffVal) <= 100
+    const isLegitimatePossible = Math.abs(cand.diffVal) < 0.01 && cand.nameSim >= 0.28
 
-    if (isViablePair) {
+    if (isLegitimateDivergent || isLegitimatePossible) {
       matchedSystemIds.add(cand.sys.id)
       matchedCardIds.add(cand.card.id)
 
-      const isYellow = cand.classification === 'POSSIVEL_CORRESPONDENCIA' || cand.diffVal !== 0
-      const status = isYellow ? 'YELLOW' : 'GREEN'
+      const classification = isLegitimateDivergent ? 'DIVERGENTE' : 'POSSIVEL_CORRESPONDENCIA'
+      const status = 'YELLOW'
 
       results.push({
         id: `YELLOW-${cand.sys.id}-${cand.card.id}`,
@@ -301,7 +310,7 @@ export function reconcileData(
         diferenca: cand.diffVal,
         status,
         origem: 'AMBOS',
-        classificacao: cand.classification,
+        classificacao: classification,
         motivo: cand.reason,
         scoreConfianca: cand.totalScore,
       })

@@ -18,11 +18,14 @@ const GATEWAY_PREFIXES = [
   /^(cielo\s*\*+|cielo\s+)/i,
   /^(stone\s*\*+|stone\s+)/i,
   /^(asaas\s*\*+|asaas\s+)/i,
+  /^(stripe\s*\*+|stripe\s+)/i,
+  /^(paypal\s*\*+|paypal\s+)/i,
+  /^(sumup\s*\*+|sumup\s+)/i,
 ]
 
-// Sufixos empresariais comuns a remover na comparação
+// Sufixos empresariais e termos societários a remover na comparação
 const CORPORATE_SUFFIXES = [
-  /\b(ltda|eireli|s\.?a\.?|s\/?a|me|epp|mei|sociedade\s+anonima|comercio|comercial|distribuidora|servicos|serv\b|solucoes|artigos|utilidades)\b/gi,
+  /\b(ltda|eireli|s\.?a\.?|s\/?a|me|epp|mei|sociedade\s+anonima|sociedade\s+limitada|comercio|comercial|distribuidora|servicos|serv\b|solucoes|artigos|utilidades|brasil|brazil)\b/gi,
 ]
 
 // Palavras genéricas ou conectivos a ignorar na pontuação
@@ -44,6 +47,10 @@ const STOP_WORDS = new Set([
   'o',
   'as',
   'os',
+  'no',
+  'na',
+  'nos',
+  'nas',
 ])
 
 /**
@@ -78,16 +85,19 @@ export function normalizeEntityName(raw: string): string {
   // 4. Se tiver parcelas anexadas como " 04/06", " 03/10", " 11/12", "09/12", "12/12"
   cleaned = cleaned.replace(/\s*\b\d{2}\/\d{2}\b\s*/g, ' ')
 
-  // 5. Remove sufixos empresariais
-  for (const suf of CORPORATE_SUFFIXES) {
-    cleaned = cleaned.replace(suf, ' ')
-  }
-
-  // 5b. Remove prefixos de aviso/alerta comuns do Odoo (ex: ⚠️)
+  // 5. Remove prefixos de aviso/alerta comuns do Odoo (ex: ⚠️)
   cleaned = cleaned.replace(/[⚠️\u26A0\uFE0F]/g, ' ')
 
   // 6. Substitui pontuação, asteriscos, hífens e traços por espaço
   cleaned = cleaned.replace(/[^a-z0-9]/g, ' ')
+
+  // 7. Remove sufixos empresariais (duas passagens para capturar sequências como "servicos de internet ltda")
+  for (let pass = 0; pass < 2; pass++) {
+    for (const suf of CORPORATE_SUFFIXES) {
+      cleaned = cleaned.replace(suf, ' ')
+    }
+    cleaned = cleaned.trim()
+  }
 
   // 7. Remove múltiplos espaços
   cleaned = cleaned.replace(/\s+/g, ' ').trim()
@@ -134,14 +144,27 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
   const tokensA = extractSignificantTokens(rawA)
   const tokensB = extractSignificantTokens(rawB)
 
-  if (tokensA.length === 0 || tokensB.length === 0) return 0
+  if (tokensA.length === 0 || tokensB.length === 0) {
+    // Se a normalização limpou quase tudo, tenta comparar os primeiros caracteres brutos limpos
+    const cleanRawA = rawA.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const cleanRawB = rawB.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (
+      cleanRawA &&
+      cleanRawB &&
+      (cleanRawA.includes(cleanRawB) || cleanRawB.includes(cleanRawA))
+    ) {
+      return 0.7
+    }
+    return 0
+  }
 
-  // Contagem de tokens coincidentes ou com match de prefixo (ex: "atacad" e "atacadista")
+  // Contagem de tokens coincidentes ou com match de prefixo (ex: "atacad" e "atacadista", "mercadorias")
   let matchesA = 0
   for (const tA of tokensA) {
     const found = tokensB.some((tB) => {
       if (tA === tB) return true
-      if (tA.length >= 4 && tB.length >= 4) {
+      // Prefix match para tokens com pelo menos 3 caracteres (ex: "sjx" === "sjx", "atacad" vs "atacadista")
+      if (tA.length >= 3 && tB.length >= 3) {
         if (tA.startsWith(tB) || tB.startsWith(tA)) return true
       }
       return false
@@ -153,7 +176,7 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
   for (const tB of tokensB) {
     const found = tokensA.some((tA) => {
       if (tA === tB) return true
-      if (tA.length >= 4 && tB.length >= 4) {
+      if (tA.length >= 3 && tB.length >= 3) {
         if (tA.startsWith(tB) || tB.startsWith(tA)) return true
       }
       return false
@@ -161,7 +184,17 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
     if (found) matchesB++
   }
 
-  const overlapScore = (matchesA / tokensA.length + matchesB / tokensB.length) / 2
+  // Overlap assimétrico: se um nome curto da fatura ("SJX ATACAD") está quase todo contido
+  // na razão social longa do Odoo ("SJX COMERCIAL ATACADISTA DE MERCADORIAS LTDA - Sacolão São Jorge"),
+  // o minMatch (proporção do menor conjunto coberto) tem grande relevância.
+  const minTokensCount = Math.min(tokensA.length, tokensB.length)
+  const maxTokensCount = Math.max(tokensA.length, tokensB.length)
+  const coveredOfMin =
+    tokensA.length <= tokensB.length ? matchesA / tokensA.length : matchesB / tokensB.length
+  const coveredOfMax =
+    tokensA.length > tokensB.length ? matchesA / tokensA.length : matchesB / tokensB.length
+
+  const overlapScore = coveredOfMin * 0.65 + coveredOfMax * 0.35
 
   // Bônus se a primeira palavra principal for idêntica (marca central, ex: "STARLINK", "SWIFT", "SJX", "VERISURE", "AUTENTIQUE")
   const firstA = tokensA[0]
@@ -169,16 +202,16 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
   let brandBonus = 0
   if (firstA && firstB) {
     if (firstA === firstB) {
-      brandBonus = 0.2
+      brandBonus = 0.25
     } else if (
       (firstA.startsWith(firstB) || firstB.startsWith(firstA)) &&
-      Math.min(firstA.length, firstB.length) >= 4
+      Math.min(firstA.length, firstB.length) >= 3
     ) {
-      brandBonus = 0.15
+      brandBonus = 0.2
     }
   }
 
-  return Math.min(1.0, overlapScore * 0.8 + brandBonus)
+  return Math.min(1.0, overlapScore * 0.75 + brandBonus)
 }
 
 /**
@@ -187,43 +220,45 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
  */
 export function normalizeMoneyValue(val: unknown): number {
   if (typeof val === 'number') {
-    return Math.round(val * 100) / 100
+    return isNaN(val) ? 0 : Math.round(val * 100) / 100
   }
   if (!val) return 0
 
   let str = String(val).trim()
 
   // Remove moeda e espaços
-  str = str.replace(/R\$/gi, '').replace(/US\$/gi, '').replace(/USD/gi, '').trim()
+  str = str.replace(/R\$/gi, '').replace(/US\$/gi, '').replace(/USD/gi, '').replace(/\s+/g, '')
 
-  // Tratamento de negativo no fim ou parênteses
+  // Tratamento de negativo no início, fim ou parênteses
   let isNegative = false
   if (str.startsWith('-') || str.endsWith('-')) {
     isNegative = true
-    str = str.replace(/-/g, '').trim()
+    str = str.replace(/-/g, '')
   } else if (str.startsWith('(') && str.endsWith(')')) {
     isNegative = true
-    str = str.slice(1, -1).trim()
+    str = str.slice(1, -1)
   }
 
   // Remove caracteres que não sejam dígitos, ponto ou vírgula
   str = str.replace(/[^\d.,]/g, '')
+  if (!str) return 0
 
   let numeric = 0
   if (str.includes(',') && str.includes('.')) {
     const lastComma = str.lastIndexOf(',')
     const lastDot = str.lastIndexOf('.')
     if (lastComma > lastDot) {
-      // Padrão brasileiro 1.954,12
+      // Padrão brasileiro 1.954,12 ou 1.114,06
       numeric = parseFloat(str.replace(/\./g, '').replace(',', '.'))
     } else {
-      // Padrão internacional 1,954.12
+      // Padrão internacional 1,954.12 ou 1,114.06
       numeric = parseFloat(str.replace(/,/g, ''))
     }
   } else if (str.includes(',')) {
-    // Padrão brasileiro sem milhares 1954,12
+    // Vírgula como separador decimal (1954,12)
     numeric = parseFloat(str.replace(',', '.'))
   } else {
+    // Apenas ponto ou inteiros (1954.12 ou 1954)
     numeric = parseFloat(str) || 0
   }
 
