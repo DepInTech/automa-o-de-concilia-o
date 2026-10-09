@@ -1,6 +1,7 @@
 import { Card, CardContent } from '@/components/ui/card'
 import { formatCurrency } from '@/lib/format'
 import type { ReconciliationResult } from '@/lib/types'
+import { calculateReconciliationMetrics } from '@/lib/reconciliation'
 import {
   CheckCircle2,
   AlertTriangle,
@@ -14,14 +15,6 @@ import {
   Building2,
 } from 'lucide-react'
 
-interface MetricConfig {
-  label: string
-  value: string
-  icon: typeof Database
-  color: string
-  bg: string
-}
-
 export function SummaryCards({
   results,
   systemRecordsCount,
@@ -31,61 +24,8 @@ export function SummaryCards({
   systemRecordsCount?: number
   cardRecordsCount?: number
 }) {
-  const conciliated = results.filter((r) => r.status === 'GREEN')
-  const divergent = results.filter((r) => r.status === 'YELLOW')
-
-  // Identifica "Somente Sistema" (RED originário de SISTEMA)
-  const onlySystem = results.filter(
-    (r) =>
-      r.classificacao === 'SOMENTE_SISTEMA' ||
-      (r.status === 'RED' && (!r.estabelecimento || r.estabelecimento === '-')),
-  )
-  // Identifica "Somente Fatura" (RED originário de FATURA)
-  const onlyInvoice = results.filter(
-    (r) =>
-      r.classificacao === 'SOMENTE_FATURA' ||
-      (r.status === 'RED' && (!r.parceiro || r.parceiro === '-')),
-  )
-
-  // Registros reais válidos de cada fonte calculados a partir dos dados processados
-  const totalSystem =
-    systemRecordsCount !== undefined
-      ? systemRecordsCount
-      : results.filter((r) => r.origem === 'SISTEMA' || r.origem === 'AMBOS').length
-
-  const totalInvoice =
-    cardRecordsCount !== undefined
-      ? cardRecordsCount
-      : results.filter((r) => r.origem === 'FATURA' || r.origem === 'AMBOS').length
-
-  // SOMA DOS TOTAIS DAS DUAS FONTES:
-  // Para o Sistema (Odoo): soma todos os registros onde crédito foi alimentado (exclusivos do Odoo + pares)
-  // Para a Fatura: soma todas as transações da fatura onde valorFatura foi alimentado (exclusivos da fatura + pares)
-  // Inclui estornos (negativos), taxas e internacionais calculados dinamicamente em runtime
-  const totalCreditoSistema =
-    Math.round(
-      results.reduce(
-        (acc, r) => acc + (r.credito !== null && r.credito !== undefined ? r.credito : 0),
-        0,
-      ) * 100,
-    ) / 100
-
-  const totalValorFatura =
-    Math.round(
-      results.reduce(
-        (acc, r) =>
-          acc + (r.valorFatura !== null && r.valorFatura !== undefined ? r.valorFatura : 0),
-        0,
-      ) * 100,
-    ) / 100
-
-  // CRITÉRIO DE DIFERENÇA DOCUMENTADO:
-  // Diferença = Total Fatura − Total Sistema (ou Diferença Total de Valor)
-  // Representa quanto a fatura tem a mais (+) ou a menos (-) do que o lançado no sistema contábil Odoo.
-  // Se > 0: Fatura maior que o sistema (pendência no sistema ou cobrança a maior).
-  // Se < 0: Sistema maior que a fatura.
-  // Se === 0: Conciliação financeira perfeita de valores globais.
-  const diferencaTotal = Math.round((totalValorFatura - totalCreditoSistema) * 100) / 100
+  const metrics = calculateReconciliationMetrics(results, systemRecordsCount, cardRecordsCount)
+  const isZeroDiff = Math.abs(metrics.diferencaTotal) < 0.005
 
   const formatDifferenceValue = (diff: number): string => {
     if (Math.abs(diff) < 0.005) {
@@ -98,94 +38,84 @@ export function SummaryCards({
     return `−${formattedAbs}`
   }
 
-  // Percentual de Conciliação:
-  // Proporção de pares conciliados (GREEN) em relação ao total de lançamentos únicos processados
-  const percentual = results.length > 0 ? (conciliated.length / results.length) * 100 : 0
-
-  const secondaryMetrics: MetricConfig[] = [
+  const secondaryMetrics = [
     {
-      label: 'Registros Sistema',
-      value: totalSystem.toString(),
+      label: 'Registros Sistema (Odoo)',
+      value: metrics.totalRegistrosSistema.toString(),
       icon: Database,
       color: 'text-[#00796F] dark:text-[#20BFA9]',
       bg: 'bg-[#F4F8F7] dark:bg-[#00796F]/20',
     },
     {
-      label: 'Registros Fatura',
-      value: totalInvoice.toString(),
+      label: 'Registros Fatura (PDF)',
+      value: metrics.totalRegistrosFatura.toString(),
       icon: FileText,
       color: 'text-[#004A46] dark:text-[#20BFA9]',
       bg: 'bg-[#F4F8F7] dark:bg-[#00796F]/20',
     },
     {
       label: 'Conciliados (Verde)',
-      value: conciliated.length.toString(),
+      value: metrics.paresConciliados.toString(),
       icon: CheckCircle2,
       color: 'text-emerald-700 dark:text-emerald-400',
       bg: 'bg-emerald-50 dark:bg-emerald-500/15',
     },
     {
       label: 'Divergentes (Amarelo)',
-      value: divergent.length.toString(),
+      value: metrics.paresDivergentes.toString(),
       icon: AlertTriangle,
       color: 'text-amber-700 dark:text-amber-400',
       bg: 'bg-amber-50 dark:bg-amber-500/15',
     },
     {
       label: 'Somente Sistema',
-      value: onlySystem.length.toString(),
+      value: metrics.somenteSistema.toString(),
       icon: Building2,
       color: 'text-rose-700 dark:text-rose-400',
       bg: 'bg-rose-50 dark:bg-rose-500/15',
     },
     {
       label: 'Somente Fatura',
-      value: onlyInvoice.length.toString(),
+      value: metrics.somenteFatura.toString(),
       icon: XCircle,
       color: 'text-rose-700 dark:text-rose-400',
       bg: 'bg-rose-50 dark:bg-rose-500/15',
     },
     {
       label: 'Total Odoo (Sistema)',
-      value: formatCurrency(totalCreditoSistema),
+      value: formatCurrency(metrics.totalValorSistema),
       icon: DollarSign,
       color: 'text-[#163A38] dark:text-[#F1F5F4]',
       bg: 'bg-[#F4F8F7] dark:bg-[#071F1D]',
     },
     {
       label: 'Total Fatura (Cartão)',
-      value: formatCurrency(totalValorFatura),
+      value: formatCurrency(metrics.totalValorFatura),
       icon: CreditCard,
       color: 'text-[#163A38] dark:text-[#F1F5F4]',
       bg: 'bg-[#F4F8F7] dark:bg-[#071F1D]',
     },
     {
-      label: 'Diferença Fatura - Odoo',
-      value: formatDifferenceValue(diferencaTotal),
+      label: 'Diferença Fatura − Odoo',
+      value: formatDifferenceValue(metrics.diferencaTotal),
       icon: Scale,
-      color:
-        Math.abs(diferencaTotal) < 0.005
-          ? 'text-emerald-700 dark:text-emerald-400'
-          : 'text-rose-700 dark:text-rose-400',
-      bg:
-        Math.abs(diferencaTotal) < 0.005
-          ? 'bg-emerald-50 dark:bg-emerald-950/30'
-          : 'bg-rose-50 dark:bg-rose-950/30',
+      color: isZeroDiff
+        ? 'text-emerald-700 dark:text-emerald-400'
+        : 'text-rose-700 dark:text-rose-400',
+      bg: isZeroDiff ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'bg-rose-50 dark:bg-rose-950/30',
     },
     {
       label: 'Percentual Conciliação',
-      value: `${percentual.toFixed(1)}%`,
+      value: `${metrics.percentualConciliacao.toFixed(1)}%`,
       icon: Percent,
       color: 'text-[#00796F] dark:text-[#20BFA9]',
       bg: 'bg-[#F4F8F7] dark:bg-[#00796F]/20',
     },
   ]
 
-  const isZeroDiff = Math.abs(diferencaTotal) < 0.005
-
   return (
     <div className="space-y-4">
-      {/* LINHA SUPERIOR DE DESTAQUE PROEMINENTE: Três Totais Principais Solicitados */}
+      {/* LINHA SUPERIOR DE DESTAQUE PROEMINENTE: Três Totais Principais */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* 1. Total Fatura */}
         <Card className="relative overflow-hidden rounded-2xl border-2 border-[#00796F]/25 bg-gradient-to-br from-white to-[#F4F8F7] dark:from-[#0D3834] dark:to-[#071F1D] shadow-md hover:shadow-lg transition-all">
@@ -196,10 +126,10 @@ export function SummaryCards({
                 Total Fatura
               </span>
               <p className="text-2xl sm:text-3xl font-black text-[#163A38] dark:text-[#F1F5F4] tracking-tight">
-                {formatCurrency(totalValorFatura)}
+                {formatCurrency(metrics.totalValorFatura)}
               </p>
               <p className="text-xs text-[#647875] dark:text-[#A7C4C0]">
-                {totalInvoice} lançamentos na fatura
+                {metrics.totalRegistrosFatura} lançamentos na fatura
               </p>
             </div>
             <div className="w-12 h-12 rounded-2xl bg-[#00796F]/10 dark:bg-[#00796F]/30 flex items-center justify-center shrink-0 border border-[#00796F]/20">
@@ -217,10 +147,10 @@ export function SummaryCards({
                 Total Sistema
               </span>
               <p className="text-2xl sm:text-3xl font-black text-[#163A38] dark:text-[#F1F5F4] tracking-tight">
-                {formatCurrency(totalCreditoSistema)}
+                {formatCurrency(metrics.totalValorSistema)}
               </p>
               <p className="text-xs text-[#647875] dark:text-[#A7C4C0]">
-                {totalSystem} lançamentos no Odoo
+                {metrics.totalRegistrosSistema} lançamentos no Odoo
               </p>
             </div>
             <div className="w-12 h-12 rounded-2xl bg-[#004A46]/10 dark:bg-[#004A46]/30 flex items-center justify-center shrink-0 border border-[#004A46]/20">
@@ -265,12 +195,12 @@ export function SummaryCards({
                     : 'text-rose-700 dark:text-rose-400'
                 }`}
               >
-                {formatDifferenceValue(diferencaTotal)}
+                {formatDifferenceValue(metrics.diferencaTotal)}
               </p>
               <p className="text-xs text-[#647875] dark:text-[#A7C4C0]">
                 {isZeroDiff
                   ? 'Fatura e Odoo sem resíduo de valor'
-                  : diferencaTotal > 0
+                  : metrics.diferencaTotal > 0
                     ? 'Fatura maior que o Sistema'
                     : 'Sistema maior que a Fatura'}
               </p>
@@ -288,7 +218,7 @@ export function SummaryCards({
         </Card>
       </div>
 
-      {/* GRADE COMPLETA DOS DEMAIS 10 CARDS (Mantidos integralmente) */}
+      {/* Grade com os 10 indicadores complementares */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {secondaryMetrics.map((m) => {
           const Icon = m.icon

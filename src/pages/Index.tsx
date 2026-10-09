@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { BankSelector } from '@/components/bank-selector'
 import { UploadZone } from '@/components/upload-zone'
-import { ImportStats } from '@/components/import-stats'
 import { SummaryCards } from '@/components/summary-cards'
 import { ResultsTable } from '@/components/results-table'
+import { StructuredValidation } from '@/components/structured-validation'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
@@ -14,233 +14,293 @@ import {
   Wand2,
   Loader2,
   AlertTriangle,
+  FileSpreadsheet,
+  Download,
 } from 'lucide-react'
 import { bankLabels } from '@/lib/bank-config'
-import { parseSystemFile, parseCardPdfFile } from '@/lib/file-parser'
-import { mapSystemRecords } from '@/lib/csv-parser'
+import {
+  convertInvoicePdfToExcel,
+  type InvoiceConversionResult,
+} from '@/lib/pdf-to-excel-converter'
+import { importOdooFile, type OdooImportResult } from '@/lib/odoo-importer'
 import { reconcileData } from '@/lib/reconciliation'
+import { downloadXlsxFile } from '@/lib/xlsx-generator'
 import { generateSystemCSV, downloadCSV } from '@/lib/sample-csv'
 import { createMockInvoicePdfFile } from '@/lib/sample-pdf'
 import { MOCK_SYSTEM_RECORDS, MOCK_CARD_RECORDS } from '@/lib/mock-data'
-import type { StructuredCardRecord } from '@/lib/card-pdf-parser'
 import type { BankType, SystemRecord, CardRecord, ReconciliationResult } from '@/lib/types'
 
-type Step = 'upload' | 'confirm' | 'results'
+type Step = 'upload' | 'validation' | 'results'
 
 export default function Index() {
   const [bank, setBank] = useState<BankType>('itau')
   const [step, setStep] = useState<Step>('upload')
   const [systemFile, setSystemFile] = useState<File | null>(null)
   const [cardFile, setCardFile] = useState<File | null>(null)
+
+  // Resultados dos módulos estruturados
+  const [invoiceConversion, setInvoiceConversion] = useState<InvoiceConversionResult | null>(null)
+  const [odooImport, setOdooImport] = useState<OdooImportResult | null>(null)
+
+  // Registros mapeados para o motor de conciliação
   const [systemRecords, setSystemRecords] = useState<SystemRecord[]>([])
   const [cardRecords, setCardRecords] = useState<CardRecord[]>([])
-  const [previewCardRecords, setPreviewCardRecords] = useState<
-    (CardRecord | StructuredCardRecord)[]
-  >([])
-  const [previewSystemRecords, setPreviewSystemRecords] = useState<SystemRecord[]>([])
-  const [sysDetected, setSysDetected] = useState(0)
-  const [cardDetected, setCardDetected] = useState(0)
-  const [cardPdfPages, setCardPdfPages] = useState<number | undefined>(undefined)
   const [results, setResults] = useState<ReconciliationResult[]>([])
+
   const [isProcessing, setIsProcessing] = useState(false)
-  const [warning, setWarning] = useState<string | null>(null)
-  const [importError, setImportError] = useState<string | null>(null)
   const [parseError, setParseError] = useState<string | null>(null)
 
   const handleBankChange = (b: BankType) => {
     setBank(b)
     setSystemFile(null)
     setCardFile(null)
+    setInvoiceConversion(null)
+    setOdooImport(null)
     setSystemRecords([])
     setCardRecords([])
-    setPreviewCardRecords([])
     setResults([])
-    setWarning(null)
-    setImportError(null)
     setParseError(null)
     setStep('upload')
   }
 
+  /**
+   * ETAPAS 1 e 2: Upload e Conversão da Fatura PDF para Excel + Importação do Odoo
+   */
   const handleProcessFiles = async () => {
     setIsProcessing(true)
     setParseError(null)
-    setWarning(null)
-    setImportError(null)
 
     try {
-      let sysRecords: SystemRecord[]
-      let cardRecs: CardRecord[]
-      let sysDet = 0
-      let cardDet = 0
-      let pdfPages: number | undefined
-      let identifiedWarning: string | null = null
-
-      // 1. Processar Planilha do Sistema (Odoo): .xlsx ou .csv
-      if (systemFile) {
-        try {
-          const sysParsed = await parseSystemFile(systemFile, bank)
-          sysDet = sysParsed.detectedRows
-          sysRecords = mapSystemRecords(sysParsed)
-          if (sysRecords.length === 0) {
-            throw new Error(
-              'Não encontramos as colunas Data/Parceiro/Total — verifique se o arquivo é o Lançamento de Diário do Odoo.',
-            )
-          }
-        } catch (sysErr) {
-          throw new Error(
-            sysErr instanceof Error
-              ? sysErr.message
-              : 'Não encontramos as colunas Data/Parceiro/Total — verifique se o arquivo é o Lançamento de Diário do Odoo.',
-          )
-        }
-      } else {
-        sysRecords = MOCK_SYSTEM_RECORDS
-        sysDet = sysRecords.length
-      }
-
-      // 2. Processar Fatura do Cartão (Direto em PDF sem macro)
+      // 1. Processamento e conversão da Fatura PDF para Excel Estruturado
+      let convResult: InvoiceConversionResult
       if (cardFile) {
-        try {
-          const cardParsed = await parseCardPdfFile(cardFile, bank)
-          pdfPages = cardParsed.numPages
-
-          if (cardParsed.isScannedOrEmpty) {
-            throw new Error(
-              'Não foi possível identificar os dados da fatura neste PDF. O arquivo parece ser uma imagem digitalizada ou documento protegido. Verifique se o arquivo está legível e tente novamente.',
-            )
-          }
-
-          if (cardParsed.records.length === 0) {
-            throw new Error(
-              'Não foi possível identificar os dados da fatura neste PDF. Verifique se o arquivo está legível e tente novamente.',
-            )
-          }
-
-          cardDet = cardParsed.detectedRows
-          cardRecs = cardParsed.records
-          setPreviewCardRecords(cardParsed.records)
-
-          if (cardParsed.warning) {
-            identifiedWarning = cardParsed.warning
-          }
-        } catch (cardErr) {
+        convResult = await convertInvoicePdfToExcel(cardFile, cardFile.name)
+        if (!convResult.sucesso) {
           throw new Error(
-            cardErr instanceof Error
-              ? cardErr.message
-              : 'Não foi possível identificar os dados da fatura neste PDF. Verifique se o arquivo está legível e tente novamente.',
+            convResult.erroCritico ||
+              'Não foi possível converter a fatura em PDF para Excel. Verifique se o arquivo está legível.',
           )
         }
       } else {
-        // Dados de demonstração como se viessem de PDF estruturado
-        cardRecs = MOCK_CARD_RECORDS
-        cardDet = cardRecs.length
-        pdfPages = 2
-        setPreviewCardRecords(MOCK_CARD_RECORDS)
+        // Fallback de demonstração caso nenhum arquivo tenha sido selecionado
+        const demoCardPdf = createMockInvoicePdfFile(bank)
+        convResult = await convertInvoicePdfToExcel(demoCardPdf, `fatura_${bank}_exemplo.pdf`)
       }
 
-      setSystemRecords(sysRecords)
-      setPreviewSystemRecords(sysRecords)
-      setCardRecords(cardRecs)
-      setSysDetected(sysDet)
-      setCardDetected(cardDet)
-      setCardPdfPages(pdfPages)
-      setWarning(identifiedWarning)
+      // 2. Importação independente do Odoo (Planilha .xlsx ou .csv)
+      let odooRes: OdooImportResult
+      if (systemFile) {
+        odooRes = await importOdooFile(systemFile, systemFile.name)
+        if (!odooRes.sucesso) {
+          throw new Error(
+            odooRes.erro ||
+              'Não encontramos as colunas mínimas do Odoo (Data/Parceiro/Total) na planilha enviada.',
+          )
+        }
+      } else {
+        // Monta odooRes a partir dos dados de demonstração
+        const demoSysFile = new File([''], 'odoo_relatorio_sistema.xlsx')
+        odooRes = {
+          sucesso: true,
+          registros: MOCK_SYSTEM_RECORDS.map((s, idx) => ({
+            id: s.id,
+            linhaOrigem: idx + 2,
+            data: s.data,
+            parceiro: s.parceiro,
+            parceiroNormalizado: s.parceiro.toLowerCase(),
+            numero: s.numero,
+            referencia: s.referencia,
+            categoria: s.categoria,
+            debito: s.debito,
+            credito: s.credito,
+            total: s.total ?? s.credito,
+            rawRow: {},
+          })),
+          detectedRows: MOCK_SYSTEM_RECORDS.length,
+          totalMonetario: MOCK_SYSTEM_RECORDS.reduce((acc, s) => acc + (s.total ?? s.credito), 0),
+          colunaTotalDetectada: 'Total',
+          colunaParceiroDetectada: 'Parceiro',
+          colunaDataDetectada: 'Data',
+          colunasEncontradas: ['Data', 'Número', 'Referência', 'Parceiro', 'Total'],
+          avisos: [],
+        }
+      }
 
-      setStep('confirm')
+      // Prepara os registros para os próximos passos
+      const mappedCards: CardRecord[] = convResult.registros.map((r) => ({
+        id: r.id,
+        data: r.data,
+        estabelecimento: r.descricaoOriginal,
+        valor: r.valorReais,
+        categoria: r.tipo,
+        isInternacional: r.tipo === 'Internacional',
+        moedaGlobal: r.moedaOriginal,
+        parcela: r.parcela,
+        cartaoTitular: r.portador,
+        paginaOrigem: r.paginaOrigem,
+        confianca: r.confianca,
+      }))
+
+      const mappedSystem: SystemRecord[] = odooRes.registros.map((r) => ({
+        id: r.id,
+        data: r.data,
+        parceiro: r.parceiro,
+        lancamentoDiario: r.lancamentoDiario,
+        numero: r.numero,
+        referencia: r.referencia,
+        categoria: r.categoria,
+        debito: r.debito,
+        credito: r.credito,
+        total: r.total,
+        linhaOrigem: r.linhaOrigem,
+      }))
+
+      setInvoiceConversion(convResult)
+      setOdooImport(odooRes)
+      setCardRecords(mappedCards)
+      setSystemRecords(mappedSystem)
+
+      // Avança para a Etapa 3 & 4 (Validação e Conferência Prévia)
+      setStep('validation')
     } catch (err) {
       setParseError(
         err instanceof Error
           ? err.message
-          : 'Erro ao processar arquivos. Verifique os formatos (.xlsx/.csv para Sistema e .pdf para Fatura) e tente novamente.',
+          : 'Erro ao processar arquivos. Verifique os formatos (.xlsx/.csv para Sistema e .pdf para Fatura).',
       )
     } finally {
       setIsProcessing(false)
     }
   }
 
-  const handleConfirm = () => {
+  /**
+   * ETAPA 5: Iniciar Conciliação Automática
+   */
+  const handleConfirmReconciliation = () => {
     const reconciled = reconcileData(systemRecords, cardRecords, bank)
     setResults(reconciled)
     setStep('results')
+  }
+
+  const handleDownloadConvertedInvoice = () => {
+    if (invoiceConversion?.excelBlob) {
+      downloadXlsxFile(invoiceConversion.excelBlob, invoiceConversion.nomeArquivoExcel)
+    }
   }
 
   const handleReset = () => {
     setStep('upload')
     setSystemFile(null)
     setCardFile(null)
+    setInvoiceConversion(null)
+    setOdooImport(null)
     setSystemRecords([])
     setCardRecords([])
-    setPreviewCardRecords([])
     setResults([])
-    setWarning(null)
-    setImportError(null)
     setParseError(null)
   }
 
-  const handleDemoData = () => {
-    // Configura os arquivos de demonstração com XLSX para Sistema e PDF para Fatura
-    const demoSysFile = new File([''], 'odoo_relatorio_sistema.xlsx', {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    })
-    const demoCardPdf = createMockInvoicePdfFile(bank)
-
-    setSystemRecords(MOCK_SYSTEM_RECORDS)
-    setPreviewSystemRecords(MOCK_SYSTEM_RECORDS)
-    setCardRecords(MOCK_CARD_RECORDS)
-    setPreviewCardRecords(MOCK_CARD_RECORDS)
-    setSysDetected(MOCK_SYSTEM_RECORDS.length)
-    setCardDetected(MOCK_CARD_RECORDS.length)
-    setCardPdfPages(2)
-    setSystemFile(demoSysFile)
-    setCardFile(demoCardPdf)
-    setWarning(null)
-    setImportError(null)
+  const handleDemoData = async () => {
+    setIsProcessing(true)
     setParseError(null)
-    setStep('confirm')
+    try {
+      const demoCardPdf = createMockInvoicePdfFile(bank)
+      const convResult = await convertInvoicePdfToExcel(
+        demoCardPdf,
+        `fatura_${bank}_demonstracao.pdf`,
+      )
+
+      const odooRes: OdooImportResult = {
+        sucesso: true,
+        registros: MOCK_SYSTEM_RECORDS.map((s, idx) => ({
+          id: s.id,
+          linhaOrigem: idx + 2,
+          data: s.data,
+          parceiro: s.parceiro,
+          parceiroNormalizado: s.parceiro.toLowerCase(),
+          numero: s.numero,
+          referencia: s.referencia,
+          categoria: s.categoria,
+          debito: s.debito,
+          credito: s.credito,
+          total: s.total ?? s.credito,
+          rawRow: {},
+        })),
+        detectedRows: MOCK_SYSTEM_RECORDS.length,
+        totalMonetario: MOCK_SYSTEM_RECORDS.reduce((acc, s) => acc + (s.total ?? s.credito), 0),
+        colunaTotalDetectada: 'Total',
+        colunaParceiroDetectada: 'Parceiro',
+        colunaDataDetectada: 'Data',
+        colunasEncontradas: ['Data', 'Número', 'Referência', 'Parceiro', 'Total'],
+        avisos: [],
+      }
+
+      const mappedCards: CardRecord[] = convResult.registros.map((r) => ({
+        id: r.id,
+        data: r.data,
+        estabelecimento: r.descricaoOriginal,
+        valor: r.valorReais,
+        categoria: r.tipo,
+        isInternacional: r.tipo === 'Internacional',
+        moedaGlobal: r.moedaOriginal,
+        parcela: r.parcela,
+        cartaoTitular: r.portador,
+        paginaOrigem: r.paginaOrigem,
+        confianca: r.confianca,
+      }))
+
+      const mappedSystem: SystemRecord[] = odooRes.registros.map((r) => ({
+        id: r.id,
+        data: r.data,
+        parceiro: r.parceiro,
+        lancamentoDiario: r.lancamentoDiario,
+        numero: r.numero,
+        referencia: r.referencia,
+        categoria: r.categoria,
+        debito: r.debito,
+        credito: r.credito,
+        total: r.total,
+        linhaOrigem: r.linhaOrigem,
+      }))
+
+      setInvoiceConversion(convResult)
+      setOdooImport(odooRes)
+      setCardRecords(mappedCards)
+      setSystemRecords(mappedSystem)
+      setSystemFile(new File([''], 'odoo_relatorio_sistema.xlsx'))
+      setCardFile(demoCardPdf)
+      setStep('validation')
+    } catch (err) {
+      setParseError(err instanceof Error ? err.message : 'Falha ao carregar demonstração.')
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
   const handleDownloadSystemSample = () => {
     downloadCSV(generateSystemCSV(bank), `modelo_sistema_odoo_${bank}.csv`)
   }
 
-  if (step === 'confirm') {
+  // ETAPA 3 & 4: Tela de Conferência Prévia e Validação Estruturada
+  if (step === 'validation') {
     return (
-      <ImportStats
-        sysTotal={systemRecords.length}
-        cardTotal={cardRecords.length}
-        sysDetected={sysDetected}
-        cardDetected={cardDetected}
-        sysFileName={systemFile?.name ?? 'odoo_relatorio_sistema.xlsx'}
-        cardFileName={cardFile?.name ?? `fatura_cartao_${bank}.pdf`}
-        warning={warning}
-        importError={importError}
-        cardPreviewRecords={previewCardRecords}
-        systemPreviewRecords={previewSystemRecords}
-        isPdfSource={true}
-        numPagesPdf={cardPdfPages}
-        onConfirm={handleConfirm}
+      <StructuredValidation
+        conversionResult={invoiceConversion}
+        odooResult={odooImport}
+        onDownloadConvertedInvoice={handleDownloadConvertedInvoice}
+        onConfirmReconciliation={handleConfirmReconciliation}
         onBack={handleReset}
         bank={bank}
       />
     )
   }
 
+  // ETAPA 6 & 7: Tela de Resultados e Exportação
   if (step === 'results') {
     return (
       <div className="max-w-7xl mx-auto space-y-6 pb-12 animate-fade-in">
         {/* Banner / Cabeçalho Corporativo Grupo EPA */}
         <div className="relative overflow-hidden rounded-2xl border border-[#00796F]/20 bg-gradient-to-r from-[#004A46] via-[#00796F] to-[#042B28] p-6 sm:p-8 text-white shadow-md">
-          {/* Elementos visuais sutis */}
-          <div className="absolute -right-10 -bottom-10 w-48 h-48 rounded-full bg-white/5 blur-2xl pointer-events-none" />
-          <div className="absolute right-24 -top-8 w-32 h-32 rounded-full bg-[#20BFA9]/10 blur-xl pointer-events-none" />
-          <svg
-            className="absolute right-4 bottom-2 w-32 h-32 text-white/5 pointer-events-none hidden sm:block"
-            viewBox="0 0 100 100"
-            fill="currentColor"
-          >
-            <path d="M50 0 C60 30 90 40 100 50 C70 60 60 90 50 100 C40 70 10 60 0 50 C30 40 40 10 50 0 Z" />
-          </svg>
-
           <div className="relative z-10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm text-xs font-semibold text-white/90 mb-2.5">
@@ -251,16 +311,27 @@ export default function Index() {
                 Resultado da Conciliação
               </h1>
               <p className="text-sm text-white/80 mt-1 font-medium">
-                {bankLabels[bank]} • {results.length} registros analisados
+                {bankLabels[bank]} • {results.length} registros analisados lado a lado
               </p>
             </div>
-            <Button
-              variant="outline"
-              onClick={handleReset}
-              className="bg-white/95 text-[#004A46] hover:bg-white hover:text-[#00796F] border-none shadow-md font-semibold rounded-xl"
-            >
-              <RefreshCw className="w-4 h-4 mr-2" /> Nova Conciliação
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {invoiceConversion?.excelBlob && (
+                <Button
+                  variant="outline"
+                  onClick={handleDownloadConvertedInvoice}
+                  className="bg-white/15 text-white hover:bg-white hover:text-[#00796F] border-white/30 font-semibold rounded-xl text-xs sm:text-sm"
+                >
+                  <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel da Fatura
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={handleReset}
+                className="bg-white/95 text-[#004A46] hover:bg-white hover:text-[#00796F] border-none shadow-md font-semibold rounded-xl"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" /> Nova Conciliação
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -271,30 +342,34 @@ export default function Index() {
           cardRecordsCount={cardRecords.length}
         />
 
-        {/* Tabela de Resultados */}
+        {/* Tabela de Resultados Lado a Lado com Exportação */}
         <ResultsTable
           data={results}
           systemRecords={systemRecords}
           cardRecords={cardRecords}
           bank={bank}
+          onDownloadConvertedInvoice={handleDownloadConvertedInvoice}
+          hasConvertedInvoice={!!invoiceConversion?.excelBlob}
         />
       </div>
     )
   }
 
+  // ETAPA 1: Upload dos Arquivos
   return (
     <div className="max-w-5xl mx-auto space-y-8 pb-12 animate-fade-in">
       {/* Cabeçalho de Boas-Vindas & Identidade EPA */}
       <div className="text-center space-y-3">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#F4F8F7] dark:bg-[#00796F]/20 border border-[#00796F]/20 text-[#004A46] dark:text-[#20BFA9] text-xs font-bold uppercase tracking-wider">
           <span className="w-2 h-2 rounded-full bg-[#00796F] dark:bg-[#20BFA9]" />
-          Gestão Financeira
+          Gestão Financeira • Grupo EPA
         </div>
         <h1 className="text-3xl sm:text-4xl font-black text-[#163A38] dark:text-[#F1F5F4] tracking-tight">
           Conciliação Financeira
         </h1>
         <p className="text-[#647875] dark:text-[#A7C4C0] text-base sm:text-lg max-w-2xl mx-auto">
-          Selecione o banco e faça upload dos arquivos para conciliação automática
+          Envie a fatura do cartão em PDF e o Lançamento de Diário do Odoo em Excel para conversão e
+          conciliação automática.
         </p>
       </div>
 
@@ -311,7 +386,7 @@ export default function Index() {
         </Alert>
       )}
 
-      {/* Cards de Upload com clara distinção de formato */}
+      {/* Cards de Upload */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Campo 1: Sistema (Odoo) - Planilha */}
         <div className="space-y-2.5">
@@ -330,12 +405,13 @@ export default function Index() {
             onChange={setSystemFile}
             onDownloadSample={handleDownloadSystemSample}
             acceptType="spreadsheet"
-            description="Envie a planilha exportada do sistema Odoo."
-            subDescription="Detecta automaticamente Data, Número, Parceiro, Referência, Diário e Total. Não requer edição ou renomeação."
+            description="Envie a planilha original de Lançamento de Diário do Odoo."
+            subDescription="Mapeia automaticamente Data, Número, Parceiro, Referência, Diário e Total sem posições fixas."
             badgeText="Planilha do Sistema"
           />
         </div>
-        {/* Campo 2: Fatura do Cartão - PDF Direto (Sem Macro) */}
+
+        {/* Campo 2: Fatura do Cartão - PDF */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between px-1">
             <h2 className="font-bold text-sm text-rose-700 dark:text-rose-400 flex items-center gap-2">
@@ -343,7 +419,7 @@ export default function Index() {
               Fatura do Cartão ({bankLabels[bank]})
             </h2>
             <span className="text-[11px] font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 px-2.5 py-0.5 rounded-full border border-rose-200/50">
-              Fatura em PDF • Sem Macro
+              Fatura em PDF • Conversor Automático
             </span>
           </div>
           <UploadZone
@@ -352,11 +428,11 @@ export default function Index() {
             file={cardFile}
             onChange={setCardFile}
             acceptType="card"
-            description="Envie a fatura original do cartão em PDF (ou planilha de fatura .xlsx)."
-            subDescription="Arraste sua fatura em PDF aqui ou clique para buscar. Nunca requer macro nem conversões manuais."
-            badgeText="Fatura do Cartão"
+            description="Envie o PDF original da fatura Itaú (nacionais e internacionais)."
+            subDescription="O sistema converterá o PDF em Excel (.xlsx) com conferência de transações antes de conciliar."
+            badgeText="Fatura em PDF"
           />
-        </div>{' '}
+        </div>
       </div>
 
       {/* Botões de Ação */}
@@ -365,6 +441,7 @@ export default function Index() {
           variant="outline"
           onClick={handleDemoData}
           size="lg"
+          disabled={isProcessing}
           className="w-full sm:w-auto h-12 px-6 rounded-xl border-[#00796F]/30 hover:border-[#00796F] text-[#004A46] dark:text-[#20BFA9] bg-white dark:bg-[#0D3834] hover:bg-[#F4F8F7] dark:hover:bg-[#00796F]/20 font-semibold shadow-sm transition-all"
         >
           <Wand2 className="w-4 h-4 mr-2 text-[#00796F] dark:text-[#20BFA9]" /> Usar Dados de
@@ -378,11 +455,11 @@ export default function Index() {
         >
           {isProcessing ? (
             <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processando...
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Convertendo PDF e Lendo Odoo...
             </>
           ) : (
             <>
-              Processar Arquivos <ArrowRight className="w-4 h-4 ml-2" />
+              Converter PDF e Validar Dados <ArrowRight className="w-4 h-4 ml-2" />
             </>
           )}
         </Button>

@@ -11,6 +11,8 @@ export interface SystemRecord {
   debito: number | null
   credito: number
   total?: number | null
+  /** Linha de origem no arquivo para auditoria */
+  linhaOrigem?: number
 }
 
 export interface CardRecord {
@@ -26,6 +28,10 @@ export interface CardRecord {
   cartaoTitular?: string
   parcela?: string
   observacao?: string
+  /** Página do PDF de onde foi extraído */
+  paginaOrigem?: number
+  /** Score de confiança da extração */
+  confianca?: number
 }
 
 export type MatchClassification =
@@ -37,6 +43,11 @@ export type MatchClassification =
 
 export interface ReconciliationResult {
   id: string
+  /** Data da fatura (quando aplicável) */
+  dataFatura?: string
+  /** Data do sistema Odoo (quando aplicável) */
+  dataOdoo?: string
+  /** Data genérica para compatibilidade */
   data: string
   numero?: string
   referencia?: string
@@ -48,9 +59,29 @@ export interface ReconciliationResult {
   credito: number | null
   valorFatura: number | null
   diferenca: number | null
+  /** GREEN = Conciliado | YELLOW = Divergente | RED = Somente Sistema / Somente Fatura */
   status: 'GREEN' | 'YELLOW' | 'RED'
   origem: 'SISTEMA' | 'FATURA' | 'AMBOS'
-  classificacao?: MatchClassification
-  motivo?: string
+  classificacao: MatchClassification
+  motivo: string
   scoreConfianca?: number
+  /** Rastreabilidade de auditoria */
+  linhaOdooOrigem?: number
+  paginaFaturaOrigem?: number
+  isInternacional?: boolean
+  moedaOriginal?: string
+}
+
+export interface ReconciliationMetrics {
+  totalRegistrosSistema: number
+  totalRegistrosFatura: number
+  paresConciliados: number
+  paresDivergentes: number
+  somenteSistema: number
+  somenteFatura: number
+  casosEmRevisao: number
+  totalValorSistema: number
+  totalValorFatura: number
+  diferencaTotal: number
+  percentualConciliacao: number
 }

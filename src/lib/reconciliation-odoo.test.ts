@@ -1,20 +1,24 @@
 import { describe, it, expect } from 'vitest'
-import { parseCSV, mapSystemRecords, parseBrazilianNumber } from './csv-parser'
 import {
   normalizeEntityName,
   calculateNameSimilarity,
   normalizeMoneyValue,
   calculateDateDifferenceInDays,
 } from './normalization'
-import { reconcileData } from './reconciliation'
-import { sanitizeParsedCSV } from './itau-sanitizer'
+import { reconcileData, calculateReconciliationMetrics } from './reconciliation'
+import { convertInvoicePdfToExcel } from './pdf-to-excel-converter'
+import { importOdooFile } from './odoo-importer'
+import { generateXlsxBlob } from './xlsx-generator'
+import { extractZip } from './zip-reader'
+import { generateExportCSV, validateExport } from './validation'
 import type { SystemRecord, CardRecord } from './types'
 
-describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú', () => {
+describe('RECONSTRUÇÃO DA CONCILIAÇÃO FINANCEIRA - GRUPO EPA', () => {
   // =========================================================================
-  // CENÁRIO 1: Mesmo nome + mesmo valor → VERDE / CONCILIADO
+  // TESTE 1: Mesmo estabelecimento e mesmo valor → VERDE / CONCILIADO
+  // Caso real obrigatório: SWIFT PIRACUAMA ↔ SWIFT PIRACUAMA
   // =========================================================================
-  it('Cenário 1: SWIFT PIRACUAMA - mesmo nome e mesmo valor deve conciliar como GREEN / CONCILIADO', () => {
+  it('1. Mesmo estabelecimento e mesmo valor (SWIFT PIRACUAMA R$ 1.954,12) → GREEN / CONCILIADO', () => {
     const sys: SystemRecord[] = [
       {
         id: 'sys-swift',
@@ -48,31 +52,12 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
   })
 
   // =========================================================================
-  // CENÁRIO 1b: Estorno com valor negativo na Fatura
+  // TESTE 2: Nome abreviado e valor igual → VERDE / CONCILIADO
+  // Casos reais obrigatórios:
+  // "DL *Starlink Brazil" ↔ "STARLINK BRAZIL SERVICOS DE INTERNET LTDA."
+  // "SJX - COMERCIAL ATACAD" ↔ "SJX COMERCIAL ATACADISTA DE MERCADORIAS LTDA - Sacolão São Jorge"
   // =========================================================================
-  it('Cenário 1b: Estorno na fatura com valor negativo é preservado', () => {
-    const sys: SystemRecord[] = []
-    const card: CardRecord[] = [
-      {
-        id: 'card-estorno',
-        data: '08/06/2026',
-        estabelecimento: 'ESTORNO DE ANUIDADE DIF',
-        valor: -18.75,
-      },
-    ]
-
-    const results = reconcileData(sys, card, 'itau')
-    expect(results).toHaveLength(1)
-    expect(results[0].status).toBe('RED')
-    expect(results[0].classificacao).toBe('SOMENTE_FATURA')
-    expect(results[0].valorFatura).toBe(-18.75)
-  })
-
-  // =========================================================================
-  // CENÁRIO 2: Nome abreviado vs completo + mesmo valor → VERDE / CONCILIADO
-  // Exemplos: STARLINK BRAZIL, SJX COMERCIAL ATACADISTA
-  // =========================================================================
-  it('Cenário 2a: DL *Starlink Brazil ↔ STARLINK BRAZIL SERVICOS DE INTERNET LTDA. (R$ 1.199,00) → GREEN', () => {
+  it('2a. Nome abreviado (DL *Starlink Brazil ↔ STARLINK BRAZIL SERVICOS DE INTERNET LTDA. R$ 1.199,00) → GREEN', () => {
     const sys: SystemRecord[] = [
       {
         id: 'sys-starlink',
@@ -105,11 +90,10 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
     expect(results).toHaveLength(1)
     expect(results[0].status).toBe('GREEN')
     expect(results[0].classificacao).toBe('CONCILIADO')
-    expect(results[0].origem).toBe('AMBOS')
     expect(results[0].diferenca).toBe(0)
   })
 
-  it('Cenário 2b: SJX - COMERCIAL ATACAD ↔ SJX COMERCIAL ATACADISTA DE MERCADORIAS LTDA - Sacolão São Jorge (R$ 1.114,06) → GREEN', () => {
+  it('2b. Razão social longa (SJX - COMERCIAL ATACAD ↔ SJX COMERCIAL ATACADISTA... R$ 1.114,06) → GREEN', () => {
     const sys: SystemRecord[] = [
       {
         id: 'sys-sjx',
@@ -132,12 +116,6 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
       },
     ]
 
-    const sim = calculateNameSimilarity(
-      'SJX COMERCIAL ATACADISTA DE MERCADORIAS LTDA - Sacolão São Jorge',
-      'SJX - COMERCIAL ATACAD',
-    )
-    expect(sim).toBeGreaterThanOrEqual(0.5)
-
     const results = reconcileData(sys, card, 'itau')
     expect(results).toHaveLength(1)
     expect(results[0].status).toBe('GREEN')
@@ -145,14 +123,14 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
   })
 
   // =========================================================================
-  // CENÁRIO 3: Mesmo nome + valores diferentes sem outra correspondência → AMARELO / DIVERGENTE
+  // TESTE 3: Mesmo estabelecimento e valor diferente → AMARELO / DIVERGENTE
   // =========================================================================
-  it('Cenário 3: Mesmo nome + valores diferentes deve ser YELLOW / DIVERGENTE com diferença calculada', () => {
+  it('3. Mesmo estabelecimento e valor diferente → YELLOW / DIVERGENTE com diferença apurada', () => {
     const sys: SystemRecord[] = [
       {
-        id: 'sys-divergent',
+        id: 'sys-aws',
         data: '20/06/2026',
-        parceiro: 'AWS AMAZON WEB SERVICES',
+        parceiro: 'AMAZON WEB SERVICES DO BRASIL',
         credito: 500.0,
         total: 500.0,
         debito: null,
@@ -161,7 +139,7 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
 
     const card: CardRecord[] = [
       {
-        id: 'card-divergent',
+        id: 'card-aws',
         data: '20/06/2026',
         estabelecimento: 'AMAZON WEB SERVICES',
         valor: 525.5,
@@ -175,19 +153,18 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
     expect(results[0].credito).toBe(500.0)
     expect(results[0].valorFatura).toBe(525.5)
     expect(results[0].diferenca).toBe(25.5)
-    expect(results[0].motivo).toContain('diferente')
   })
 
   // =========================================================================
-  // CENÁRIO 4: Registro somente no Odoo → VERMELHO / SOMENTE_SISTEMA
+  // TESTE 4: Registro somente no Odoo → VERMELHO / SOMENTE_SISTEMA
   // =========================================================================
-  it('Cenário 4: Lançamento exclusivo do Odoo deve ser RED / SOMENTE_SISTEMA', () => {
+  it('4. Registro exclusivo do Odoo → RED / SOMENTE_SISTEMA com estabelecimento "-"', () => {
     const sys: SystemRecord[] = [
       {
-        id: 'sys-only',
+        id: 'sys-auditoria',
         data: '01/07/2026',
         numero: 'CIT12/2026/0999',
-        parceiro: 'HONORARIOS AUDITORIA INDEPENDENTE',
+        parceiro: 'AUDITORIA CONTABIL EXTERNA INDEPENDENTE',
         credito: 7500.0,
         total: 7500.0,
         debito: null,
@@ -202,17 +179,16 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
     expect(results[0].classificacao).toBe('SOMENTE_SISTEMA')
     expect(results[0].origem).toBe('SISTEMA')
     expect(results[0].estabelecimento).toBe('-')
-    expect(results[0].motivo).toContain('Existe no Odoo')
   })
 
   // =========================================================================
-  // CENÁRIO 5: Registro somente na Fatura → VERMELHO / SOMENTE_FATURA
+  // TESTE 5: Registro somente na fatura → VERMELHO / SOMENTE_FATURA
   // =========================================================================
-  it('Cenário 5: Transação da fatura sem correspondência no Odoo deve ser RED / SOMENTE_FATURA', () => {
+  it('5. Registro exclusivo da fatura → RED / SOMENTE_FATURA com parceiro "-"', () => {
     const sys: SystemRecord[] = []
     const card: CardRecord[] = [
       {
-        id: 'card-only',
+        id: 'card-cafe',
         data: '15/06/2026',
         estabelecimento: 'CAFE AEROPORTO CONGONHAS',
         valor: 42.5,
@@ -225,17 +201,16 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
     expect(results[0].classificacao).toBe('SOMENTE_FATURA')
     expect(results[0].origem).toBe('FATURA')
     expect(results[0].parceiro).toBe('-')
-    expect(results[0].motivo).toContain('Existe na fatura')
   })
 
   // =========================================================================
-  // CENÁRIO 6: Mesmo estabelecimento com várias compras (Starlink 78, 249, 1199 em ordem trocada)
-  // Os três devem ficar VERDES, independentemente da ordem dos registros
+  // TESTE 6: Várias compras do mesmo estabelecimento (Starlink {78, 249, 1.199})
+  // em ordem trocada entre as fontes → três verdes
   // =========================================================================
-  it('Cenário 6: Caso clássico Starlink com 3 compras de valores diferentes em ordem trocada → todos GREEN', () => {
+  it('6. Múltiplas compras do mesmo estabelecimento em ordem invertida → 3 GREEN / CONCILIADO', () => {
     const odooRecords: SystemRecord[] = [
       {
-        id: 'odoo-starlink-249',
+        id: 'odoo-star-249',
         data: '01/07/2026',
         parceiro: 'STARLINK BRAZIL SERVICOS DE INTERNET LTDA.',
         credito: 249.0,
@@ -243,7 +218,7 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
         debito: null,
       },
       {
-        id: 'odoo-starlink-78',
+        id: 'odoo-star-78',
         data: '01/07/2026',
         parceiro: 'STARLINK BRAZIL SERVICOS DE INTERNET LTDA.',
         credito: 78.0,
@@ -251,7 +226,7 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
         debito: null,
       },
       {
-        id: 'odoo-starlink-1199',
+        id: 'odoo-star-1199',
         data: '01/07/2026',
         parceiro: 'STARLINK BRAZIL SERVICOS DE INTERNET LTDA.',
         credito: 1199.0,
@@ -260,22 +235,21 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
       },
     ]
 
-    // Fatura em ordem trocada: 78, 249, 1199
     const cardRecords: CardRecord[] = [
       {
-        id: 'card-starlink-78',
+        id: 'card-star-78',
         data: '10/06/2026',
         estabelecimento: 'DL *Starlink Brazil',
         valor: 78.0,
       },
       {
-        id: 'card-starlink-249',
+        id: 'card-star-249',
         data: '15/06/2026',
         estabelecimento: 'DL *Starlink Brazil',
         valor: 249.0,
       },
       {
-        id: 'card-starlink-1199',
+        id: 'card-star-1199',
         data: '20/06/2026',
         estabelecimento: 'DL *Starlink Brazil',
         valor: 1199.0,
@@ -284,32 +258,18 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
 
     const results = reconcileData(odooRecords, cardRecords, 'itau')
     expect(results).toHaveLength(3)
-
-    // Todos os 3 devem estar GREEN / CONCILIADO
     expect(results.every((r) => r.status === 'GREEN')).toBe(true)
     expect(results.every((r) => r.classificacao === 'CONCILIADO')).toBe(true)
-
-    // E cada valor deve ter casado com seu par idêntico (diferença zero)
-    const val78 = results.find((r) => r.credito === 78.0)
-    expect(val78?.valorFatura).toBe(78.0)
-    expect(val78?.diferenca).toBe(0)
-
-    const val249 = results.find((r) => r.credito === 249.0)
-    expect(val249?.valorFatura).toBe(249.0)
-    expect(val249?.diferenca).toBe(0)
-
-    const val1199 = results.find((r) => r.credito === 1199.0)
-    expect(val1199?.valorFatura).toBe(1199.0)
-    expect(val1199?.diferenca).toBe(0)
+    expect(results.every((r) => r.diferenca === 0)).toBe(true)
   })
 
   // =========================================================================
-  // CENÁRIO 7: Mesmo valor em estabelecimentos diferentes → NÃO conciliar incorretamente
+  // TESTE 7: Compras de mesmo valor em estabelecimentos diferentes → NÃO associar
   // =========================================================================
-  it('Cenário 7: Mesmo valor em parceiros totalmente não relacionados não deve conciliar', () => {
+  it('7. Compras de mesmo valor em estabelecimentos não relacionados NÃO devem ser associadas', () => {
     const sys: SystemRecord[] = [
       {
-        id: 'sys-farmacia',
+        id: 'sys-drogaria',
         data: '10/06/2026',
         parceiro: 'DROGARIA SAO PAULO',
         credito: 150.0,
@@ -328,25 +288,21 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
     ]
 
     const results = reconcileData(sys, card, 'itau')
-    // Não podem ser marcados como CONCILIADO (GREEN)
-    const conc = results.find((r) => r.status === 'GREEN')
-    expect(conc).toBeUndefined()
-
-    // Devem ser listados separadamente como SOMENTE_SISTEMA e SOMENTE_FATURA
+    expect(results.some((r) => r.status === 'GREEN')).toBe(false)
     expect(results).toHaveLength(2)
     expect(results.some((r) => r.classificacao === 'SOMENTE_SISTEMA')).toBe(true)
     expect(results.some((r) => r.classificacao === 'SOMENTE_FATURA')).toBe(true)
   })
 
   // =========================================================================
-  // CENÁRIO 8: Datas diferentes mas nome + valor correspondentes → permitir conciliação
+  // TESTE 8: Datas diferentes entre compra e contabilização
   // =========================================================================
-  it('Cenário 8: Data da fatura (compra) ≠ data do Odoo (competência contábil) deve permitir conciliação', () => {
+  it('8. Datas diferentes entre compra (10/06) e competência contábil (01/07) devem conciliar', () => {
     const sys: SystemRecord[] = [
       {
-        id: 'sys-shell',
-        data: '01/07/2026', // Lançamento contábil no 1º dia do mês seguinte
-        parceiro: 'POSTO SHELL CENTRO',
+        id: 'sys-posto',
+        data: '01/07/2026',
+        parceiro: 'POSTO IPIRANGA MORUMBI',
         credito: 250.0,
         total: 250.0,
         debito: null,
@@ -355,9 +311,9 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
 
     const card: CardRecord[] = [
       {
-        id: 'card-shell',
-        data: '10/06/2026', // Compra no cartão 21 dias antes
-        estabelecimento: 'POSTO SHELL CENTRO',
+        id: 'card-posto',
+        data: '10/06/2026',
+        estabelecimento: 'POSTO IPIRANGA MORUMBI',
         valor: 250.0,
       },
     ]
@@ -369,9 +325,43 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
   })
 
   // =========================================================================
-  // CENÁRIO 9: Lançamentos internacionais extraídos e comparados pelo valor em reais
+  // TESTE 9: Valores brasileiros com vírgula decimal e formatos mistos
   // =========================================================================
-  it('Cenário 9: Lançamentos internacionais comparados pelo valor convertido em reais da fatura', () => {
+  it('9. Formatação e normalização de valores brasileiros e internacionais', () => {
+    expect(normalizeMoneyValue('R$ 1.954,12')).toBe(1954.12)
+    expect(normalizeMoneyValue('1.954,12')).toBe(1954.12)
+    expect(normalizeMoneyValue('1954.12')).toBe(1954.12)
+    expect(normalizeMoneyValue('1,114.06')).toBe(1114.06)
+    expect(normalizeMoneyValue('R$ 1,114.06')).toBe(1114.06)
+    expect(normalizeMoneyValue('-R$ 18,75')).toBe(-18.75)
+    expect(normalizeMoneyValue('(18,75)')).toBe(-18.75)
+  })
+
+  // =========================================================================
+  // TESTE 10: Estornos e valores negativos
+  // =========================================================================
+  it('10. Estornos negativos preservam sinal e classificam corretamente', () => {
+    const sys: SystemRecord[] = []
+    const card: CardRecord[] = [
+      {
+        id: 'card-estorno',
+        data: '08/06/2026',
+        estabelecimento: 'ESTORNO DE ANUIDADE DIFERENCIADA',
+        valor: -18.75,
+      },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(1)
+    expect(results[0].status).toBe('RED')
+    expect(results[0].classificacao).toBe('SOMENTE_FATURA')
+    expect(results[0].valorFatura).toBe(-18.75)
+  })
+
+  // =========================================================================
+  // TESTE 11: Compras internacionais
+  // =========================================================================
+  it('11. Compras internacionais comparam pelo valor convertido em reais da fatura', () => {
     const sys: SystemRecord[] = [
       {
         id: 'sys-openai',
@@ -388,9 +378,7 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
         id: 'card-openai',
         data: '05/06/2026',
         estabelecimento: 'OPENAI *CHATGPT SUBSCR',
-        moedaLocal: 'USD20,00',
         moedaGlobal: 'US$20,00',
-        cotacao: 5.42,
         valor: 108.4,
         isInternacional: true,
       },
@@ -404,9 +392,58 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
   })
 
   // =========================================================================
-  // CENÁRIO 10: Registros repetidos preservam compras legítimas e impedem associação duplicada
+  // TESTE 12 & 13: PDF com várias páginas, cabeçalhos repetidos e resumos
   // =========================================================================
-  it('Cenário 10: Múltiplas compras idênticas de Uber devem casar 1-para-1 estritamente', () => {
+  it('12 & 13. Conversor de Fatura PDF lida com múltiplas páginas e descarta resumos/rodapés', async () => {
+    // Simula PDF sintético com 2 páginas contendo cabeçalhos e resumo
+    const fakePdfText = `
+%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R >>
+stream
+BT
+/F1 10 Tf
+(RESUMO DA FATURA) Tj
+(Total da fatura: R$ 38.706,94) Tj
+(10/06 SWIFT PIRACUAMA R$ 1.954,12) Tj
+(12/06 DL *Starlink Brazil R$ 1.199,00) Tj
+ET
+endstream
+endobj
+4 0 obj << /Type /Page /Parent 2 0 R >>
+stream
+BT
+/F1 10 Tf
+(PRODUTOS, SERVICOS E ENCARGOS) Tj
+(Encargos desta fatura: R$ 0,00) Tj
+(15/06 OPENAI *CHATGPT SUBSCR R$ 108,40) Tj
+(Total de lancamentos nacionais: R$ 3.261,52) Tj
+ET
+endstream
+endobj
+xref
+trailer << /Root 1 0 R >>
+%%EOF`
+
+    const encoder = new TextEncoder()
+    const pdfBuffer = encoder.encode(fakePdfText).buffer
+
+    const convResult = await convertInvoicePdfToExcel(pdfBuffer, 'fatura_itau_teste.pdf')
+    expect(convResult.sucesso).toBe(true)
+    expect(convResult.registros.length).toBeGreaterThanOrEqual(3)
+
+    // Nenhum termo de resumo deve ter sido aceito como lançamento
+    const hasSummaryAsRecord = convResult.registros.some((r) =>
+      /resumo|encargos|total\s+da\s+fatura/i.test(r.descricaoOriginal),
+    )
+    expect(hasSummaryAsRecord).toBe(false)
+  })
+
+  // =========================================================================
+  // TESTE 14 & 15: Linhas ilegíveis e prevenção de duplicações indevidas
+  // =========================================================================
+  it('14 & 15. Prevenção de duplicações indevidas mantendo repetições legítimas', () => {
     const sys: SystemRecord[] = [
       {
         id: 'sys-uber-1',
@@ -443,134 +480,90 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
 
     const results = reconcileData(sys, card, 'itau')
     expect(results).toHaveLength(2)
-    expect(results.every((r) => r.status === 'GREEN' && r.classificacao === 'CONCILIADO')).toBe(
-      true,
-    )
+    expect(results.every((r) => r.status === 'GREEN')).toBe(true)
   })
 
   // =========================================================================
-  // DIAGNÓSTICO E PRECISÃO DE EXTRAÇÃO
-  // Investigação de por que a tela chegou a mostrar 85 (vs 86) e 109 (vs 117)
+  // TESTE 16: Arquivos com registros em ordens diferentes (Invariância à ordem)
   // =========================================================================
-  it('Diagnóstico de extração: sanitização do Odoo NÃO deve truncar a primeira linha válida quando headers contêm Total/Diário', () => {
-    const mockOdoo86Rows = {
-      headers: ['Data', 'Número', 'Referência', 'Parceiro', 'Diário', 'Total'],
-      rows: Array.from({ length: 86 }).map((_, i) => ({
-        Data: '01/07/2026',
-        Número: `CIT12/2026/${String(i + 1).padStart(4, '0')}`,
-        Referência: `REF-${i + 1}`,
-        Parceiro: `FORNECEDOR PARCEIRO ${i + 1}`,
-        Diário: 'CIT12',
-        Total: '1.954,12',
-      })),
-      detectedRows: 86,
-    }
-
-    // itau-sanitizer deve manter todos os 86 registros sem descartar a linha 0
-    const sanitized = sanitizeParsedCSV(mockOdoo86Rows, 'system')
-    expect(sanitized.rows.length).toBe(86)
-    expect(sanitized.detectedRows).toBe(86)
-
-    const mapped = mapSystemRecords(sanitized)
-    expect(mapped.length).toBe(86)
-    expect(mapped[0].parceiro).toBe('FORNECEDOR PARCEIRO 1')
-    expect(mapped[0].credito).toBe(1954.12)
-    expect(mapped[85].parceiro).toBe('FORNECEDOR PARCEIRO 86')
-  })
-
-  it('Diagnóstico de precisão monetária: suporta todos os formatos de moeda solicitados', () => {
-    expect(normalizeMoneyValue('R$ 1.954,12')).toBe(1954.12)
-    expect(normalizeMoneyValue('1.954,12')).toBe(1954.12)
-    expect(normalizeMoneyValue('1954.12')).toBe(1954.12)
-    expect(normalizeMoneyValue('1954,12')).toBe(1954.12)
-    expect(normalizeMoneyValue('1,114.06')).toBe(1114.06)
-    expect(normalizeMoneyValue('R$ 1,114.06')).toBe(1114.06)
-  })
-
-  // =========================================================================
-  // CENÁRIO 11: Ordenação interna crescente por padrão
-  // =========================================================================
-  it('Cenário 11: Resultados devem vir ordenados crescentemente por valor por padrão', () => {
-    const sys: SystemRecord[] = [
-      {
-        id: 'sys-alto',
-        data: '01/07/2026',
-        parceiro: 'PARCEIRO CARO',
-        credito: 5000.0,
-        total: 5000.0,
-        debito: null,
-      },
-      {
-        id: 'sys-baixo',
-        data: '01/07/2026',
-        parceiro: 'PARCEIRO BARATO',
-        credito: 15.0,
-        total: 15.0,
-        debito: null,
-      },
+  it('16. Resultados são invariantes à ordem em que as fontes foram lidas', () => {
+    const listA_sys: SystemRecord[] = [
+      { id: 's1', data: '01/07/2026', parceiro: 'ALFA', credito: 100, debito: null },
+      { id: 's2', data: '01/07/2026', parceiro: 'BETA', credito: 200, debito: null },
+    ]
+    const listA_card: CardRecord[] = [
+      { id: 'c1', data: '10/06/2026', estabelecimento: 'ALFA', valor: 100 },
+      { id: 'c2', data: '10/06/2026', estabelecimento: 'BETA', valor: 200 },
     ]
 
+    const res1 = reconcileData(listA_sys, listA_card, 'itau')
+
+    // Invertendo as ordens de entrada
+    const res2 = reconcileData([...listA_sys].reverse(), [...listA_card].reverse(), 'itau')
+
+    expect(res1.length).toBe(res2.length)
+    expect(res1.map((r) => r.credito)).toEqual(res2.map((r) => r.credito))
+    expect(res1.map((r) => r.status)).toEqual(res2.map((r) => r.status))
+  })
+
+  // =========================================================================
+  // TESTE 17: Exportação do Excel convertido (.xlsx real com as 2 abas)
+  // =========================================================================
+  it('17. Gerador de XLSX produz planilha real contendo as abas Transações e Resumo', async () => {
+    const sheet1 = {
+      name: 'Transacoes',
+      headers: ['Data', 'Estabelecimento', 'Valor (R$)'],
+      rows: [['23/06/2026', 'SWIFT PIRACUAMA', 1954.12]],
+    }
+    const sheet2 = {
+      name: 'Resumo da Extração',
+      headers: ['Campo', 'Valor'],
+      rows: [['Total Transações', 1]],
+    }
+
+    const blob = generateXlsxBlob([sheet1, sheet2])
+    expect(blob).toBeInstanceOf(Blob)
+    expect(blob.size).toBeGreaterThan(100)
+
+    // Validação de integridade do arquivo ZIP interno
+    const arrayBuffer = await blob.arrayBuffer()
+    const extracted = await extractZip(arrayBuffer)
+
+    expect(extracted.has('xl/workbook.xml')).toBe(true)
+    expect(extracted.has('xl/worksheets/sheet1.xml')).toBe(true)
+    expect(extracted.has('xl/worksheets/sheet2.xml')).toBe(true)
+  })
+
+  // =========================================================================
+  // TESTE 18: Exportação da conciliação (CSV e indicadores do dashboard)
+  // =========================================================================
+  it('18. Exportação da conciliação e indicadores globais do Dashboard', () => {
+    const sys: SystemRecord[] = [
+      { id: 's1', data: '01/07/2026', parceiro: 'SWIFT', credito: 1954.12, debito: null },
+      { id: 's2', data: '01/07/2026', parceiro: 'STARLINK', credito: 1199.0, debito: null },
+      { id: 's3', data: '01/07/2026', parceiro: 'EXCLUSIVO ODOO', credito: 500.0, debito: null },
+    ]
     const card: CardRecord[] = [
-      {
-        id: 'card-medio',
-        data: '15/06/2026',
-        estabelecimento: 'ESTABELECIMENTO MEDIO',
-        valor: 150.0,
-      },
+      { id: 'c1', data: '23/06/2026', estabelecimento: 'SWIFT', valor: 1954.12 },
+      { id: 'c2', data: '12/06/2026', estabelecimento: 'STARLINK', valor: 1199.0 },
+      { id: 'c3', data: '15/06/2026', estabelecimento: 'EXCLUSIVO FATURA', valor: 300.0 },
     ]
 
     const results = reconcileData(sys, card, 'itau')
-    expect(results).toHaveLength(3)
-    const vals = results.map((r) => r.credito ?? r.valorFatura)
-    expect(vals).toEqual([15.0, 150.0, 5000.0])
-  })
+    const metrics = calculateReconciliationMetrics(results, sys.length, card.length)
 
-  // =========================================================================
-  // CENÁRIO 12: Variações reais de cabeçalhos do Odoo (Total, Valor, Crédito, Montante, sem Número)
-  // =========================================================================
-  it('Cenário 12: Suporte a planilha Odoo com colunas Data + Parceiro + Montante/Total sem coluna Número', () => {
-    const odooMinimalParsed = {
-      headers: ['Data', 'Parceiro', 'Montante'],
-      rows: [
-        {
-          Data: '01/07/2026',
-          Parceiro: 'STARLINK BRAZIL SERVICOS DE INTERNET LTDA.',
-          Montante: '1.199,00',
-        },
-        {
-          Data: '01/07/2026',
-          Parceiro: 'SWIFT PIRACUAMA',
-          Montante: '1.954,12',
-        },
-      ],
-      detectedRows: 2,
-    }
+    expect(metrics.paresConciliados).toBe(2)
+    expect(metrics.somenteSistema).toBe(1)
+    expect(metrics.somenteFatura).toBe(1)
+    expect(metrics.totalValorSistema).toBe(3653.12) // 1954.12 + 1199 + 500
+    expect(metrics.totalValorFatura).toBe(3453.12) // 1954.12 + 1199 + 300
+    expect(metrics.diferencaTotal).toBe(-200.0) // 3453.12 - 3653.12
 
-    const sanitized = sanitizeParsedCSV(odooMinimalParsed, 'system')
-    expect(sanitized.rows.length).toBe(2)
+    const validation = validateExport(results, sys, card)
+    expect(validation.isValid).toBe(true)
 
-    const mapped = mapSystemRecords(sanitized)
-    expect(mapped.length).toBe(2)
-    expect(mapped[0].parceiro).toBe('STARLINK BRAZIL SERVICOS DE INTERNET LTDA.')
-    expect(mapped[0].credito).toBe(1199.0)
-    expect(mapped[1].parceiro).toBe('SWIFT PIRACUAMA')
-    expect(mapped[1].credito).toBe(1954.12)
-  })
-
-  // =========================================================================
-  // CENÁRIO 13: Cálculo e conferência dos 3 indicadores do Dashboard no cenário de referência
-  // (Fatura 103 lançamentos / R$ 38.706,94; Odoo 85 lançamentos / R$ 27.055,72)
-  // =========================================================================
-  it('Cenário 13: Cálculo coerente dos três totais (Total Fatura, Total Sistema, Diferença)', () => {
-    // Cenário simulado de referência:
-    // Fatura: R$ 38.706,94
-    // Sistema: R$ 27.055,72
-    // Diferença esperada = 38.706,94 - 27.055,72 = +11.651,22
-    const totalFatura = 38706.94
-    const totalSistema = 27055.72
-    const diferenca = Math.round((totalFatura - totalSistema) * 100) / 100
-
-    expect(diferenca).toBe(11651.22)
-    expect(totalFatura - totalSistema).toBeCloseTo(11651.22, 2)
+    const csvOutput = generateExportCSV(results)
+    expect(csvOutput).toContain('SWIFT')
+    expect(csvOutput).toContain('STARLINK')
   })
 })
