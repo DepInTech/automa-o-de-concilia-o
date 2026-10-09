@@ -142,14 +142,25 @@ export function mapSystemRecords(parsed: ParsedCSV): SystemRecord[] {
   ])
   const referencia = findColumn(parsed.headers, ['Referência', 'Referencia', 'Reference', 'Ref'])
   const debito = findColumn(parsed.headers, ['Débito', 'Debito', 'Debit'])
-  const total = findColumn(parsed.headers, ['Total', 'Valor Total', 'Montante'])
-  const credito = findColumn(parsed.headers, [
+  const total = findColumn(parsed.headers, [
     'Total',
+    'Valor Total',
+    'Montante',
+    'Valor',
     'Crédito',
     'Credito',
     'Credit',
+    'Montante Pago',
+  ])
+  const credito = findColumn(parsed.headers, [
+    'Crédito',
+    'Credito',
+    'Credit',
+    'Total',
+    'Valor Total',
     'Valor',
     'Valor Pago',
+    'Montante',
   ])
   const categoria = findColumn(parsed.headers, [
     'Categoria',

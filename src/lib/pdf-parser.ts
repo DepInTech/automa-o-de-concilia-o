@@ -139,6 +139,7 @@ function extractTextFromContentStream(streamText: string): string {
     // Padrão 1: array de strings TJ -> [ (Texto) -123 ( outro) ] TJ
     const tjArrayRegex = /\[((?:[^[\]]|\([^)]*\)|<[^>]*>)*)\]\s*TJ/g
     let tjMatch: RegExpExecArray | null
+    let blockTokens: string[] = []
     while ((tjMatch = tjArrayRegex.exec(block)) !== null) {
       const inside = tjMatch[1]
       const strRegex = /\(([^)]*)\)|<([0-9a-fA-F]+)>/g
@@ -152,7 +153,7 @@ function extractTextFromContentStream(streamText: string): string {
         }
       }
       if (linePart) {
-        textTokens.push(linePart)
+        blockTokens.push(linePart)
       }
     }
 
@@ -160,14 +161,19 @@ function extractTextFromContentStream(streamText: string): string {
     const tjSingleRegex = /\(([^)]*)\)\s*(?:Tj|'|")/g
     let singleMatch: RegExpExecArray | null
     while ((singleMatch = tjSingleRegex.exec(block)) !== null) {
-      textTokens.push(cleanPdfLiteralString(singleMatch[1]))
+      blockTokens.push(cleanPdfLiteralString(singleMatch[1]))
     }
 
     // Padrão 3: hex Tj -> <48656c6c6f> Tj
     const hexTjRegex = /<([0-9a-fA-F]+)>\s*(?:Tj|'|")/g
     let hexMatch: RegExpExecArray | null
     while ((hexMatch = hexTjRegex.exec(block)) !== null) {
-      textTokens.push(decodeHexString(hexMatch[1]))
+      blockTokens.push(decodeHexString(hexMatch[1]))
+    }
+
+    if (blockTokens.length > 0) {
+      // Une os tokens do bloco em uma linha e adiciona quebra
+      textTokens.push(blockTokens.join(' '))
     }
   }
 
@@ -181,9 +187,10 @@ function extractTextFromContentStream(streamText: string): string {
         textTokens.push(clean)
       }
     }
+    return textTokens.join(' ')
   }
 
-  return textTokens.join(' ')
+  return textTokens.join('\n')
 }
 
 /**

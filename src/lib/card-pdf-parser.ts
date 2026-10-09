@@ -97,19 +97,25 @@ function normalizeCardDate(raw: string, referenceYear = 2026): string {
 function parseInlineInvoiceLine(line: string, index: number): StructuredCardRecord | null {
   if (isFooterOrTotalLine(line)) return null
 
-  // Normaliza múltiplos espaços e separadores de tabela (ex: markdown "|" ou tabs)
-  const cleanLine = line.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim()
+  // Normaliza múltiplos espaços, quebras e separadores de tabela (ex: markdown "|" ou tabs)
+  const cleanLine = line
+    .replace(/\|/g, ' ')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 
-  // Começa com data DD/MM ou DD/MM/AAAA
-  const dateMatch = cleanLine.match(/^(\d{2}[/.-]\d{2}(?:[/.-]\d{2,4})?)\b/)
+  // Começa com data DD/MM ou DD/MM/AAAA (com tolerância a ponto, hífen ou barra e espaçamento após delimitador)
+  const dateMatch = cleanLine.match(/^(\d{1,2}\s*[/.-]\s*\d{1,2}(?:\s*[/.-]\s*\d{2,4})?)\b/)
   if (!dateMatch) return null
 
-  const rawDate = dateMatch[1]
+  const rawDate = dateMatch[1].replace(/\s+/g, '')
   const remainder = cleanLine.slice(dateMatch[0].length).trim()
 
-  // Procura valor no formato R$ ou numérico no final: "-R$18,75", "-18,75", "R$1.114,06", "R$ 18,75", "1,813.34"
+  // Procura valor no formato R$ ou numérico no final:
+  // Aceita: "-R$ 18,75", "-18,75", "R$ 1.114,06", "R$1.954,12", "1.199,00", "1199,00", "- 18,75", "108,40"
+  // Também lida com sufixo opcional de parcela ex: "(01/03)" ou "01/02" se vier depois ou antes do valor
   const valMatch = remainder.match(
-    /(?:-?\s*R\$\s*|-?\s*US\$\s*|-?\s*USD\s*)?(-?R?\$?\s*[\d.,]+\d{2})\s*$/i,
+    /(?:-?\s*R\$\s*|-?\s*US\$\s*|-?\s*USD\s*)?(-?\s*R?\$?\s*[\d.,]+\d{2})\s*$/i,
   )
   if (!valMatch) return null
 
@@ -118,20 +124,28 @@ function parseInlineInvoiceLine(line: string, index: number): StructuredCardReco
   // Preserva estornos como valores negativos, mas exclui zero
   if (isNaN(parsedMoney) || parsedMoney === 0) return null
 
-  const desc = remainder
+  let desc = remainder
     .slice(0, remainder.length - rawValueStr.length)
     .replace(/^[-:| ]+|[-:| ]+$/g, '')
     .trim()
   if (!desc || desc.length < 2 || isFooterOrTotalLine(desc)) return null
 
-  // Ignora cabeçalho de coluna
-  if (/^descri[cç][aã]o$/i.test(desc) || /^valor$/i.test(desc) || /^data$/i.test(desc)) return null
+  // Ignora se for cabeçalho de coluna
+  if (/^(descri[cç][aã]o|valor|data|lan[cç]amentos|total)$/i.test(desc)) return null
+
+  // Verifica se há informação de parcela no estabelecimento (ex: "LOJA XYZ 02/06")
+  let parcela: string | undefined
+  const parcelaMatch = desc.match(/\b(\d{1,2}\/\d{1,2})\b$/)
+  if (parcelaMatch) {
+    parcela = parcelaMatch[1]
+  }
 
   return {
     id: `pdf-rec-${index}`,
     data: normalizeCardDate(rawDate),
     estabelecimento: desc,
     valor: parsedMoney,
+    parcela,
     rawLine: line,
   }
 }
@@ -216,16 +230,21 @@ function parseInternacionaisSection(
         .split('|')
         .map((p) => p.trim())
         .filter(Boolean)
-      if (parts.length >= 6 && /^\d{2}\/\d{2}$/.test(parts[0])) {
-        const valorReal = normalizeMoneyValue(parts[5])
+      if (parts.length >= 4 && /^\d{1,2}[/.-]\d{1,2}/.test(parts[0])) {
+        // O último valor geralmente é o valor final em R$
+        const lastPart = parts[parts.length - 1]
+        const valorReal = normalizeMoneyValue(lastPart)
         if (valorReal !== 0) {
+          const desc = parts[1]
+          const cotacaoVal =
+            parts.length >= 6 ? normalizeMoneyValue(parts[parts.length - 2]) : undefined
           records.push({
             id: `pdf-rec-intl-${globalIdx.current++}`,
             data: normalizeCardDate(parts[0]),
-            estabelecimento: parts[1],
+            estabelecimento: desc,
             moedaLocal: parts[2],
-            moedaGlobal: parts[3],
-            cotacao: normalizeMoneyValue(parts[4]),
+            moedaGlobal: parts.length >= 5 ? parts[3] : undefined,
+            cotacao: cotacaoVal && cotacaoVal < 50 ? cotacaoVal : undefined,
             valor: valorReal,
             isInternacional: true,
             rawLine: l,
@@ -238,19 +257,20 @@ function parseInternacionaisSection(
     // Se a linha for completa inline sem pipe:
     // Exemplo: "05/06 OPENAI *CHATGPT SUBSCR USD 20,00 US$ 20,00 5,42 108,40"
     // ou "05/06 OPENAI *CHATGPT SUBSCR USD20,00 US$20,00 R$5,42 R$108,40"
+    // ou "05/06 OPENAI *CHATGPT SUBSCR USD 20.00 5.42 108.40"
     const fullMatch = l.match(
-      /^(\d{2}\/\d{2})\s+(.+?)\s+([A-Z]{3}\s*[\d,.]+)\s+([A-Z$]{2,4}\s*[\d,.]+)\s+(?:R\$\s*)?([\d,.]+)\s+(?:-?R\$\s*)?([\d,.]+)$/i,
+      /^(\d{1,2}[/.-]\d{1,2})\s+(.+?)\s+([A-Z]{2,4}\s*[\d,.]+)(?:\s+([A-Z$]{1,4}\s*[\d,.]+))?\s+(?:(?:R\$\s*)?([\d,.]+)\s+)?(?:-?R\$\s*|-?\s*BRL\s*)?(-?[\d.,]+\d{2})$/i,
     )
     if (fullMatch) {
       const valorReal = normalizeMoneyValue(fullMatch[6])
-      if (valorReal > 0) {
+      if (valorReal !== 0) {
         records.push({
           id: `pdf-rec-intl-${globalIdx.current++}`,
           data: normalizeCardDate(fullMatch[1]),
           estabelecimento: fullMatch[2].trim(),
           moedaLocal: fullMatch[3].trim(),
-          moedaGlobal: fullMatch[4].trim(),
-          cotacao: normalizeMoneyValue(fullMatch[5]),
+          moedaGlobal: fullMatch[4]?.trim(),
+          cotacao: fullMatch[5] ? normalizeMoneyValue(fullMatch[5]) : undefined,
           valor: valorReal,
           isInternacional: true,
           rawLine: l,
@@ -261,7 +281,7 @@ function parseInternacionaisSection(
 
     // Linha internacional compacta: "05/06 GITHUB INC USD 21.00 114.50" ou "05/06 GITHUB INC R$ 114,50"
     const simpleIntlMatch = l.match(
-      /^(\d{2}\/\d{2})\s+(.+?)\s+(?:USD\s*[\d,.]+\s+)?(?:-?R\$\s*[\d.,]+\d{2}|[\d.,]+\d{2})\s*$/i,
+      /^(\d{1,2}[/.-]\d{1,2})\s+(.+?)\s+(?:USD\s*[\d,.]+\s+)?(?:-?R\$\s*[\d.,]+\d{2}|[\d.,]+\d{2})\s*$/i,
     )
     if (simpleIntlMatch && !isFooterOrTotalLine(simpleIntlMatch[2])) {
       const inlineParsed = parseInlineInvoiceLine(l, globalIdx.current)
@@ -276,20 +296,20 @@ function parseInternacionaisSection(
     }
 
     // Classificação por token para blocos colunares
-    if (/^\d{2}\/\d{2}$/.test(l)) {
+    if (/^\d{1,2}[/.-]\d{1,2}$/.test(l)) {
       dates.push(l)
     } else if (/^[A-Z]{3}\s*[\d,.]+$/i.test(l)) {
       localCurrs.push(l)
     } else if (/^[A-Z$]{2,4}\s*[\d,.]+$/i.test(l)) {
       globalCurrs.push(l)
     } else if (
-      /^R\$\s*\d{1,2},\d{2}$/i.test(l) &&
-      parseFloat(l.replace(/[^\d,]/g, '').replace(',', '.')) < 20
+      /^R\$\s*\d{1,2}[,.]\d{2}$/i.test(l) &&
+      parseFloat(l.replace(/[^\d,.]/g, '').replace(',', '.')) < 30
     ) {
-      // Cotação do dólar geralmente entre 4 e 15
+      // Cotação do dólar geralmente entre 4 e 25
       cotacoes.push(normalizeMoneyValue(l))
-    } else if (/^(?:-?R\$\s*)?-?\d{1,3}(?:\.\d{3})*,\d{2}$/i.test(l)) {
-      valores.push(Math.abs(normalizeMoneyValue(l)))
+    } else if (/^(?:-?\s*R\$\s*)?-?\d{1,3}(?:[.,]\d{3})*[,.]\d{2}$/i.test(l)) {
+      valores.push(normalizeMoneyValue(l))
     } else if (l.length >= 3 && !/^(repasse\s+de\s+iof|iof)/i.test(l)) {
       descs.push(l)
     }
@@ -384,10 +404,11 @@ function parseNacionais(lines: string[], globalIdx: { current: number }): Struct
         .split('|')
         .map((p) => p.trim())
         .filter(Boolean)
-      if (parts.length >= 3 && /^\d{2}\/\d{2}$/.test(parts[0])) {
+      if (parts.length >= 3 && /^\d{1,2}[/.-]\d{1,2}/.test(parts[0])) {
         const d = parts[0]
         const desc = parts[1]
-        const valStr = parts[2]
+        // Se houver mais colunas, o valor em reais costuma ser a última
+        const valStr = parts[parts.length - 1]
         const num = normalizeMoneyValue(valStr)
         if (!isFooterOrTotalLine(desc) && !isFooterOrTotalLine(valStr) && num !== 0) {
           records.push({
@@ -409,9 +430,9 @@ function parseNacionais(lines: string[], globalIdx: { current: number }): Struct
     }
 
     // Se não bateu inline, armazena para possível recomposição colunar
-    if (/^\d{2}\/\d{2}$/.test(l)) {
+    if (/^\d{1,2}[/.-]\d{1,2}$/.test(l)) {
       colunarDates.push(l)
-    } else if (/^-?R?\$\s*[\d.,]+\d{2}$/i.test(l)) {
+    } else if (/^(?:-?\s*R\$\s*)?-?\s*[\d.,]+\d{2}$/i.test(l)) {
       colunarValues.push(normalizeMoneyValue(l))
     } else if (l.length >= 3 && !/total\s+de\s+lan[cç]amentos/i.test(l)) {
       colunarDescs.push(l)
@@ -472,11 +493,41 @@ export async function parseCardPdf(
   }
 
   // Se o método de blocos colunares por página não encontrou registros suficientes,
-  // tenta varrer o texto completo linha a linha
+  // tenta varrer o texto completo linha a linha e também linhas recompostas
   if (allRecords.length === 0) {
-    const candidateLines = extraction.fullText.split(/\r?\n/)
+    const candidateLines = extraction.fullText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean)
     const fullRecords = parseInvoicePageBlocks(candidateLines, 1, globalIdx)
     allRecords.push(...fullRecords)
+  }
+
+  // Se ainda estiver vazio, tenta reconstruir linhas que possam ter sido quebradas entre data / estabelecimento / valor
+  // Ex: Linha 1: 12/06
+  //     Linha 2: DL *Starlink Brazil
+  //     Linha 3: R$ 1.199,00
+  if (allRecords.length === 0 && extraction.pages.length > 0) {
+    const allLines = extraction.pages.flatMap((p) => p.lines)
+    for (let i = 0; i < allLines.length; i++) {
+      const line = allLines[i].trim()
+      if (/^\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?$/.test(line)) {
+        // Tenta olhar as próximas 1 a 3 linhas
+        let combined = line
+        for (let j = i + 1; j < Math.min(i + 5, allLines.length); j++) {
+          const next = allLines[j].trim()
+          if (!next) continue
+          combined += ' ' + next
+          const parsed = parseInlineInvoiceLine(combined, globalIdx.current)
+          if (parsed) {
+            allRecords.push(parsed)
+            globalIdx.current++
+            i = j
+            break
+          }
+        }
+      }
+    }
   }
 
   // Remove eventuais duplicatas acidentais geradas por overlap de cabeçalho

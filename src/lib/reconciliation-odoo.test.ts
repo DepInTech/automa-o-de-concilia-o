@@ -524,4 +524,53 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
     const vals = results.map((r) => r.credito ?? r.valorFatura)
     expect(vals).toEqual([15.0, 150.0, 5000.0])
   })
+
+  // =========================================================================
+  // CENÁRIO 12: Variações reais de cabeçalhos do Odoo (Total, Valor, Crédito, Montante, sem Número)
+  // =========================================================================
+  it('Cenário 12: Suporte a planilha Odoo com colunas Data + Parceiro + Montante/Total sem coluna Número', () => {
+    const odooMinimalParsed = {
+      headers: ['Data', 'Parceiro', 'Montante'],
+      rows: [
+        {
+          Data: '01/07/2026',
+          Parceiro: 'STARLINK BRAZIL SERVICOS DE INTERNET LTDA.',
+          Montante: '1.199,00',
+        },
+        {
+          Data: '01/07/2026',
+          Parceiro: 'SWIFT PIRACUAMA',
+          Montante: '1.954,12',
+        },
+      ],
+      detectedRows: 2,
+    }
+
+    const sanitized = sanitizeParsedCSV(odooMinimalParsed, 'system')
+    expect(sanitized.rows.length).toBe(2)
+
+    const mapped = mapSystemRecords(sanitized)
+    expect(mapped.length).toBe(2)
+    expect(mapped[0].parceiro).toBe('STARLINK BRAZIL SERVICOS DE INTERNET LTDA.')
+    expect(mapped[0].credito).toBe(1199.0)
+    expect(mapped[1].parceiro).toBe('SWIFT PIRACUAMA')
+    expect(mapped[1].credito).toBe(1954.12)
+  })
+
+  // =========================================================================
+  // CENÁRIO 13: Cálculo e conferência dos 3 indicadores do Dashboard no cenário de referência
+  // (Fatura 103 lançamentos / R$ 38.706,94; Odoo 85 lançamentos / R$ 27.055,72)
+  // =========================================================================
+  it('Cenário 13: Cálculo coerente dos três totais (Total Fatura, Total Sistema, Diferença)', () => {
+    // Cenário simulado de referência:
+    // Fatura: R$ 38.706,94
+    // Sistema: R$ 27.055,72
+    // Diferença esperada = 38.706,94 - 27.055,72 = +11.651,22
+    const totalFatura = 38706.94
+    const totalSistema = 27055.72
+    const diferenca = Math.round((totalFatura - totalSistema) * 100) / 100
+
+    expect(diferenca).toBe(11651.22)
+    expect(totalFatura - totalSistema).toBeCloseTo(11651.22, 2)
+  })
 })

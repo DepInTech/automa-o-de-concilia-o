@@ -8,12 +8,61 @@ function normalizeText(text: string): string {
     .replace(/[\u0300-\u036f]/g, '')
 }
 
-function findHeaderLineIndex(lines: string[], fileType: 'system' | 'card'): number {
-  const keywords = fileType === 'card' ? ['data', 'estabelecimento'] : ['data', 'numero']
+function isHeaderMatching(normalizedList: string[], fileType: 'system' | 'card'): boolean {
+  if (fileType === 'card') {
+    const hasDate = normalizedList.some((h) => h.includes('data'))
+    const hasDesc = normalizedList.some(
+      (h) =>
+        h.includes('estabelecimento') ||
+        h.includes('descricao') ||
+        h.includes('parceiro') ||
+        h.includes('historico'),
+    )
+    return hasDate && hasDesc
+  }
 
+  // fileType === 'system' (Odoo)
+  // Cabeçalho válido se contiver data + qualquer coluna de parceiro/descrição/diário + coluna monetária
+  // (Total, Valor, Crédito, Montante, Débito) OU número
+  const hasData = normalizedList.some((h) => h.includes('data') || h.includes('date'))
+  const hasPartnerOrDesc = normalizedList.some(
+    (h) =>
+      h.includes('parceiro') ||
+      h.includes('partner') ||
+      h.includes('fornecedor') ||
+      h.includes('nome') ||
+      h.includes('contato') ||
+      h.includes('razao') ||
+      h.includes('descricao') ||
+      h.includes('diario') ||
+      h.includes('lancamento') ||
+      h.includes('numero') ||
+      h.includes('number') ||
+      h.includes('referencia') ||
+      h.includes('ref'),
+  )
+  const hasMoneyOrNum = normalizedList.some(
+    (h) =>
+      h.includes('total') ||
+      h.includes('valor') ||
+      h.includes('credito') ||
+      h.includes('debito') ||
+      h.includes('montante') ||
+      h.includes('amount') ||
+      h.includes('numero') ||
+      h.includes('number'),
+  )
+
+  return hasData && (hasPartnerOrDesc || hasMoneyOrNum)
+}
+
+function findHeaderLineIndex(lines: string[], fileType: 'system' | 'card'): number {
   for (let i = 0; i < lines.length; i++) {
-    const normalized = normalizeText(lines[i])
-    if (keywords.every((kw) => normalized.includes(kw))) {
+    const rawLine = lines[i]
+    if (!rawLine.trim()) continue
+    // Divide linha por delimitadores prováveis (; ou , ou \t)
+    const tokens = rawLine.split(/[,;\t]/).map((t) => normalizeText(t))
+    if (isHeaderMatching(tokens, fileType)) {
       return i
     }
   }
@@ -31,25 +80,8 @@ export function sanitizeItauText(text: string, fileType: 'system' | 'card'): str
 }
 
 export function sanitizeParsedCSV(parsed: ParsedCSV, fileType: 'system' | 'card'): ParsedCSV {
-  const keywords = fileType === 'card' ? ['data', 'estabelecimento'] : ['data', 'numero']
-
   const normalizedHeaders = parsed.headers.map((h) => normalizeText(h))
-  const headersMatch = keywords.every((kw) => normalizedHeaders.some((h) => h.includes(kw)))
-  if (headersMatch) return parsed
-
-  // Se os headers originais contêm 'data' e ('parceiro' ou 'total' ou 'valor' ou 'numero' ou 'credito')
-  const hasDataCol = normalizedHeaders.some((h) => h.includes('data'))
-  const hasPartnerOrTotal = normalizedHeaders.some(
-    (h) =>
-      h.includes('parceiro') ||
-      h.includes('total') ||
-      h.includes('valor') ||
-      h.includes('debito') ||
-      h.includes('credito') ||
-      h.includes('numero') ||
-      h.includes('diario'),
-  )
-  if (hasDataCol && hasPartnerOrTotal) {
+  if (isHeaderMatching(normalizedHeaders, fileType)) {
     return parsed
   }
 
@@ -58,8 +90,7 @@ export function sanitizeParsedCSV(parsed: ParsedCSV, fileType: 'system' | 'card'
     // Utiliza a ordem dos headers originais para preservar alinhamento exato de colunas
     const orderedValues = parsed.headers.map((h) => row[h] ?? '')
     const normalizedValues = orderedValues.map((v) => normalizeText(v))
-    const hasAllKeywords = keywords.every((kw) => normalizedValues.some((v) => v.includes(kw)))
-    if (hasAllKeywords) {
+    if (isHeaderMatching(normalizedValues, fileType)) {
       const newHeaders = orderedValues.map((v, idx) => v || `Col${idx}`)
       const newRows: Record<string, string>[] = []
       for (let j = i + 1; j < parsed.rows.length; j++) {

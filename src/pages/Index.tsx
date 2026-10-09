@@ -83,14 +83,14 @@ export default function Index() {
           sysRecords = mapSystemRecords(sysParsed)
           if (sysRecords.length === 0) {
             throw new Error(
-              'A planilha do Sistema (Odoo) não contém linhas de dados válidas ou os cabeçalhos não foram reconhecidos. Certifique-se de que as colunas Data, Número, Parceiro ou Total estão presentes.',
+              'Não encontramos as colunas Data/Parceiro/Total — verifique se o arquivo é o Lançamento de Diário do Odoo.',
             )
           }
         } catch (sysErr) {
           throw new Error(
             sysErr instanceof Error
               ? sysErr.message
-              : 'Não foi possível ler a planilha do Sistema (Odoo). Verifique se o arquivo é um .xlsx ou .csv válido.',
+              : 'Não encontramos as colunas Data/Parceiro/Total — verifique se o arquivo é o Lançamento de Diário do Odoo.',
           )
         }
       } else {

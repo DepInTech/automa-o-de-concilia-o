@@ -194,18 +194,49 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
   if (grid.size === 0) return { headers: [], rows: [], detectedRows: 0 }
 
   const headers: string[] = []
-  // Localiza a linha do cabeçalho caso existam linhas em branco ou títulos antes
-  let headerRowIndex = 0
-  for (let r = 0; r <= Math.min(10, maxRow); r++) {
+  // Localiza a linha do cabeçalho caso existam linhas em branco ou títulos/metadados/filtros antes
+  // Procura preferencialmente uma linha que contenha "data" ou colunas do Odoo/Fatura
+  let headerRowIndex = -1
+  for (let r = 0; r <= Math.min(25, maxRow); r++) {
     const rowValues: string[] = []
     for (let c = 0; c <= maxCol; c++) {
       const val = grid.get(`${r},${c}`)?.trim() || ''
       if (val) rowValues.push(val)
     }
     if (rowValues.length >= 2) {
-      headerRowIndex = r
-      break
+      // Verifica se parece um cabeçalho real (ex: tem "data" ou "parceiro" ou "total" ou "diario" ou "numero" ou "valor")
+      const lowerJoined = rowValues.map((v) =>
+        v
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, ''),
+      )
+      const hasHeaderKeyword = lowerJoined.some(
+        (v) =>
+          v.includes('data') ||
+          v.includes('date') ||
+          v.includes('parceiro') ||
+          v.includes('fornecedor') ||
+          v.includes('total') ||
+          v.includes('valor') ||
+          v.includes('numero') ||
+          v.includes('diario') ||
+          v.includes('estabelecimento') ||
+          v.includes('descricao'),
+      )
+      if (hasHeaderKeyword) {
+        headerRowIndex = r
+        break
+      }
+      // Se ainda não encontrou cabeçalho com palavra-chave, mas achou a primeira linha com >= 2 células
+      if (headerRowIndex === -1) {
+        headerRowIndex = r
+      }
     }
+  }
+
+  if (headerRowIndex === -1) {
+    headerRowIndex = 0
   }
 
   for (let c = 0; c <= maxCol; c++) {
