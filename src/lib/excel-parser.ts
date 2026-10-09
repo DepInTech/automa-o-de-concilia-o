@@ -84,11 +84,62 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
   }
 
   let sheetXml = ''
-  const firstSheetPath = findFirstSheetPath(files)
-  if (firstSheetPath) {
-    const sheetFile = files.get(firstSheetPath)
+  // Para arquivos com múltiplas abas, se existir uma aba "Transacoes", prioriza-a
+  const wbFile = files.get('xl/workbook.xml')
+  const relsFile = files.get('xl/_rels/workbook.xml.rels')
+  let preferredSheetPath: string | null = null
+
+  if (wbFile && relsFile) {
+    const wbDoc = new DOMParser().parseFromString(new TextDecoder().decode(wbFile), 'text/xml')
+    const relsDoc = new DOMParser().parseFromString(new TextDecoder().decode(relsFile), 'text/xml')
+    const sheets = Array.from(wbDoc.getElementsByTagName('sheet'))
+
+    // Procura aba "transacoes" ou similar
+    let targetSheet = sheets.find((s) => {
+      const name = (s.getAttribute('name') || '').toLowerCase().trim()
+      return name === 'transacoes' || name === 'transações' || name.includes('transac')
+    })
+    // Se não encontrou "transacoes", pega a primeira aba que não seja "resumo"
+    if (!targetSheet) {
+      targetSheet = sheets.find((s) => {
+        const name = (s.getAttribute('name') || '').toLowerCase().trim()
+        return !name.includes('resumo')
+      })
+    }
+    // Fallback: primeira aba qualquer
+    if (!targetSheet) {
+      targetSheet = sheets[0]
+    }
+
+    if (targetSheet) {
+      const rid = targetSheet.getAttribute('r:id')
+      if (rid) {
+        for (const rel of Array.from(relsDoc.getElementsByTagName('Relationship'))) {
+          if (rel.getAttribute('Id') === rid) {
+            const target = rel.getAttribute('Target') || ''
+            preferredSheetPath = target.startsWith('/')
+              ? target.slice(1).toLowerCase()
+              : 'xl/' + target.toLowerCase()
+            break
+          }
+        }
+      }
+    }
+  }
+
+  if (preferredSheetPath) {
+    const sheetFile = files.get(preferredSheetPath)
     if (sheetFile) sheetXml = new TextDecoder().decode(sheetFile)
   }
+
+  if (!sheetXml) {
+    const firstSheetPath = findFirstSheetPath(files)
+    if (firstSheetPath) {
+      const sheetFile = files.get(firstSheetPath)
+      if (sheetFile) sheetXml = new TextDecoder().decode(sheetFile)
+    }
+  }
+
   if (!sheetXml) {
     for (const [name, fd] of files) {
       if (/^xl\/worksheets\/sheet\d+\.xml$/.test(name)) {
@@ -180,10 +231,13 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
     }
     if (hasData) {
       // Ignora apenas se for explicitamente uma linha de total ou rodapé da planilha (ex: "Total", "Total Geral", "Soma")
+      // Cuida para não descartar linhas reais caso o nome do parceiro seja curto
+      const trimmedCombined = rowTextCombined.trim()
       const isPureTotalRow =
-        (rowTextCombined.includes('total geral') ||
-          rowTextCombined.includes('totais') ||
-          rowTextCombined.trim() === 'total') &&
+        (trimmedCombined.startsWith('total geral') ||
+          trimmedCombined.startsWith('totais') ||
+          trimmedCombined === 'total' ||
+          trimmedCombined.startsWith('resumo')) &&
         nonEmptyCount <= 3
       if (!isPureTotalRow) {
         rows.push(row)

@@ -41,17 +41,32 @@ interface ResultsTableProps {
 export function ResultsTable({ data, systemRecords, cardRecords, bank }: ResultsTableProps) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('ALL')
+  const [sortOrder, setSortOrder] = useState<
+    'VALOR_ASC' | 'VALOR_DESC' | 'VALOR_ODOO' | 'VALOR_FATURA' | 'DATA'
+  >('VALOR_ASC')
   const [validationErrors, setValidationErrors] = useState<string[] | null>(null)
 
-  const filtered = data.filter((r) => {
-    const q = search.toLowerCase()
-    const matchSearch =
-      (r.parceiro ?? '').toLowerCase().includes(q) ||
-      (r.estabelecimento ?? '').toLowerCase().includes(q) ||
-      (r.lancamentoDiario ?? '').toLowerCase().includes(q) ||
-      (r.numero ?? '').toLowerCase().includes(q)
-    return matchSearch && (filter === 'ALL' || r.status === filter)
-  })
+  const filtered = data
+    .filter((r) => {
+      const q = search.toLowerCase()
+      const matchSearch =
+        (r.parceiro ?? '').toLowerCase().includes(q) ||
+        (r.estabelecimento ?? '').toLowerCase().includes(q) ||
+        (r.lancamentoDiario ?? '').toLowerCase().includes(q) ||
+        (r.numero ?? '').toLowerCase().includes(q) ||
+        (r.referencia ?? '').toLowerCase().includes(q) ||
+        (r.motivo ?? '').toLowerCase().includes(q)
+      return matchSearch && (filter === 'ALL' || r.status === filter)
+    })
+    .sort((a, b) => {
+      const valA = a.credito !== null && a.credito !== undefined ? a.credito : a.valorFatura || 0
+      const valB = b.credito !== null && b.credito !== undefined ? b.credito : b.valorFatura || 0
+      if (sortOrder === 'VALOR_ASC') return valA - valB
+      if (sortOrder === 'VALOR_DESC') return valB - valA
+      if (sortOrder === 'VALOR_ODOO') return (a.credito || 0) - (b.credito || 0)
+      if (sortOrder === 'VALOR_FATURA') return (a.valorFatura || 0) - (b.valorFatura || 0)
+      return a.data.localeCompare(b.data)
+    })
 
   const getRowClass = (r: ReconciliationResult) => {
     if (r.classificacao === 'POSSIVEL_CORRESPONDENCIA') {
@@ -186,9 +201,22 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
               <SelectItem value="RED">
                 <span className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-rose-500" />
-                  Ausentes (Vermelho)
+                  Exclusivos (Vermelho)
                 </span>
               </SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={sortOrder} onValueChange={(v: any) => setSortOrder(v)}>
+            <SelectTrigger className="w-full sm:w-[210px] h-10 rounded-xl border-[#00796F]/20 bg-[#F4F8F7] dark:bg-[#071F1D] text-sm font-medium text-[#163A38] dark:text-[#F1F5F4] focus:ring-[#00796F]">
+              <SelectValue placeholder="Ordenação" />
+            </SelectTrigger>
+            <SelectContent className="bg-white dark:bg-[#0D3834] border-[#00796F]/20 text-[#163A38] dark:text-[#F1F5F4] rounded-xl">
+              <SelectItem value="VALOR_ASC">Valor Crescente (Padrão)</SelectItem>
+              <SelectItem value="VALOR_DESC">Valor Decrescente</SelectItem>
+              <SelectItem value="VALOR_ODOO">Ordenar pelo Valor Odoo</SelectItem>
+              <SelectItem value="VALOR_FATURA">Ordenar pelo Valor Fatura</SelectItem>
+              <SelectItem value="DATA">Ordenar por Data</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -208,7 +236,10 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
             <TableHeader className="bg-[#F4F8F7] dark:bg-[#00796F]/10 border-b border-[#00796F]/15">
               <TableRow className="hover:bg-transparent border-[#00796F]/15">
                 <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
-                  Data
+                  Data Fatura
+                </TableHead>
+                <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                  Data Odoo
                 </TableHead>
                 {bank === 'itau' && (
                   <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
@@ -226,25 +257,25 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
                   </TableHead>
                 )}
                 <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
-                  Parceiro
+                  Estabelecimento (Fatura)
                 </TableHead>
                 <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
-                  Estabelecimento
+                  Parceiro (Odoo)
                 </TableHead>
                 <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Categoria
                 </TableHead>
                 <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
-                  Crédito
+                  Valor Fatura
                 </TableHead>
                 <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
-                  Valor Fatura
+                  Valor Odoo
                 </TableHead>
                 <TableHead className="text-right whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Diferença
                 </TableHead>
                 <TableHead className="whitespace-nowrap font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
-                  Motivo / Observação
+                  Motivo da Classificação
                 </TableHead>
                 <TableHead className="text-center font-bold text-xs uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
                   Status
@@ -252,48 +283,67 @@ export function ResultsTable({ data, systemRecords, cardRecords, bank }: Results
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((r) => (
-                <TableRow key={r.id} className={`${getRowClass(r)} transition-colors`}>
-                  <TableCell className="whitespace-nowrap font-semibold text-xs sm:text-sm">
-                    {r.data}
-                  </TableCell>
-                  {bank === 'itau' && (
-                    <TableCell className="whitespace-nowrap text-xs font-mono">
-                      {r.numero ?? '-'}
+              {filtered.map((r) => {
+                const dataFatura = r.origem === 'FATURA' || r.origem === 'AMBOS' ? r.data : '-'
+                const dataOdoo = r.origem === 'SISTEMA' || r.origem === 'AMBOS' ? r.data : '-'
+                const estab =
+                  r.estabelecimento && r.estabelecimento !== '-' ? r.estabelecimento : '-'
+                const parc = r.parceiro && r.parceiro !== '-' ? r.parceiro : '-'
+
+                return (
+                  <TableRow key={r.id} className={`${getRowClass(r)} transition-colors`}>
+                    <TableCell className="whitespace-nowrap font-mono text-xs sm:text-sm">
+                      {dataFatura}
                     </TableCell>
-                  )}
-                  {bank === 'itau' && (
+                    <TableCell className="whitespace-nowrap font-mono text-xs sm:text-sm">
+                      {dataOdoo}
+                    </TableCell>
+                    {bank === 'itau' && (
+                      <TableCell className="whitespace-nowrap text-xs font-mono">
+                        {r.numero ?? '-'}
+                      </TableCell>
+                    )}
+                    {bank === 'itau' && (
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {r.referencia ?? '-'}
+                      </TableCell>
+                    )}
+                    {bank === 'santander' && (
+                      <TableCell className="whitespace-nowrap text-xs font-mono">
+                        {r.lancamentoDiario ?? '-'}
+                      </TableCell>
+                    )}
+                    <TableCell className="whitespace-nowrap font-medium text-xs sm:text-sm">
+                      {estab}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap font-medium text-xs sm:text-sm">
+                      {parc}
+                    </TableCell>
                     <TableCell className="whitespace-nowrap text-xs">
-                      {r.referencia ?? '-'}
+                      {r.categoria || '-'}
                     </TableCell>
-                  )}
-                  {bank === 'santander' && (
-                    <TableCell className="whitespace-nowrap text-xs font-mono">
-                      {r.lancamentoDiario ?? '-'}
+                    <TableCell className="text-right whitespace-nowrap font-semibold text-xs sm:text-sm">
+                      {r.valorFatura !== null && r.valorFatura !== undefined
+                        ? formatCurrency(r.valorFatura)
+                        : '-'}
                     </TableCell>
-                  )}
-                  <TableCell className="whitespace-nowrap font-medium text-xs sm:text-sm">
-                    {r.parceiro}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap font-medium text-xs sm:text-sm">
-                    {r.estabelecimento}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-xs">{r.categoria || '-'}</TableCell>
-                  <TableCell className="text-right whitespace-nowrap font-semibold text-xs sm:text-sm">
-                    {formatCurrency(r.credito)}
-                  </TableCell>
-                  <TableCell className="text-right whitespace-nowrap font-semibold text-xs sm:text-sm">
-                    {formatCurrency(r.valorFatura)}
-                  </TableCell>
-                  <TableCell className="text-right whitespace-nowrap font-bold text-xs sm:text-sm">
-                    {formatCurrency(r.diferenca)}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-xs text-[#647875] dark:text-[#A7C4C0]">
-                    {r.motivo || '-'}
-                  </TableCell>
-                  <TableCell className="text-center">{renderBadge(r)}</TableCell>
-                </TableRow>
-              ))}
+                    <TableCell className="text-right whitespace-nowrap font-semibold text-xs sm:text-sm">
+                      {r.credito !== null && r.credito !== undefined
+                        ? formatCurrency(r.credito)
+                        : '-'}
+                    </TableCell>
+                    <TableCell className="text-right whitespace-nowrap font-bold text-xs sm:text-sm">
+                      {r.diferenca !== null && r.diferenca !== undefined
+                        ? formatCurrency(r.diferenca)
+                        : '-'}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-xs text-[#647875] dark:text-[#A7C4C0]">
+                      {r.motivo || '-'}
+                    </TableCell>
+                    <TableCell className="text-center">{renderBadge(r)}</TableCell>
+                  </TableRow>
+                )
+              })}
               {filtered.length === 0 && (
                 <TableRow>
                   <TableCell

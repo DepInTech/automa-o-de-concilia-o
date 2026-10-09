@@ -1,8 +1,8 @@
 import type { ParsedCSV } from './csv-parser'
-import { parseCSV } from './csv-parser'
+import { parseCSV, mapCardRecords } from './csv-parser'
 import { parseExcel } from './excel-parser'
 import { sanitizeItauText, sanitizeParsedCSV } from './itau-sanitizer'
-import { parseCardPdf, type CardPdfParseResult } from './card-pdf-parser'
+import { parseCardPdf, type CardPdfParseResult, type StructuredCardRecord } from './card-pdf-parser'
 import type { BankType } from './types'
 
 /**
@@ -53,15 +53,40 @@ export async function parseSystemFile(file: File, bank: BankType): Promise<Parse
 export async function parseCardPdfFile(file: File, bank: BankType): Promise<CardPdfParseResult> {
   const name = file.name.toLowerCase()
 
-  if (name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.csv')) {
-    throw new Error(
-      'Formato incorreto. O campo da Fatura do Cartão aceita exclusivamente arquivos em formato PDF (.pdf). Para planilhas do Odoo, utilize o campo ao lado.',
-    )
+  // Se o usuário enviar a planilha de fatura (.xlsx ou .csv) como entrada alternativa (ex: Fatura_Itau.xlsx)
+  if (name.endsWith('.xlsx')) {
+    const buffer = await file.arrayBuffer()
+    const parsed = await parseExcel(buffer)
+    const records = mapCardRecords(parsed)
+    return {
+      records: records as StructuredCardRecord[],
+      detectedRows: records.length,
+      unparsedLinesCount: 0,
+      isScannedOrEmpty: records.length === 0,
+      numPages: 1,
+    }
+  }
+
+  if (name.endsWith('.csv')) {
+    const text = await file.text()
+    const parsed = parseCSV(text)
+    const records = mapCardRecords(parsed)
+    return {
+      records: records as StructuredCardRecord[],
+      detectedRows: records.length,
+      unparsedLinesCount: 0,
+      isScannedOrEmpty: records.length === 0,
+      numPages: 1,
+    }
+  }
+
+  if (name.endsWith('.xls')) {
+    throw new Error('Formato .xls não suportado para Fatura. Utilize PDF (.pdf) ou .xlsx.')
   }
 
   if (!name.endsWith('.pdf') && file.type !== 'application/pdf' && file.type !== '') {
     throw new Error(
-      'Formato inválido. O campo da Fatura do Cartão aceita exclusivamente arquivos em formato PDF (.pdf).',
+      'Formato inválido. O campo da Fatura do Cartão aceita arquivos em formato PDF (.pdf) ou planilha (.xlsx).',
     )
   }
 

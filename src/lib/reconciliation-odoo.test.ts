@@ -48,6 +48,27 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
   })
 
   // =========================================================================
+  // CENÁRIO 1b: Estorno com valor negativo na Fatura
+  // =========================================================================
+  it('Cenário 1b: Estorno na fatura com valor negativo é preservado', () => {
+    const sys: SystemRecord[] = []
+    const card: CardRecord[] = [
+      {
+        id: 'card-estorno',
+        data: '08/06/2026',
+        estabelecimento: 'ESTORNO DE ANUIDADE DIF',
+        valor: -18.75,
+      },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(1)
+    expect(results[0].status).toBe('RED')
+    expect(results[0].classificacao).toBe('SOMENTE_FATURA')
+    expect(results[0].valorFatura).toBe(-18.75)
+  })
+
+  // =========================================================================
   // CENÁRIO 2: Nome abreviado vs completo + mesmo valor → VERDE / CONCILIADO
   // Exemplos: STARLINK BRAZIL, SJX COMERCIAL ATACADISTA
   // =========================================================================
@@ -181,7 +202,7 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
     expect(results[0].classificacao).toBe('SOMENTE_SISTEMA')
     expect(results[0].origem).toBe('SISTEMA')
     expect(results[0].estabelecimento).toBe('-')
-    expect(results[0].motivo).toContain('Não encontrado na fatura')
+    expect(results[0].motivo).toContain('Existe no Odoo')
   })
 
   // =========================================================================
@@ -204,7 +225,7 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
     expect(results[0].classificacao).toBe('SOMENTE_FATURA')
     expect(results[0].origem).toBe('FATURA')
     expect(results[0].parceiro).toBe('-')
-    expect(results[0].motivo).toContain('Não encontrado no lançamento do Odoo')
+    expect(results[0].motivo).toContain('Existe na fatura')
   })
 
   // =========================================================================
@@ -464,5 +485,43 @@ describe('Motor de Conciliação Financeira - Grupo EPA & Odoo vs Fatura Itaú',
     expect(normalizeMoneyValue('1954,12')).toBe(1954.12)
     expect(normalizeMoneyValue('1,114.06')).toBe(1114.06)
     expect(normalizeMoneyValue('R$ 1,114.06')).toBe(1114.06)
+  })
+
+  // =========================================================================
+  // CENÁRIO 11: Ordenação interna crescente por padrão
+  // =========================================================================
+  it('Cenário 11: Resultados devem vir ordenados crescentemente por valor por padrão', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 'sys-alto',
+        data: '01/07/2026',
+        parceiro: 'PARCEIRO CARO',
+        credito: 5000.0,
+        total: 5000.0,
+        debito: null,
+      },
+      {
+        id: 'sys-baixo',
+        data: '01/07/2026',
+        parceiro: 'PARCEIRO BARATO',
+        credito: 15.0,
+        total: 15.0,
+        debito: null,
+      },
+    ]
+
+    const card: CardRecord[] = [
+      {
+        id: 'card-medio',
+        data: '15/06/2026',
+        estabelecimento: 'ESTABELECIMENTO MEDIO',
+        valor: 150.0,
+      },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(3)
+    const vals = results.map((r) => r.credito ?? r.valorFatura)
+    expect(vals).toEqual([15.0, 150.0, 5000.0])
   })
 })

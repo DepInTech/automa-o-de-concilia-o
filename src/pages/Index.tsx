@@ -351,10 +351,10 @@ export default function Index() {
             id="card-file"
             file={cardFile}
             onChange={setCardFile}
-            acceptType="pdf"
-            description="Envie a fatura original do cartão em PDF."
-            subDescription="Arraste sua fatura em PDF aqui ou clique para buscar. Nunca requer conversão para Excel nem execução de macro."
-            badgeText="Fatura em PDF"
+            acceptType="card"
+            description="Envie a fatura original do cartão em PDF (ou planilha de fatura .xlsx)."
+            subDescription="Arraste sua fatura em PDF aqui ou clique para buscar. Nunca requer macro nem conversões manuais."
+            badgeText="Fatura do Cartão"
           />
         </div>{' '}
       </div>

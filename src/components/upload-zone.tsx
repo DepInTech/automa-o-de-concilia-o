@@ -8,7 +8,7 @@ interface UploadZoneProps {
   file: File | null
   onChange: (f: File) => void
   onDownloadSample?: () => void
-  acceptType?: 'spreadsheet' | 'pdf'
+  acceptType?: 'spreadsheet' | 'pdf' | 'card'
   description?: string
   badgeText?: string
   subDescription?: string
@@ -27,11 +27,14 @@ export function UploadZone({
   subDescription,
 }: UploadZoneProps) {
   const [isDragOver, setIsDragOver] = useState(false)
-  const isPdf = acceptType === 'pdf'
+  const isPdf = acceptType === 'pdf' || acceptType === 'card'
 
-  const acceptMime = isPdf
-    ? 'application/pdf, .pdf'
-    : '.xlsx, .csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/csv'
+  const acceptMime =
+    acceptType === 'card'
+      ? 'application/pdf, .pdf, .xlsx, .csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/csv'
+      : isPdf
+        ? 'application/pdf, .pdf'
+        : '.xlsx, .csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/csv'
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -151,7 +154,11 @@ export function UploadZone({
                 : 'bg-[#F4F8F7] dark:bg-[#071F1D] text-[#004A46] dark:text-[#20BFA9] border-[#00796F]/20'
             }`}
           >
-            {isPdf ? 'Formato aceito: PDF' : 'Formatos aceitos: .xlsx e .csv'}
+            {acceptType === 'card'
+              ? 'Formato principal: PDF (aceita também .xlsx)'
+              : isPdf
+                ? 'Formato aceito: PDF'
+                : 'Formatos aceitos: .xlsx e .csv'}
           </div>
 
           {!isPdf && onDownloadSample && (

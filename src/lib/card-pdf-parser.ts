@@ -107,15 +107,16 @@ function parseInlineInvoiceLine(line: string, index: number): StructuredCardReco
   const rawDate = dateMatch[1]
   const remainder = cleanLine.slice(dateMatch[0].length).trim()
 
-  // Procura valor no formato R$ ou numérico no final: "-R$18,75", "R$1.114,06", "R$ 18,75", "1,813.34"
+  // Procura valor no formato R$ ou numérico no final: "-R$18,75", "-18,75", "R$1.114,06", "R$ 18,75", "1,813.34"
   const valMatch = remainder.match(
     /(?:-?\s*R\$\s*|-?\s*US\$\s*|-?\s*USD\s*)?(-?R?\$?\s*[\d.,]+\d{2})\s*$/i,
   )
   if (!valMatch) return null
 
   const rawValueStr = valMatch[0].trim()
-  const valor = Math.abs(normalizeMoneyValue(rawValueStr))
-  if (isNaN(valor) || valor === 0) return null
+  const parsedMoney = normalizeMoneyValue(rawValueStr)
+  // Preserva estornos como valores negativos, mas exclui zero
+  if (isNaN(parsedMoney) || parsedMoney === 0) return null
 
   const desc = remainder
     .slice(0, remainder.length - rawValueStr.length)
@@ -130,7 +131,7 @@ function parseInlineInvoiceLine(line: string, index: number): StructuredCardReco
     id: `pdf-rec-${index}`,
     data: normalizeCardDate(rawDate),
     estabelecimento: desc,
-    valor,
+    valor: parsedMoney,
     rawLine: line,
   }
 }
@@ -217,7 +218,7 @@ function parseInternacionaisSection(
         .filter(Boolean)
       if (parts.length >= 6 && /^\d{2}\/\d{2}$/.test(parts[0])) {
         const valorReal = normalizeMoneyValue(parts[5])
-        if (valorReal > 0) {
+        if (valorReal !== 0) {
           records.push({
             id: `pdf-rec-intl-${globalIdx.current++}`,
             data: normalizeCardDate(parts[0]),
@@ -388,12 +389,12 @@ function parseNacionais(lines: string[], globalIdx: { current: number }): Struct
         const desc = parts[1]
         const valStr = parts[2]
         const num = normalizeMoneyValue(valStr)
-        if (!isFooterOrTotalLine(desc) && !isFooterOrTotalLine(valStr) && Math.abs(num) > 0) {
+        if (!isFooterOrTotalLine(desc) && !isFooterOrTotalLine(valStr) && num !== 0) {
           records.push({
             id: `pdf-rec-nat-${globalIdx.current++}`,
             data: normalizeCardDate(d),
             estabelecimento: desc,
-            valor: Math.abs(num),
+            valor: num,
           })
           continue
         }
@@ -411,7 +412,7 @@ function parseNacionais(lines: string[], globalIdx: { current: number }): Struct
     if (/^\d{2}\/\d{2}$/.test(l)) {
       colunarDates.push(l)
     } else if (/^-?R?\$\s*[\d.,]+\d{2}$/i.test(l)) {
-      colunarValues.push(Math.abs(normalizeMoneyValue(l)))
+      colunarValues.push(normalizeMoneyValue(l))
     } else if (l.length >= 3 && !/total\s+de\s+lan[cç]amentos/i.test(l)) {
       colunarDescs.push(l)
     }
@@ -427,7 +428,7 @@ function parseNacionais(lines: string[], globalIdx: { current: number }): Struct
         colunarDates[i] ||
         (colunarDates.length > 0 ? colunarDates[colunarDates.length - 1] : '01/06')
 
-      if (val > 0) {
+      if (val !== 0) {
         records.push({
           id: `pdf-rec-nat-${globalIdx.current++}`,
           data: normalizeCardDate(dt),

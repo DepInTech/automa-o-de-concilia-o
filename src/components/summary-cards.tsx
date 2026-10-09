@@ -47,31 +47,43 @@ export function SummaryCards({
       (r.status === 'RED' && (!r.parceiro || r.parceiro === '-')),
   )
 
-  // Registros reais válidos de cada fonte:
-  // Se informados diretamente pelas coleções de entrada, utiliza-os;
-  // senão calcula pelos resultados onde parceiro/estabelecimento estão presentes
+  // Registros reais válidos de cada fonte calculados a partir dos dados processados
   const totalSystem =
     systemRecordsCount !== undefined
       ? systemRecordsCount
-      : results.filter((r) => r.parceiro && r.parceiro !== '-').length
+      : results.filter((r) => r.origem === 'SISTEMA' || r.origem === 'AMBOS').length
 
   const totalInvoice =
     cardRecordsCount !== undefined
       ? cardRecordsCount
-      : results.filter((r) => r.estabelecimento && r.estabelecimento !== '-').length
+      : results.filter((r) => r.origem === 'FATURA' || r.origem === 'AMBOS').length
 
-  const totalCreditoSistema = results.reduce((acc, r) => acc + (r.credito || 0), 0)
-  const totalValorFatura = results.reduce((acc, r) => acc + (r.valorFatura || 0), 0)
-
-  // Diferença total entre os valores do Sistema e da Fatura
-  const diferencaTotal =
+  // SOMA DOS TOTAIS DAS DUAS FONTES:
+  // Para o Sistema (Odoo): soma todos os registros onde crédito foi alimentado (exclusivos do Odoo + pares)
+  // Para a Fatura: soma todas as transações da fatura onde valorFatura foi alimentado (exclusivos da fatura + pares)
+  // Inclui estornos (negativos), taxas e internacionais calculados dinamicamente em runtime
+  const totalCreditoSistema =
     Math.round(
-      results.filter((r) => r.status === 'YELLOW').reduce((acc, r) => acc + (r.diferenca || 0), 0) *
-        100,
+      results.reduce(
+        (acc, r) => acc + (r.credito !== null && r.credito !== undefined ? r.credito : 0),
+        0,
+      ) * 100,
     ) / 100
 
+  const totalValorFatura =
+    Math.round(
+      results.reduce(
+        (acc, r) =>
+          acc + (r.valorFatura !== null && r.valorFatura !== undefined ? r.valorFatura : 0),
+        0,
+      ) * 100,
+    ) / 100
+
+  // Diferença total entre os totais gerais das duas fontes
+  const diferencaTotal = Math.round((totalValorFatura - totalCreditoSistema) * 100) / 100
+
   // Percentual de Conciliação:
-  // Proporção de pares conciliados em relação ao total de lançamentos únicos processados
+  // Proporção de pares conciliados (GREEN) em relação ao total de lançamentos únicos processados
   const percentual = results.length > 0 ? (conciliated.length / results.length) * 100 : 0
 
   const metrics: MetricConfig[] = [
@@ -118,21 +130,21 @@ export function SummaryCards({
       bg: 'bg-rose-50 dark:bg-rose-500/15',
     },
     {
-      label: 'Total Crédito Sistema',
+      label: 'Total Odoo (Sistema)',
       value: formatCurrency(totalCreditoSistema),
       icon: DollarSign,
       color: 'text-[#163A38] dark:text-[#F1F5F4]',
       bg: 'bg-[#F4F8F7] dark:bg-[#071F1D]',
     },
     {
-      label: 'Total Valor Fatura',
+      label: 'Total Fatura (Cartão)',
       value: formatCurrency(totalValorFatura),
       icon: CreditCard,
       color: 'text-[#163A38] dark:text-[#F1F5F4]',
       bg: 'bg-[#F4F8F7] dark:bg-[#071F1D]',
     },
     {
-      label: 'Diferença Total',
+      label: 'Diferença Fatura - Odoo',
       value: formatCurrency(diferencaTotal),
       icon: Scale,
       color:

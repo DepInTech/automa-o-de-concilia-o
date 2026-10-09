@@ -214,7 +214,7 @@ export function mapSystemRecords(parsed: ParsedCSV): SystemRecord[] {
 }
 
 export function mapCardRecords(parsed: ParsedCSV): CardRecord[] {
-  const data = findColumn(parsed.headers, ['Data'])
+  const data = findColumn(parsed.headers, ['Data', 'Data da Compra', 'Data Transação'])
   const estabelecimento = findColumn(parsed.headers, [
     'Estabelecimento',
     'Parceiro',
@@ -223,14 +223,60 @@ export function mapCardRecords(parsed: ParsedCSV): CardRecord[] {
     'Descrição',
     'Descricao',
   ])
+  const portador = findColumn(parsed.headers, ['Portador', 'Cartão Titular', 'Titular'])
+  const parcela = findColumn(parsed.headers, ['Parcela', 'Nº Parcela', 'Número Parcela'])
   const categoria = findColumn(parsed.headers, ['Categoria'])
   const valor = findColumn(parsed.headers, ['Valor (R$)', 'Valor', 'Crédito', 'Credito', 'Total'])
+  const valorUs = findColumn(parsed.headers, ['Valor (US$)', 'Valor US$', 'Valor USD'])
+  const cotacaoUs = findColumn(parsed.headers, ['Cotacao US$', 'Cotação US$', 'Cotacao', 'Cotação'])
+  const observacao = findColumn(parsed.headers, ['Observacao', 'Observação', 'Obs'])
 
-  return parsed.rows.map((row, index) => ({
-    id: String(index),
-    data: data ? row[data] : '',
-    estabelecimento: estabelecimento ? row[estabelecimento] : '',
-    categoria: categoria ? row[categoria] : undefined,
-    valor: valor ? (parseBrazilianNumber(row[valor]) ?? 0) : 0,
-  }))
+  const records: CardRecord[] = []
+
+  parsed.rows.forEach((row, index) => {
+    const rawDesc = estabelecimento ? row[estabelecimento]?.trim() || '' : ''
+    const rawVal = valor ? row[valor] : undefined
+    const parsedVal = rawVal !== undefined ? parseBrazilianNumber(rawVal) : null
+
+    // Ignora linhas sem estabelecimento ou cabeçalho residual
+    if (!rawDesc || /^(estabelecimento|descri[cç][aã]o|total\s+geral)$/i.test(rawDesc)) {
+      return
+    }
+
+    const valNum = parsedVal ?? 0
+    let dateStr = data ? row[data]?.trim() || '' : ''
+    // Normaliza data DD/MM para DD/MM com ano inferido se necessário
+    if (dateStr) {
+      const brMatch = dateStr.match(/^(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?/)
+      if (brMatch) {
+        const d = brMatch[1].padStart(2, '0')
+        const m = brMatch[2].padStart(2, '0')
+        const y = brMatch[3] ? (brMatch[3].length === 2 ? `20${brMatch[3]}` : brMatch[3]) : '2026'
+        dateStr = `${d}/${m}/${y}`
+      }
+    }
+
+    const valUsNum = valorUs && row[valorUs] ? parseBrazilianNumber(row[valorUs]) : null
+    const cotacaoNum = cotacaoUs && row[cotacaoUs] ? parseBrazilianNumber(row[cotacaoUs]) : null
+    const isInternacional =
+      (valUsNum !== null && valUsNum > 0) ||
+      (observacao && /internacional/i.test(row[observacao] || ''))
+
+    records.push({
+      id: `card-${index}`,
+      data: dateStr,
+      estabelecimento: rawDesc,
+      categoria: categoria ? row[categoria]?.trim() || undefined : undefined,
+      valor: valNum,
+      isInternacional: !!isInternacional,
+      moedaGlobal: isInternacional ? 'US$' : undefined,
+      moedaLocal: isInternacional ? 'BRL' : undefined,
+      cotacao: cotacaoNum ?? undefined,
+      cartaoTitular: portador ? row[portador]?.trim() || undefined : undefined,
+      parcela: parcela ? row[parcela]?.trim() || undefined : undefined,
+      observacao: observacao ? row[observacao]?.trim() || undefined : undefined,
+    } as CardRecord)
+  })
+
+  return records
 }

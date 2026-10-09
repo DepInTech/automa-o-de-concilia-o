@@ -24,6 +24,8 @@ export interface CardRecord {
   cotacao?: number
   isInternacional?: boolean
   cartaoTitular?: string
+  parcela?: string
+  observacao?: string
 }
 
 export type MatchClassification =

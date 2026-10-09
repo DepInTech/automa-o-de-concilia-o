@@ -12,7 +12,7 @@ const GATEWAY_PREFIXES = [
   /^(mp\s*\*+|mp\s+)/i,
   /^(vindi\s*\*+|vindi\s+)/i,
   /^(pp\s*\*+|pp\s+)/i,
-  /^(mercado\s*\*+|mercadolivre\s*\*+|mercado\s+livre\s*[-*:]*)/i,
+  /^(mercado\s*\*+|mercadolivre\s*\*+|mercado\s+livre\s*[-*:]*|mercado\s+livre\s*-?\s*|meli\s*\*+)/i,
   /^(pag\s*\*+|pag\s+)/i,
   /^(iugu\s*\*+|iugu\s+)/i,
   /^(cielo\s*\*+|cielo\s+)/i,
@@ -60,10 +60,13 @@ const STOP_WORDS = new Set([
 export function normalizeEntityName(raw: string): string {
   if (!raw) return ''
 
-  // 1. Remove emojis (ex.: ⚠️, 🚨) e símbolos gráficos
+  // 0. Remove sufixos como "-0106", "LJ45", "- Sacolão São Jorge" etc
   let cleaned = raw
     .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, ' ')
     .trim()
+
+  // Se tiver portador entre parênteses ex: "NOME (xxxx)", remove
+  cleaned = cleaned.replace(/\s*\([^)]*\d+[^)]*\)/g, ' ')
 
   // 2. Transforma em minúsculas e remove acentos
   cleaned = cleaned
@@ -71,7 +74,26 @@ export function normalizeEntityName(raw: string): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
 
-  // 3. Remove prefixos comuns de gateways sucessivamente
+  // Tratamentos específicos de marcas comuns do Itaú / Odoo
+  if (/assai/i.test(cleaned) || /sendas/i.test(cleaned)) {
+    return 'sendas assai'
+  }
+  if (/pao\s+de\s+acucar/i.test(cleaned)) {
+    return 'pao de acucar'
+  }
+  if (/uber/i.test(cleaned)) {
+    return 'uber'
+  }
+  if (/autentique/i.test(cleaned)) {
+    return 'autentique'
+  }
+
+  // 3. Normaliza referências a Mercado Livre / Mercado Pago antes da remoção
+  // Se for apenas Mercado Livre ou variação, preserva um token identificador
+  const isPureMercadoLivre =
+    /^(mercado\s*livre|mercadolivre|mercado\*mercadolivre|mercadolivre\*mercadol)/i.test(cleaned)
+
+  // Remove prefixos comuns de gateways sucessivamente
   let changed = true
   while (changed) {
     const before = cleaned
@@ -80,6 +102,10 @@ export function normalizeEntityName(raw: string): string {
     }
     cleaned = cleaned.trim()
     changed = cleaned !== before
+  }
+
+  if (!cleaned && isPureMercadoLivre) {
+    cleaned = 'mercadolivre'
   }
 
   // 4. Se tiver parcelas anexadas como " 04/06", " 03/10", " 11/12", "09/12", "12/12"
@@ -184,31 +210,61 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
     if (found) matchesB++
   }
 
+  // Caso Mercado Livre: ambos mencionam mercadolivre ou mercado livre
+  const isMlA = /mercado/i.test(rawA)
+  const isMlB = /mercado/i.test(rawB)
+  if (isMlA && isMlB) {
+    return 0.8
+  }
+
+  // Caso Uber: "DL*UberRides" vs "Uber"
+  const isUberA = /uber/i.test(rawA)
+  const isUberB = /uber/i.test(rawB)
+  if (isUberA && isUberB) {
+    return 0.85
+  }
+
   // Overlap assimétrico: se um nome curto da fatura ("SJX ATACAD") está quase todo contido
   // na razão social longa do Odoo ("SJX COMERCIAL ATACADISTA DE MERCADORIAS LTDA - Sacolão São Jorge"),
   // o minMatch (proporção do menor conjunto coberto) tem grande relevância.
-  const minTokensCount = Math.min(tokensA.length, tokensB.length)
-  const maxTokensCount = Math.max(tokensA.length, tokensB.length)
   const coveredOfMin =
-    tokensA.length <= tokensB.length ? matchesA / tokensA.length : matchesB / tokensB.length
+    tokensA.length <= tokensB.length
+      ? tokensA.length > 0
+        ? matchesA / tokensA.length
+        : 0
+      : tokensB.length > 0
+        ? matchesB / tokensB.length
+        : 0
   const coveredOfMax =
-    tokensA.length > tokensB.length ? matchesA / tokensA.length : matchesB / tokensB.length
+    tokensA.length > tokensB.length
+      ? tokensA.length > 0
+        ? matchesA / tokensA.length
+        : 0
+      : tokensB.length > 0
+        ? matchesB / tokensB.length
+        : 0
 
   const overlapScore = coveredOfMin * 0.65 + coveredOfMax * 0.35
 
-  // Bônus se a primeira palavra principal for idêntica (marca central, ex: "STARLINK", "SWIFT", "SJX", "VERISURE", "AUTENTIQUE")
+  // Bônus se a primeira palavra principal for idêntica (marca central, ex: "STARLINK", "SWIFT", "SJX", "VERISURE", "AUTENTIQUE", "NETLAB", "BIOCENTRIX", "SENDAS")
   const firstA = tokensA[0]
   const firstB = tokensB[0]
   let brandBonus = 0
   if (firstA && firstB) {
     if (firstA === firstB) {
-      brandBonus = 0.25
+      brandBonus = 0.3
     } else if (
       (firstA.startsWith(firstB) || firstB.startsWith(firstA)) &&
       Math.min(firstA.length, firstB.length) >= 3
     ) {
-      brandBonus = 0.2
+      brandBonus = 0.25
     }
+  }
+
+  // Verifica se qualquer token significativo de A coincide exatamente com qualquer um de B (ex: "netlab", "biocentrix", "swift", "starlink", "autentique", "arquivei")
+  const anyTokenMatch = tokensA.some((tA) => tokensB.some((tB) => tA === tB && tA.length >= 4))
+  if (anyTokenMatch && brandBonus === 0) {
+    brandBonus = 0.25
   }
 
   return Math.min(1.0, overlapScore * 0.75 + brandBonus)

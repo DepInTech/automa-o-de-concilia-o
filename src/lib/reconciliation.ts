@@ -18,17 +18,17 @@ import {
 export function getSystemValue(sys: SystemRecord, bank: BankType): number {
   if (bank === 'itau') {
     const val = sys.total !== null && sys.total !== undefined ? sys.total : sys.credito
-    return Math.abs(normalizeMoneyValue(val))
+    return normalizeMoneyValue(val)
   }
   const val = sys.credito !== null && sys.credito !== undefined ? sys.credito : sys.total
-  return Math.abs(normalizeMoneyValue(val))
+  return normalizeMoneyValue(val)
 }
 
 /**
- * Extrai o valor da fatura de forma tolerante
+ * Extrai o valor da fatura de forma tolerante (preservando sinal de estorno)
  */
 export function getCardValue(card: CardRecord): number {
-  return Math.abs(normalizeMoneyValue(card.valor))
+  return normalizeMoneyValue(card.valor)
 }
 
 function parseBrazilianDateTimestamp(dateStr: string): number {
@@ -202,16 +202,21 @@ export function reconcileData(
   const matchedSystemIds = new Set<string>()
   const matchedCardIds = new Set<string>()
 
-  // Pré-calcula valores de cada registro
-  const sysWithVals = systemRecords.map((sys) => ({
-    sys,
-    val: getSystemValue(sys, bank),
-  }))
+  // REQUISITO 3: ETAPA INTERNA DE ORGANIZAÇÃO DOS LANÇAMENTOS POR VALOR CRESCENTE EM CADA FONTE
+  // Organiza os lançamentos por valor crescente para facilitar a busca e otimização
+  const sysWithVals = systemRecords
+    .map((sys) => ({
+      sys,
+      val: getSystemValue(sys, bank),
+    }))
+    .sort((a, b) => a.val - b.val)
 
-  const cardWithVals = cardRecords.map((card) => ({
-    card,
-    val: getCardValue(card),
-  }))
+  const cardWithVals = cardRecords
+    .map((card) => ({
+      card,
+      val: getCardValue(card),
+    }))
+    .sort((a, b) => a.val - b.val)
 
   // Gera todos os pares possíveis candidatos
   const candidates: MatchCandidate[] = []
@@ -222,25 +227,30 @@ export function reconcileData(
     }
   }
 
-  // Ordena os candidatos por prioridade de matching:
-  // 1) Score total descrescente
-  // 2) Maior similaridade de nome
-  // 3) Menor diferença de valor
+  // PRIORIDADE DE CORRESPONDÊNCIA (Requisitos 4, 5 e 6):
+  // 1) Estabelecimento correspondente e valor igual (nameSim alto + isExactVal)
+  // 2) Nome abreviado / semelhante e valor igual (isExactVal + nameSim razoável)
+  // 3) Estabelecimento correspondente com valor diferente (DIVERGENTE)
+  // Ordena os candidatos por score decrescente, priorizando valor exato e nameSim
   candidates.sort((a, b) => {
+    const aExact = Math.abs(a.diffVal) < 0.01
+    const bExact = Math.abs(b.diffVal) < 0.01
+    if (aExact && !bExact) return -1
+    if (!aExact && bExact) return 1
+
     if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore
     if (b.nameSim !== a.nameSim) return b.nameSim - a.nameSim
     return Math.abs(a.diffVal) - Math.abs(b.diffVal)
   })
 
-  // FASE 1: Pareamento dos "CONCILIADO" (mesmo estabelecimento / semelhante + mesmo valor)
-  // Ordem já prioriza score total, nameSim e menor diferença de valor
+  // FASE 1: Correspondências Exatas de Valor com Alta/Média Similaridade de Estabelecimento
+  // (Requisito 6: compras repetidas de mesmo estabelecimento associam individualmente 1-para-1)
   for (const cand of candidates) {
     if (matchedSystemIds.has(cand.sys.id) || matchedCardIds.has(cand.card.id)) {
       continue
     }
 
     const isExactVal = Math.abs(cand.diffVal) < 0.01
-    // Se o valor for exato e houver similaridade razoável de nome (>= 0.3)
     if (isExactVal && cand.nameSim >= 0.3) {
       matchedSystemIds.add(cand.sys.id)
       matchedCardIds.add(cand.card.id)
@@ -261,20 +271,20 @@ export function reconcileData(
         status: 'GREEN',
         origem: 'AMBOS',
         classificacao: 'CONCILIADO',
-        motivo: cand.reason || 'Valor e estabelecimento compatíveis',
+        motivo: 'Estabelecimento e valor conciliados com sucesso',
         scoreConfianca: cand.totalScore,
       })
     }
   }
 
-  // FASE 1b: Pareamento de valor exato com similaridade marginal (0.2 a 0.3) apenas se não houver outra opção
+  // FASE 1b: Pareamento de valor exato com similaridade abreviada/marginal (0.2 a 0.3)
   for (const cand of candidates) {
     if (matchedSystemIds.has(cand.sys.id) || matchedCardIds.has(cand.card.id)) {
       continue
     }
 
     const isExactVal = Math.abs(cand.diffVal) < 0.01
-    if (isExactVal && cand.nameSim >= 0.22 && cand.refMatch) {
+    if (isExactVal && (cand.nameSim >= 0.22 || cand.refMatch)) {
       matchedSystemIds.add(cand.sys.id)
       matchedCardIds.add(cand.card.id)
 
@@ -294,24 +304,24 @@ export function reconcileData(
         status: 'GREEN',
         origem: 'AMBOS',
         classificacao: 'CONCILIADO',
-        motivo: 'Valor e referência compatíveis',
+        motivo: 'Estabelecimento abreviado e valor conciliados',
         scoreConfianca: cand.totalScore,
       })
     }
   }
 
-  // FASE 2: Pareamento de "DIVERGENTE" (mesmo estabelecimento ou semelhante, mas valores DIFERENTES)
-  // Regra obrigatória da usuária: "se o estabelecimento aparece várias vezes, primeiro procurar correspondência
-  // exata de valor antes de concluir divergência". Como a FASE 1 já consumiu todas as correspondências exatas,
-  // aqui só sobram os registros que realmente não têm par exato de valor.
+  // FASE 2: Pareamento de "DIVERGENTE" (AMARELO)
+  // Regra obrigatória: "Antes de classificar como divergente, verificar se existe outra compra do mesmo
+  // estabelecimento que corresponda exatamente ao valor." Como as Fases 1 e 1b já consumiram todas as
+  // correspondências exatas possíveis, aqui restam apenas os registros do mesmo estabelecimento que
+  // legitimamente possuem valores diferentes.
   for (const cand of candidates) {
     if (matchedSystemIds.has(cand.sys.id) || matchedCardIds.has(cand.card.id)) {
       continue
     }
 
-    // Para ser divergente (amarelo), precisa haver correspondência substancial de estabelecimento (nameSim >= 0.4)
-    // e valores diferentes.
-    if (cand.nameSim >= 0.4 && Math.abs(cand.diffVal) >= 0.01) {
+    // Para ser classificado como divergente, deve haver correspondência forte de estabelecimento (nameSim >= 0.45)
+    if (cand.nameSim >= 0.45 && Math.abs(cand.diffVal) >= 0.01) {
       matchedSystemIds.add(cand.sys.id)
       matchedCardIds.add(cand.card.id)
 
@@ -332,13 +342,13 @@ export function reconcileData(
         status: 'YELLOW',
         origem: 'AMBOS',
         classificacao: 'DIVERGENTE',
-        motivo: `Mesmo estabelecimento com valores diferentes (dif. R$ ${difAbs})`,
+        motivo: `Estabelecimento correspondente, porém valores divergentes (dif. R$ ${difAbs})`,
         scoreConfianca: cand.totalScore,
       })
     }
   }
 
-  // FASE 3: Registros que ficaram SOMENTE no Sistema (Odoo)
+  // FASE 3: Lançamentos exclusivos do Sistema Odoo (VERMELHO - SOMENTE SISTEMA)
   for (const s of sysWithVals) {
     if (matchedSystemIds.has(s.sys.id)) continue
 
@@ -358,12 +368,13 @@ export function reconcileData(
       status: 'RED',
       origem: 'SISTEMA',
       classificacao: 'SOMENTE_SISTEMA',
-      motivo: 'Não encontrado na fatura do cartão',
+      motivo: 'Existe no Odoo sem correspondência na fatura',
       scoreConfianca: 0,
     })
   }
 
-  // FASE 4: Registros que ficaram SOMENTE na Fatura (PDF)
+  // FASE 4: Lançamentos exclusivos da Fatura (VERMELHO - SOMENTE FATURA)
+  // Esperado para parcelas de meses anteriores, taxas e compras sem contraparte no Odoo
   for (const c of cardWithVals) {
     if (matchedCardIds.has(c.card.id)) continue
 
@@ -380,19 +391,17 @@ export function reconcileData(
       status: 'RED',
       origem: 'FATURA',
       classificacao: 'SOMENTE_FATURA',
-      motivo: 'Não encontrado no lançamento do Odoo',
+      motivo: 'Existe na fatura sem correspondência no lançamento contábil do Odoo',
       scoreConfianca: 0,
     })
   }
 
-  // Ao final, organiza o output em ordem decrescente por data para a visualização
+  // REQUISITO 9: Ordenação crescente por valor por padrão
+  // "Ordenação crescente por valor por padrão, permitindo ordenar também pelos valores do Odoo ou da fatura"
   return results.sort((a, b) => {
-    const tsA = parseBrazilianDateTimestamp(a.data)
-    const tsB = parseBrazilianDateTimestamp(b.data)
-    if (tsB !== tsA) return tsB - tsA
-    // Se datas iguais, ordena por maior valor
-    const valA = Math.max(a.credito || 0, a.valorFatura || 0)
-    const valB = Math.max(b.credito || 0, b.valorFatura || 0)
-    return valB - valA
+    const valA = a.credito !== null && a.credito !== undefined ? a.credito : a.valorFatura || 0
+    const valB = b.credito !== null && b.credito !== undefined ? b.credito : b.valorFatura || 0
+    if (valA !== valB) return valA - valB
+    return parseBrazilianDateTimestamp(a.data) - parseBrazilianDateTimestamp(b.data)
   })
 }
