@@ -76,12 +76,21 @@ export interface ReconciliationMetrics {
   totalRegistrosSistema: number
   totalRegistrosFatura: number
   paresConciliados: number
+  correspondenciasExatas: number
+  correspondenciasNomeSemelhante: number
   paresDivergentes: number
   somenteSistema: number
   somenteFatura: number
   casosEmRevisao: number
+  registrosDescartados: number
+  justificativaDescartes?: string
   totalValorSistema: number
   totalValorFatura: number
+  totalValorConciliadoSistema: number
+  totalValorConciliadoFatura: number
+  totalValorExclusivoSistema: number
+  totalValorExclusivoFatura: number
+  totalDiferencaDivergentes: number
   diferencaTotal: number
   percentualConciliacao: number
 }

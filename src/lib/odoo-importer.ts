@@ -34,12 +34,17 @@ export interface OdooParsedRecord {
 
 export interface OdooImportResult {
   sucesso: boolean
+  nomeArquivo?: string
+  abaUtilizada?: string
   registros: OdooParsedRecord[]
   detectedRows: number
+  valoresInvalidos: number
   totalMonetario: number
   colunaTotalDetectada: string | null
   colunaParceiroDetectada: string | null
   colunaDataDetectada: string | null
+  colunaDebitoDetectada?: string | null
+  colunaCreditoDetectada?: string | null
   colunasEncontradas: string[]
   avisos: string[]
   erro?: string
@@ -128,8 +133,11 @@ export async function importOdooFile(
       } else {
         return {
           sucesso: false,
+          nomeArquivo: fileName,
+          abaUtilizada: 'Desconhecida',
           registros: [],
           detectedRows: 0,
+          valoresInvalidos: 0,
           totalMonetario: 0,
           colunaTotalDetectada: null,
           colunaParceiroDetectada: null,
@@ -145,8 +153,11 @@ export async function importOdooFile(
   } catch (err) {
     return {
       sucesso: false,
+      nomeArquivo: fileName,
+      abaUtilizada: 'Desconhecida',
       registros: [],
       detectedRows: 0,
+      valoresInvalidos: 0,
       totalMonetario: 0,
       colunaTotalDetectada: null,
       colunaParceiroDetectada: null,
@@ -161,8 +172,11 @@ export async function importOdooFile(
   if (!headers.length || !rows.length) {
     return {
       sucesso: false,
+      nomeArquivo: fileName,
+      abaUtilizada: parsed.sheetName || 'Planilha Principal',
       registros: [],
       detectedRows: 0,
+      valoresInvalidos: 0,
       totalMonetario: 0,
       colunaTotalDetectada: null,
       colunaParceiroDetectada: null,
@@ -255,8 +269,11 @@ export async function importOdooFile(
   if (!colParceiro && !colMonetaria) {
     return {
       sucesso: false,
+      nomeArquivo: fileName,
+      abaUtilizada: parsed.sheetName || 'Planilha Principal',
       registros: [],
       detectedRows: rows.length,
+      valoresInvalidos: 0,
       totalMonetario: 0,
       colunaTotalDetectada: null,
       colunaParceiroDetectada: null,
@@ -269,11 +286,20 @@ export async function importOdooFile(
 
   const mappedRecords: OdooParsedRecord[] = []
   let somaTotal = 0
+  let valoresInvalidos = 0
 
   rows.forEach((row, idx) => {
     const rawParceiro = colParceiro ? row[colParceiro]?.trim() || '' : ''
     const rawVal = colMonetaria ? row[colMonetaria] : undefined
-    const parsedVal = rawVal !== undefined ? normalizeMoneyValue(rawVal) : 0
+    let parsedVal = 0
+
+    if (rawVal !== undefined && rawVal !== '') {
+      parsedVal = normalizeMoneyValue(rawVal)
+      if (isNaN(parsedVal)) {
+        valoresInvalidos++
+        parsedVal = 0
+      }
+    }
 
     // Ignora linhas sem parceiro e com valor zero
     if (!rawParceiro && parsedVal === 0) {
@@ -310,12 +336,17 @@ export async function importOdooFile(
 
   return {
     sucesso: true,
+    nomeArquivo: fileName,
+    abaUtilizada: parsed.sheetName || 'Planilha Principal',
     registros: mappedRecords,
     detectedRows: mappedRecords.length,
+    valoresInvalidos,
     totalMonetario: somaTotal,
     colunaTotalDetectada: colMonetaria,
     colunaParceiroDetectada: colParceiro,
     colunaDataDetectada: colData,
+    colunaDebitoDetectada: colDebito,
+    colunaCreditoDetectada: colCredito,
     colunasEncontradas: headers,
     avisos,
   }

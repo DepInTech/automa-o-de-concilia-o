@@ -4,6 +4,7 @@ export interface ParsedCSV {
   headers: string[]
   rows: Record<string, string>[]
   detectedRows: number
+  sheetName?: string
 }
 
 function normalizeHeader(text: string): string {
@@ -32,15 +33,29 @@ export function parseBrazilianNumber(value: string | number | null | undefined):
     const lastComma = v.lastIndexOf(',')
     const lastDot = v.lastIndexOf('.')
     if (lastComma > lastDot) {
-      // Formato brasileiro: 1.114,06
+      // Formato brasileiro: 1.114,06 ou 1.234,56
       v = v.replace(/\./g, '').replace(',', '.')
     } else {
-      // Formato americano/internacional com vírgula de milhar: 1,114.06
+      // Formato americano/internacional com vírgula de milhar: 1,114.06 ou 1,234.56
       v = v.replace(/,/g, '')
     }
   } else if (v.includes(',')) {
-    // Apenas vírgula: 1114,06
-    v = v.replace(',', '.')
+    const commaCount = (v.match(/,/g) || []).length
+    if (commaCount > 1) {
+      v = v.replace(/,/g, '')
+    } else {
+      v = v.replace(',', '.')
+    }
+  } else if (v.includes('.')) {
+    const dotCount = (v.match(/\./g) || []).length
+    if (dotCount > 1) {
+      v = v.replace(/\./g, '')
+    } else {
+      const parts = v.split('.')
+      if (parts[1]?.length === 3 && parts[0]?.length >= 1 && parts[0]?.length <= 3) {
+        v = v.replace(/\./g, '')
+      }
+    }
   }
   const n = Number(v)
   if (isNaN(n)) return null

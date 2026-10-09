@@ -48,6 +48,7 @@ export interface InvoiceConversionSummary {
   quantidadePaginas: number
   quantidadeTransacoes: number
   quantidadeRevisao: number
+  registrosComFalha: number
   totalValorReais: number
   paginasComFalha: number[]
   avisos: string[]
@@ -311,6 +312,7 @@ export async function convertInvoicePdfToExcel(
         quantidadePaginas: extraction.numPages || 0,
         quantidadeTransacoes: 0,
         quantidadeRevisao: 0,
+        registrosComFalha: 1,
         totalValorReais: 0,
         paginasComFalha: [1],
         avisos: [
@@ -365,6 +367,7 @@ export async function convertInvoicePdfToExcel(
 
   const totalValorReais = Math.round(deduped.reduce((sum, r) => sum + r.valorReais, 0) * 100) / 100
   const quantidadeRevisao = deduped.filter((r) => r.confianca < 85).length
+  const registrosComFalha = paginasComFalha.length
 
   if (deduped.length === 0) {
     return {
@@ -375,6 +378,7 @@ export async function convertInvoicePdfToExcel(
         quantidadePaginas: extraction.numPages,
         quantidadeTransacoes: 0,
         quantidadeRevisao: 0,
+        registrosComFalha: Math.max(1, paginasComFalha.length),
         totalValorReais: 0,
         paginasComFalha,
         avisos: [
@@ -456,6 +460,7 @@ export async function convertInvoicePdfToExcel(
       quantidadePaginas: extraction.numPages,
       quantidadeTransacoes: deduped.length,
       quantidadeRevisao,
+      registrosComFalha,
       totalValorReais,
       paginasComFalha,
       avisos,

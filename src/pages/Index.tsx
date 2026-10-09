@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BankSelector } from '@/components/bank-selector'
 import { UploadZone } from '@/components/upload-zone'
+import { StageAudit } from '@/components/stage-audit'
 import { SummaryCards } from '@/components/summary-cards'
 import { ResultsTable } from '@/components/results-table'
 import { StructuredValidation } from '@/components/structured-validation'
@@ -102,6 +103,8 @@ export default function Index() {
         const demoSysFile = new File([''], 'odoo_relatorio_sistema.xlsx')
         odooRes = {
           sucesso: true,
+          nomeArquivo: 'odoo_relatorio_sistema.xlsx',
+          abaUtilizada: 'Planilha Principal',
           registros: MOCK_SYSTEM_RECORDS.map((s, idx) => ({
             id: s.id,
             linhaOrigem: idx + 2,
@@ -117,10 +120,13 @@ export default function Index() {
             rawRow: {},
           })),
           detectedRows: MOCK_SYSTEM_RECORDS.length,
+          valoresInvalidos: 0,
           totalMonetario: MOCK_SYSTEM_RECORDS.reduce((acc, s) => acc + (s.total ?? s.credito), 0),
           colunaTotalDetectada: 'Total',
           colunaParceiroDetectada: 'Parceiro',
           colunaDataDetectada: 'Data',
+          colunaDebitoDetectada: 'Débito',
+          colunaCreditoDetectada: 'Crédito',
           colunasEncontradas: ['Data', 'Número', 'Referência', 'Parceiro', 'Total'],
           avisos: [],
         }
@@ -212,6 +218,8 @@ export default function Index() {
 
       const odooRes: OdooImportResult = {
         sucesso: true,
+        nomeArquivo: 'odoo_relatorio_demonstracao.xlsx',
+        abaUtilizada: 'Planilha Principal',
         registros: MOCK_SYSTEM_RECORDS.map((s, idx) => ({
           id: s.id,
           linhaOrigem: idx + 2,
@@ -227,10 +235,13 @@ export default function Index() {
           rawRow: {},
         })),
         detectedRows: MOCK_SYSTEM_RECORDS.length,
+        valoresInvalidos: 0,
         totalMonetario: MOCK_SYSTEM_RECORDS.reduce((acc, s) => acc + (s.total ?? s.credito), 0),
         colunaTotalDetectada: 'Total',
         colunaParceiroDetectada: 'Parceiro',
         colunaDataDetectada: 'Data',
+        colunaDebitoDetectada: 'Débito',
+        colunaCreditoDetectada: 'Crédito',
         colunasEncontradas: ['Data', 'Número', 'Referência', 'Parceiro', 'Total'],
         avisos: [],
       }
@@ -335,7 +346,16 @@ export default function Index() {
           </div>
         </div>
 
-        {/* Indicadores Redesenhados */}
+        {/* 1. Área de Auditoria Técnica Obrigatória por Etapa */}
+        <StageAudit
+          invoiceConversion={invoiceConversion}
+          odooImport={odooImport}
+          results={results}
+          onDownloadConvertedInvoice={handleDownloadConvertedInvoice}
+          hasConvertedInvoice={!!invoiceConversion?.excelBlob}
+        />
+
+        {/* 2. Indicadores e Totais Separados */}
         <SummaryCards
           results={results}
           systemRecordsCount={systemRecords.length}

@@ -84,6 +84,7 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
   }
 
   let sheetXml = ''
+  let selectedSheetName = 'Planilha Principal'
   // Para arquivos com múltiplas abas, se existir uma aba "Transacoes", prioriza-a
   const wbFile = files.get('xl/workbook.xml')
   const relsFile = files.get('xl/_rels/workbook.xml.rels')
@@ -113,6 +114,7 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
 
     if (targetSheet) {
       const rid = targetSheet.getAttribute('r:id')
+      selectedSheetName = targetSheet.getAttribute('name') || 'Sheet1'
       if (rid) {
         for (const rel of Array.from(relsDoc.getElementsByTagName('Relationship'))) {
           if (rel.getAttribute('Id') === rid) {
@@ -276,5 +278,5 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
     }
   }
 
-  return { headers, rows, detectedRows: rows.length }
+  return { headers, rows, detectedRows: rows.length, sheetName: selectedSheetName }
 }

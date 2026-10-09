@@ -118,9 +118,9 @@ export function ResultsTable({
       return (
         <Badge
           variant="outline"
-          className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-blue-100/80 text-blue-800 border-blue-300 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800"
+          className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
         >
-          ? Revisão Necessária
+          ? Ambíguo / Revisão
         </Badge>
       )
     }
@@ -182,30 +182,36 @@ export function ResultsTable({
   }
 
   const handleDownloadExcel = () => {
+    // Relatório completo de rastreabilidade (Item 8 da diretriz técnica)
     const headers = [
+      'ID Associação',
       'Data Fatura',
       'Data Odoo',
-      'Estabelecimento (Fatura)',
-      'Parceiro (Odoo)',
-      'Número',
+      'Estabelecimento Original (Fatura)',
+      'Parceiro Original (Odoo)',
+      'Número / NF',
       'Referência',
-      'Valor Fatura (R$)',
-      'Valor Odoo (R$)',
-      'Diferença (R$)',
-      'Status',
+      'Diário',
+      'Valor Original Fatura (R$)',
+      'Valor Original Odoo (R$)',
+      'Diferença Calculada (R$)',
+      'Status Final',
       'Classificação',
-      'Motivo da Classificação',
-      'Linha Odoo',
-      'Página Fatura',
+      'Critério / Motivo da Associação',
+      'Linha de Origem Odoo',
+      'Página de Origem Fatura',
+      'Internacional',
     ]
 
     const rows = data.map((r) => [
+      r.id,
       r.dataFatura || (r.origem === 'FATURA' || r.origem === 'AMBOS' ? r.data : ''),
       r.dataOdoo || (r.origem === 'SISTEMA' || r.origem === 'AMBOS' ? r.data : ''),
       r.estabelecimento || '',
       r.parceiro || '',
       r.numero || '',
       r.referencia || '',
+      r.lancamentoDiario || '',
       r.valorFatura !== null && r.valorFatura !== undefined ? r.valorFatura : '',
       r.credito !== null && r.credito !== undefined ? r.credito : '',
       r.diferenca !== null && r.diferenca !== undefined ? r.diferenca : '',
@@ -214,10 +220,11 @@ export function ResultsTable({
       r.motivo || '',
       r.linhaOdooOrigem ?? '',
       r.paginaFaturaOrigem ?? '',
+      r.isInternacional ? 'Sim' : 'Não',
     ])
 
     const sheet: ExcelSheet = {
-      name: 'Conciliação',
+      name: 'Rastreabilidade Conciliação',
       headers,
       rows,
     }

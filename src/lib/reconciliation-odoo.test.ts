@@ -333,6 +333,11 @@ describe('RECONSTRUÇÃO DA CONCILIAÇÃO FINANCEIRA - GRUPO EPA', () => {
     expect(normalizeMoneyValue('1954.12')).toBe(1954.12)
     expect(normalizeMoneyValue('1,114.06')).toBe(1114.06)
     expect(normalizeMoneyValue('R$ 1,114.06')).toBe(1114.06)
+    // Exemplo estrito da diretriz técnica do usuário:
+    expect(normalizeMoneyValue('R$ 1.234,56')).toBe(1234.56)
+    expect(normalizeMoneyValue('1.234,56')).toBe(1234.56)
+    expect(normalizeMoneyValue('1234,56')).toBe(1234.56)
+    expect(normalizeMoneyValue('1.234')).toBe(1234.0)
     expect(normalizeMoneyValue('-R$ 18,75')).toBe(-18.75)
     expect(normalizeMoneyValue('(18,75)')).toBe(-18.75)
   })
@@ -553,10 +558,15 @@ trailer << /Root 1 0 R >>
     const metrics = calculateReconciliationMetrics(results, sys.length, card.length)
 
     expect(metrics.paresConciliados).toBe(2)
+    expect(metrics.correspondenciasExatas).toBe(2)
     expect(metrics.somenteSistema).toBe(1)
     expect(metrics.somenteFatura).toBe(1)
     expect(metrics.totalValorSistema).toBe(3653.12) // 1954.12 + 1199 + 500
     expect(metrics.totalValorFatura).toBe(3453.12) // 1954.12 + 1199 + 300
+    expect(metrics.totalValorConciliadoSistema).toBe(3153.12)
+    expect(metrics.totalValorConciliadoFatura).toBe(3153.12)
+    expect(metrics.totalValorExclusivoSistema).toBe(500.0)
+    expect(metrics.totalValorExclusivoFatura).toBe(300.0)
     expect(metrics.diferencaTotal).toBe(-200.0) // 3453.12 - 3653.12
 
     const validation = validateExport(results, sys, card)

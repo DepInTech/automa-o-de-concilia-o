@@ -304,17 +304,45 @@ export function normalizeMoneyValue(val: unknown): number {
     const lastComma = str.lastIndexOf(',')
     const lastDot = str.lastIndexOf('.')
     if (lastComma > lastDot) {
-      // Padrão brasileiro 1.954,12 ou 1.114,06
+      // Padrão brasileiro 1.954,12 ou 1.114,06 (pontos de milhar, vírgula decimal)
       numeric = parseFloat(str.replace(/\./g, '').replace(',', '.'))
     } else {
-      // Padrão internacional 1,954.12 ou 1,114.06
+      // Padrão internacional 1,954.12 ou 1,114.06 (vírgulas de milhar, ponto decimal)
       numeric = parseFloat(str.replace(/,/g, ''))
     }
   } else if (str.includes(',')) {
-    // Vírgula como separador decimal (1954,12)
-    numeric = parseFloat(str.replace(',', '.'))
+    // Apenas vírgula: verificar se é separador de milhar brasileiro/internacional sem decimais (ex: "1,234,567" ou "1,234")
+    // Em contexto brasileiro, vírgula quase sempre é decimal, exceto se houver múltiplas vírgulas
+    const commaCount = (str.match(/,/g) || []).length
+    if (commaCount > 1) {
+      // Ex: "1,234,567" -> 1234567
+      numeric = parseFloat(str.replace(/,/g, ''))
+    } else {
+      // Ex: "1234,56" -> 1234.56
+      numeric = parseFloat(str.replace(',', '.'))
+    }
+  } else if (str.includes('.')) {
+    const dotCount = (str.match(/\./g) || []).length
+    if (dotCount > 1) {
+      // Múltiplos pontos no padrão brasileiro de milhar sem decimais: "1.234.567" -> 1234567
+      numeric = parseFloat(str.replace(/\./g, ''))
+    } else {
+      // Apenas um ponto: ex: "1.234" ou "1234.56"
+      // Se tiver exatamente 3 dígitos após o ponto (ex: "1.234"), no Brasil isso é separador de milhar (1234.00),
+      // a menos que o valor seja zero ou contexto de centavos.
+      // Exemplo da usuária: "R$ 1.234,56 deve ser interpretado como 1234,56, NUNCA como 1,23456 ou 123456"
+      const afterDot = str.split('.')[1] || ''
+      if (afterDot.length === 3 && str.split('.')[0].length >= 1 && str.split('.')[0].length <= 3) {
+        // Pode ser milhar brasileiro "1.234" -> 1234
+        // Mas se for número americano com 3 decimais "1.234", analisamos:
+        // Na conciliação financeira bancária brasileira (Itaú / Odoo), número com 1 ponto e 3 dígitos ex: "1.000" é milhar (1000 reais)
+        numeric = parseFloat(str.replace(/\./g, ''))
+      } else {
+        numeric = parseFloat(str) || 0
+      }
+    }
   } else {
-    // Apenas ponto ou inteiros (1954.12 ou 1954)
+    // Apenas dígitos inteiros (1954)
     numeric = parseFloat(str) || 0
   }
 

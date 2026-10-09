@@ -158,18 +158,21 @@ export function StructuredValidation({
               <span>Arquivo: {invoiceSummary?.nomeArquivo || 'fatura.pdf'}</span>
               <span>{invoiceSummary?.quantidadePaginas || 1} pág(s)</span>
             </div>
-            {invoiceSummary?.quantidadeRevisao ? (
-              <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
-                ⚠ {invoiceSummary.quantidadeRevisao} lançamentos com confiança média
-              </div>
-            ) : null}
+            <div className="text-[11px] text-[#647875] dark:text-[#A7C4C0] flex justify-between">
+              <span>Falhas de leitura: {invoiceSummary?.registrosComFalha ?? 0}</span>
+              {invoiceSummary?.quantidadeRevisao ? (
+                <span className="text-amber-700 dark:text-amber-400 font-medium">
+                  {invoiceSummary.quantidadeRevisao} p/ conferência
+                </span>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
 
         {/* Card Sistema Odoo */}
         <Card className="rounded-2xl border-2 border-[#00796F]/30 bg-white dark:bg-[#0D3834] shadow-sm">
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-xs font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9] flex items-center gap-1.5">
+            <CardTitle className="text-xs font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9] flex items-center gap-2">
               <Database className="w-4 h-4 text-[#00796F]" /> Sistema (Odoo)
             </CardTitle>
             <Badge
@@ -184,12 +187,15 @@ export function StructuredValidation({
               {formatCurrency(totalOdoo)}
             </div>
             <div className="text-xs text-[#647875] dark:text-[#A7C4C0] flex justify-between">
-              <span>Coluna: {odooResult?.colunaTotalDetectada || 'Total / Montante'}</span>
-              <span>100% mapeado</span>
+              <span>Aba: {odooResult?.abaUtilizada || 'Planilha'}</span>
+              <span>Valores inválidos: {odooResult?.valoresInvalidos ?? 0}</span>
+            </div>
+            <div className="text-[11px] text-[#647875] dark:text-[#A7C4C0]">
+              Coluna: {odooResult?.colunaTotalDetectada || 'Total / Montante'} (
+              {odooResult?.colunasEncontradas?.length || 5} colunas)
             </div>
           </CardContent>
         </Card>
-
         {/* Card Comparativo Inicial */}
         <Card className="rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0D3834] shadow-sm">
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">

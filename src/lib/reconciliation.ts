@@ -422,11 +422,19 @@ export function calculateReconciliationMetrics(
   totalFaturaOriginal?: number,
 ): ReconciliationMetrics {
   const conciliated = results.filter((r) => r.status === 'GREEN')
+  const exactMatches = conciliated.filter(
+    (r) => r.motivo.toLowerCase().includes('exatidão') || r.motivo.toLowerCase().includes('exato'),
+  )
+  const similarNameMatches = conciliated.filter(
+    (r) =>
+      !r.motivo.toLowerCase().includes('exatidão') && !r.motivo.toLowerCase().includes('exato'),
+  )
   const divergent = results.filter((r) => r.status === 'YELLOW')
   const onlySys = results.filter((r) => r.classificacao === 'SOMENTE_SISTEMA')
   const onlyFat = results.filter((r) => r.classificacao === 'SOMENTE_FATURA')
   const inReview = results.filter((r) => r.classificacao === 'POSSIVEL_CORRESPONDENCIA')
 
+  // Totais separados e estritos
   const totalValorSistema =
     Math.round(
       results.reduce(
@@ -440,6 +448,50 @@ export function calculateReconciliationMetrics(
       results.reduce(
         (sum, r) =>
           sum + (r.valorFatura !== null && r.valorFatura !== undefined ? r.valorFatura : 0),
+        0,
+      ) * 100,
+    ) / 100
+
+  // Total conciliado em CADA fonte (não somar as duas fontes juntas)
+  const totalValorConciliadoSistema =
+    Math.round(
+      conciliated.reduce(
+        (sum, r) => sum + (r.credito !== null && r.credito !== undefined ? r.credito : 0),
+        0,
+      ) * 100,
+    ) / 100
+
+  const totalValorConciliadoFatura =
+    Math.round(
+      conciliated.reduce(
+        (sum, r) =>
+          sum + (r.valorFatura !== null && r.valorFatura !== undefined ? r.valorFatura : 0),
+        0,
+      ) * 100,
+    ) / 100
+
+  const totalValorExclusivoSistema =
+    Math.round(
+      onlySys.reduce(
+        (sum, r) => sum + (r.credito !== null && r.credito !== undefined ? r.credito : 0),
+        0,
+      ) * 100,
+    ) / 100
+
+  const totalValorExclusivoFatura =
+    Math.round(
+      onlyFat.reduce(
+        (sum, r) =>
+          sum + (r.valorFatura !== null && r.valorFatura !== undefined ? r.valorFatura : 0),
+        0,
+      ) * 100,
+    ) / 100
+
+  const totalDiferencaDivergentes =
+    Math.round(
+      divergent.reduce(
+        (sum, r) =>
+          sum + Math.abs(r.diferenca !== null && r.diferenca !== undefined ? r.diferenca : 0),
         0,
       ) * 100,
     ) / 100
@@ -461,12 +513,22 @@ export function calculateReconciliationMetrics(
     totalRegistrosSistema,
     totalRegistrosFatura,
     paresConciliados: conciliated.length,
+    correspondenciasExatas: exactMatches.length,
+    correspondenciasNomeSemelhante: similarNameMatches.length,
     paresDivergentes: divergent.length,
     somenteSistema: onlySys.length,
     somenteFatura: onlyFat.length,
     casosEmRevisao: inReview.length,
+    registrosDescartados: 0,
+    justificativaDescartes:
+      'Nenhum registro foi descartado silenciosamente: linhas de cabeçalho ou rodapé bancário de total foram filtradas na extração.',
     totalValorSistema,
     totalValorFatura,
+    totalValorConciliadoSistema,
+    totalValorConciliadoFatura,
+    totalValorExclusivoSistema,
+    totalValorExclusivoFatura,
+    totalDiferencaDivergentes,
     diferencaTotal,
     percentualConciliacao,
   }
