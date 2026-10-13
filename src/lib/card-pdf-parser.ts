@@ -1,6 +1,6 @@
 import type { BankType, CardRecord } from './types'
 import { extractPdfText } from './pdf-parser'
-import { normalizeMoneyValue } from './normalization'
+import { normalizeMoneyValue, isFiscalIdentifierSequence } from './normalization'
 
 export interface StructuredCardRecord extends CardRecord {
   numero?: string
@@ -55,19 +55,34 @@ const SUMMARY_OR_FOOTER_PATTERNS = [
   /em\s+caso\s+de\s+d[uú]vidas/i,
   /ouvidoria/i,
   /sac\s+\d+/i,
+  /sac\b/i,
+  /fale\s+conosco/i,
+  /central\s+de\s+atendimento/i,
   /ag[eê]ncia\s+contacorrente/i,
   /fatura\s+do\s+cart[aã]o:/i,
   /vencimento:/i,
   /data\s+de\s+fechamento:/i,
   /produtos,\s+servi[cç]os\s+e\s+encargos/i,
+  // Padrões cadastrais e institucionais universais
+  /\bcnpj\b/i,
+  /\bcpf\b/i,
+  /\binscri[cç][aã]o\s+estadual\b/i,
+  /\bi\.?e\.?\b/i,
+  /\braz[aã]o\s+social\b/i,
+  /\bnome\s+empresarial\b/i,
+  /\btitular\s+(da\s+conta|do\s+cart[aã]o)\b/i,
+  /\bendere[cç]o\b/i,
+  /\bcep\b/i,
+  /\bbanco\s+(m[uú]ltiplo|s\.?a\.?)\b/i,
 ]
 
 /**
- * Verifica se um texto corresponde a totalizadores ou rodapés bancários
+ * Verifica se um texto corresponde a totalizadores, rodapés bancários ou cabeçalhos cadastrais
  */
 function isFooterOrTotalLine(line: string): boolean {
   const trimmed = line.trim()
   if (!trimmed || trimmed.length < 3) return true
+  if (isFiscalIdentifierSequence(trimmed)) return true
   return SUMMARY_OR_FOOTER_PATTERNS.some((pat) => pat.test(trimmed))
 }
 
@@ -108,24 +123,37 @@ function parseInlineInvoiceLine(line: string, index: number): StructuredCardReco
   const dateMatch = cleanLine.match(/^(\d{1,2}\s*[/.-]\s*\d{1,2}(?:\s*[/.-]\s*\d{2,4})?)\b/)
   if (!dateMatch) return null
 
+  // Rejeita se a linha contiver identificador fiscal (CNPJ, CPF, I.E.) em qualquer posição
+  if (isFiscalIdentifierSequence(cleanLine)) return null
+
   const rawDate = dateMatch[1].replace(/\s+/g, '')
   const remainder = cleanLine.slice(dateMatch[0].length).trim()
 
   // Procura valor no formato R$ ou numérico no final:
   // Aceita: "-R$ 18,75", "-18,75", "R$ 1.114,06", "R$1.954,12", "1.199,00", "1199,00", "- 18,75", "108,40"
-  // Também lida com sufixo opcional de parcela ex: "(01/03)" ou "01/02" se vier depois ou antes do valor
+  // Rejeita se o valor capturado for seguido ou precedido por barra de CNPJ (ex: 48.045.090/)
   const valMatch = remainder.match(
     /(?:-?\s*R\$\s*|-?\s*US\$\s*|-?\s*USD\s*)?(-?\s*R?\$?\s*[\d.,]+\d{2})\s*$/i,
   )
   if (!valMatch) return null
 
   const rawValueStr = valMatch[0].trim()
+
+  // Se o valor extraído for imediatamente adjacente a barra '/', como em '48.045.090/', rejeita
+  const valEndPos = remainder.lastIndexOf(rawValueStr) + rawValueStr.length
+  const afterVal = remainder.slice(valEndPos).trim()
+  const beforeValIdx = remainder.lastIndexOf(rawValueStr)
+  const beforeValChar = beforeValIdx > 0 ? remainder[beforeValIdx - 1] : ''
+  if (afterVal.startsWith('/') || beforeValChar === '/') {
+    return null
+  }
+
   const parsedMoney = normalizeMoneyValue(rawValueStr)
   // Preserva estornos como valores negativos, mas exclui zero
   if (isNaN(parsedMoney) || parsedMoney === 0) return null
 
   let desc = remainder
-    .slice(0, remainder.length - rawValueStr.length)
+    .slice(0, remainder.lastIndexOf(rawValueStr))
     .replace(/^[-:| ]+|[-:| ]+$/g, '')
     .trim()
   if (!desc || desc.length < 2 || isFooterOrTotalLine(desc)) return null
@@ -283,7 +311,11 @@ function parseInternacionaisSection(
     const simpleIntlMatch = l.match(
       /^(\d{1,2}[/.-]\d{1,2})\s+(.+?)\s+(?:USD\s*[\d,.]+\s+)?(?:-?R\$\s*[\d.,]+\d{2}|[\d.,]+\d{2})\s*$/i,
     )
-    if (simpleIntlMatch && !isFooterOrTotalLine(simpleIntlMatch[2])) {
+    if (
+      simpleIntlMatch &&
+      !isFooterOrTotalLine(simpleIntlMatch[2]) &&
+      !isFiscalIdentifierSequence(l)
+    ) {
       const inlineParsed = parseInlineInvoiceLine(l, globalIdx.current)
       if (inlineParsed) {
         records.push({
@@ -308,9 +340,16 @@ function parseInternacionaisSection(
     ) {
       // Cotação do dólar geralmente entre 4 e 25
       cotacoes.push(normalizeMoneyValue(l))
-    } else if (/^(?:-?\s*R\$\s*)?-?\d{1,3}(?:[.,]\d{3})*[,.]\d{2}$/i.test(l)) {
+    } else if (
+      /^(?:-?\s*R\$\s*)?-?\d{1,3}(?:[.,]\d{3})*[,.]\d{2}$/i.test(l) &&
+      !isFiscalIdentifierSequence(l)
+    ) {
       valores.push(normalizeMoneyValue(l))
-    } else if (l.length >= 3 && !/^(repasse\s+de\s+iof|iof)/i.test(l)) {
+    } else if (
+      l.length >= 3 &&
+      !/^(repasse\s+de\s+iof|iof)/i.test(l) &&
+      !isFiscalIdentifierSequence(l)
+    ) {
       descs.push(l)
     }
   }
@@ -432,9 +471,14 @@ function parseNacionais(lines: string[], globalIdx: { current: number }): Struct
     // Se não bateu inline, armazena para possível recomposição colunar
     if (/^\d{1,2}[/.-]\d{1,2}$/.test(l)) {
       colunarDates.push(l)
-    } else if (/^(?:-?\s*R\$\s*)?-?\s*[\d.,]+\d{2}$/i.test(l)) {
-      colunarValues.push(normalizeMoneyValue(l))
-    } else if (l.length >= 3 && !/total\s+de\s+lan[cç]amentos/i.test(l)) {
+    } else if (/^(?:-?\s*R\$\s*)?-?\s*[\d.,]+\d{2}$/i.test(l) && !isFiscalIdentifierSequence(l)) {
+      const v = normalizeMoneyValue(l)
+      if (v !== 0) colunarValues.push(v)
+    } else if (
+      l.length >= 3 &&
+      !/total\s+de\s+lan[cç]amentos/i.test(l) &&
+      !isFiscalIdentifierSequence(l)
+    ) {
       colunarDescs.push(l)
     }
   }
@@ -516,7 +560,7 @@ export async function parseCardPdf(
         let combined = line
         for (let j = i + 1; j < Math.min(i + 5, allLines.length); j++) {
           const next = allLines[j].trim()
-          if (!next) continue
+          if (!next || isFooterOrTotalLine(next)) continue
           combined += ' ' + next
           const parsed = parseInlineInvoiceLine(combined, globalIdx.current)
           if (parsed) {

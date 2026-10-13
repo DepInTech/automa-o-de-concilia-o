@@ -201,11 +201,25 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
   let headerRowIndex = -1
   for (let r = 0; r <= Math.min(25, maxRow); r++) {
     const rowValues: string[] = []
+    let fullRowText = ''
     for (let c = 0; c <= maxCol; c++) {
       const val = grid.get(`${r},${c}`)?.trim() || ''
-      if (val) rowValues.push(val)
+      if (val) {
+        rowValues.push(val)
+        fullRowText += ' ' + val
+      }
     }
     if (rowValues.length >= 2) {
+      // Ignora linhas de metadados institucionais/cadastrais prévios ao cabeçalho da tabela
+      // (ex.: relatório emitido com CNPJ da empresa, Inscrição Estadual, Razão Social antes da tabela de lançamentos)
+      const isInstitutionalMetadata =
+        /\b(?:cnpj|cpf|inscri[cç][aã]o\s+estadual|raz[aã]o\s+social|nome\s+empresarial|emiss[aã]o|relat[oó]rio)\b/i.test(
+          fullRowText,
+        ) && /\b\d{2}\.?\d{3}\.?\d{3}\b/.test(fullRowText)
+      if (isInstitutionalMetadata) {
+        continue
+      }
+
       // Verifica se parece um cabeçalho real (ex: tem "data" ou "parceiro" ou "total" ou "diario" ou "numero" ou "valor")
       const lowerJoined = rowValues.map((v) =>
         v
@@ -230,8 +244,8 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
         headerRowIndex = r
         break
       }
-      // Se ainda não encontrou cabeçalho com palavra-chave, mas achou a primeira linha com >= 2 células
-      if (headerRowIndex === -1) {
+      // Se ainda não encontrou cabeçalho com palavra-chave, guarda candidato preliminar se não for metadado
+      if (headerRowIndex === -1 && !isInstitutionalMetadata) {
         headerRowIndex = r
       }
     }
@@ -264,7 +278,7 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
     }
     if (hasData) {
       // Ignora apenas se for explicitamente uma linha de total ou rodapé da planilha (ex: "Total", "Total Geral", "Soma")
-      // Cuida para não descartar linhas reais caso o nome do parceiro seja curto
+      // ou se for linha institucional de rodapé contendo CNPJ/SAC/Ouvidoria sem lançamentos
       const trimmedCombined = rowTextCombined.trim()
       const isPureTotalRow =
         (trimmedCombined.startsWith('total geral') ||
@@ -272,7 +286,14 @@ export async function parseExcel(data: ArrayBuffer): Promise<ParsedCSV> {
           trimmedCombined === 'total' ||
           trimmedCombined.startsWith('resumo')) &&
         nonEmptyCount <= 3
-      if (!isPureTotalRow) {
+
+      const isCadastralFooter =
+        (/\bcnpj\b/i.test(trimmedCombined) ||
+          /\bsac\b/i.test(trimmedCombined) ||
+          /\bouvidoria\b/i.test(trimmedCombined)) &&
+        nonEmptyCount <= 3
+
+      if (!isPureTotalRow && !isCadastralFooter) {
         rows.push(row)
       }
     }

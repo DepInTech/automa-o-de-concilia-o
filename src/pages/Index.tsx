@@ -64,11 +64,25 @@ export default function Index() {
   }
 
   /**
+   * Reseta atomicamente todos os estados de dados de conciliação
+   * para assegurar que nenhum resíduo de importações anteriores permaneça.
+   */
+  const resetReconciliationState = () => {
+    setInvoiceConversion(null)
+    setOdooImport(null)
+    setSystemRecords([])
+    setCardRecords([])
+    setResults([])
+    setParseError(null)
+  }
+
+  /**
    * ETAPAS 1 e 2: Upload e Conversão da Fatura PDF para Excel + Importação do Odoo
    */
   const handleProcessFiles = async () => {
+    // Reset atômico do estado anterior ao iniciar cada nova importação
+    resetReconciliationState()
     setIsProcessing(true)
-    setParseError(null)
 
     try {
       // 1. Processamento e conversão da Fatura (PDF ou Planilha .xlsx/.csv) para Excel Estruturado
@@ -216,8 +230,9 @@ export default function Index() {
   }
 
   const handleDemoData = async () => {
+    // Reset atômico do estado anterior ao carregar demonstração
+    resetReconciliationState()
     setIsProcessing(true)
-    setParseError(null)
     try {
       const demoCardPdf = createMockInvoicePdfFile(bank)
       const convResult = await convertInvoicePdfToExcel(

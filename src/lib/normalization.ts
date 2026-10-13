@@ -457,6 +457,37 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
  * Normaliza valores monetários com precisão de 2 casas decimais.
  * "R$ 1.954,12", "1954.12", "1.954,12", "1954,12" -> 1954.12
  */
+/**
+ * Detecta se uma string contém máscara ou fragmento de identificador fiscal (CNPJ/CPF),
+ * como "48.045.090/0001-63", "48.045.090/", "123.456.789-00", etc.
+ * Impede que números fiscais ou seus fragmentos sejam acidentalmente interpretados como moeda.
+ */
+export function isFiscalIdentifierSequence(str: string): boolean {
+  if (!str) return false
+  const s = String(str).trim()
+
+  // CNPJ completo: 00.000.000/0000-00 ou 00000000/0000-00
+  if (/\b\d{2}\.?\d{3}\.?\d{3}\/\d{4}-?\d{2}\b/.test(s)) return true
+
+  // Fragmento de CNPJ com barra: ex "48.045.090/" ou "48.045.090/0001"
+  if (/\b\d{2}\.\d{3}\.\d{3}\//.test(s) || /\b\d{2}\.\d{3}\.\d{3}\/\d{1,4}/.test(s)) return true
+
+  // Sufixo ou prefixo adjacente à barra de CNPJ: ex "48.045.090/"
+  if (/\/\d{4}-?\d{2}\b/.test(s)) return true
+
+  // CPF completo: 000.000.000-00
+  if (/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/.test(s)) return true
+
+  // Inscrição Estadual com rótulo ou máscara de ponto/hífen comum
+  if (/\b(?:IE|I\.E\.|INSCRI[CÇ][AÃ]O\s+ESTADUAL)[\s:]*[\d.-]+/i.test(s)) return true
+
+  return false
+}
+
+/**
+ * Normaliza valores monetários com precisão de 2 casas decimais.
+ * "R$ 1.954,12", "1954.12", "1.954,12", "1954,12" -> 1954.12
+ */
 export function normalizeMoneyValue(val: unknown): number {
   if (typeof val === 'number') {
     return isNaN(val) ? 0 : Math.round(val * 100) / 100
@@ -464,6 +495,17 @@ export function normalizeMoneyValue(val: unknown): number {
   if (!val) return 0
 
   let str = String(val).trim()
+
+  // Rejeita strings que contenham ou derivem de identificador fiscal (CNPJ / CPF)
+  if (isFiscalIdentifierSequence(str)) {
+    return 0
+  }
+
+  // Se a string contiver barra '/' que não seja identificador de parcela (ex: 01/03)
+  // Valores monetários NÃO têm barras!
+  if (str.includes('/')) {
+    return 0
+  }
 
   // Remove moeda e espaços
   str = str.replace(/R\$/gi, '').replace(/US\$/gi, '').replace(/USD/gi, '').replace(/\s+/g, '')

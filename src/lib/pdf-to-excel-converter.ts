@@ -12,7 +12,11 @@
  */
 
 import { extractPdfText, type ExtractedPdfPage } from './pdf-parser'
-import { normalizeMoneyValue, normalizeEntityName } from './normalization'
+import {
+  normalizeMoneyValue,
+  normalizeEntityName,
+  isFiscalIdentifierSequence,
+} from './normalization'
 import { generateXlsxBlob, type ExcelSheet } from './xlsx-generator'
 
 export interface InvoiceExtractedRecord {
@@ -97,6 +101,9 @@ const SUMMARY_PATTERNS = [
   /em\s+caso\s+de\s+d[uú]vidas/i,
   /ouvidoria/i,
   /sac\s+\d+/i,
+  /sac\b/i,
+  /fale\s+conosco/i,
+  /central\s+de\s+atendimento/i,
   /ag[eê]ncia\s+contacorrente/i,
   /fatura\s+do\s+cart[aã]o:/i,
   /vencimento:/i,
@@ -104,11 +111,23 @@ const SUMMARY_PATTERNS = [
   /produtos,\s+servi[cç]os\s+e\s+encargos/i,
   /limite\s+de\s+cr[eé]dito/i,
   /limite\s+total/i,
+  // Padrões cadastrais e institucionais universais
+  /\bcnpj\b/i,
+  /\bcpf\b/i,
+  /\binscri[cç][aã]o\s+estadual\b/i,
+  /\bi\.?e\.?\b/i,
+  /\braz[aã]o\s+social\b/i,
+  /\bnome\s+empresarial\b/i,
+  /\btitular\s+(da\s+conta|do\s+cart[aã]o)\b/i,
+  /\bendere[cç]o\b/i,
+  /\bcep\b/i,
+  /\bbanco\s+(m[uú]ltiplo|s\.?a\.?)\b/i,
 ]
 
 function isSummaryOrFooter(line: string): boolean {
   const t = line.trim()
   if (!t || t.length < 3) return true
+  if (isFiscalIdentifierSequence(t)) return true
   return SUMMARY_PATTERNS.some((pat) => pat.test(t))
 }
 
@@ -148,6 +167,9 @@ function parseInvoiceLine(
   const dateMatch = clean.match(/^(\d{1,2}\s*[/.-]\s*\d{1,2}(?:\s*[/.-]\s*\d{2,4})?)\b/)
   if (!dateMatch) return null
 
+  // Rejeita linha inteira se tiver identificador fiscal (CNPJ, CPF, I.E.)
+  if (isFiscalIdentifierSequence(clean)) return null
+
   const rawDate = dateMatch[1].replace(/\s+/g, '')
   const remainder = clean.slice(dateMatch[0].length).trim()
 
@@ -171,6 +193,15 @@ function parseInvoiceLine(
   if (!valMatch) return null
 
   const rawValStr = valMatch[0].trim()
+
+  // Se o valor for adjacente a barra '/', como em '48.045.090/', rejeita
+  const valPos = remainder.lastIndexOf(rawValStr)
+  const afterValStr = remainder.slice(valPos + rawValStr.length).trim()
+  const beforeValChar = valPos > 0 ? remainder[valPos - 1] : ''
+  if (afterValStr.startsWith('/') || beforeValChar === '/') {
+    return null
+  }
+
   const valReais = normalizeMoneyValue(rawValStr)
   if (isNaN(valReais) || valReais === 0) return null
 
@@ -258,21 +289,24 @@ function extractRecordsFromPage(
         const valReais = normalizeMoneyValue(lastPart)
         if (valReais !== 0) {
           const desc = parts[1]
-          const isIntl = parts.length >= 5 || /usd|us\$/i.test(trimmed)
-          records.push({
-            id: `fat-${page.pageNumber}-${startIdx.val++}`,
-            data: normalizeCardDateYear(parts[0]),
-            descricaoOriginal: desc,
-            nomeNormalizado: normalizeEntityName(desc),
-            valorOriginal: isIntl && parts[2] ? normalizeMoneyValue(parts[2]) : Math.abs(valReais),
-            moedaOriginal: isIntl ? 'USD' : 'BRL',
-            valorReais: valReais,
-            tipo: isIntl ? 'Internacional' : 'Nacional',
-            paginaOrigem: page.pageNumber,
-            confianca: 95,
-            rawLine: trimmed,
-          })
-          continue
+          if (!isSummaryOrFooter(desc) && !isFiscalIdentifierSequence(desc)) {
+            const isIntl = parts.length >= 5 || /usd|us\$/i.test(trimmed)
+            records.push({
+              id: `fat-${page.pageNumber}-${startIdx.val++}`,
+              data: normalizeCardDateYear(parts[0]),
+              descricaoOriginal: desc,
+              nomeNormalizado: normalizeEntityName(desc),
+              valorOriginal:
+                isIntl && parts[2] ? normalizeMoneyValue(parts[2]) : Math.abs(valReais),
+              moedaOriginal: isIntl ? 'USD' : 'BRL',
+              valorReais: valReais,
+              tipo: isIntl ? 'Internacional' : 'Nacional',
+              paginaOrigem: page.pageNumber,
+              confianca: 95,
+              rawLine: trimmed,
+            })
+            continue
+          }
         }
       }
     }
@@ -341,12 +375,16 @@ function extractRecordsFromPage(
 
         if (isDateOnly(t)) {
           colDates.push(t)
-        } else if (isValueOnly(t)) {
+        } else if (isValueOnly(t) && !isFiscalIdentifierSequence(t)) {
           const v = normalizeMoneyValue(t)
           if (!isNaN(v) && v !== 0) {
             colVals.push(v)
           }
-        } else if (t.length >= 2 && !/^(iof|repasse\s+de\s+iof|cota[cç][aã]o)/i.test(t)) {
+        } else if (
+          t.length >= 2 &&
+          !/^(iof|repasse\s+de\s+iof|cota[cç][aã]o)/i.test(t) &&
+          !isFiscalIdentifierSequence(t)
+        ) {
           colDescs.push(t)
         }
       }

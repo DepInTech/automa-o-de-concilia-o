@@ -323,6 +323,19 @@ export async function importOdooFile(
       return
     }
 
+    // Ignora linhas institucionais / cadastrais no corpo da planilha (ex: cabeçalhos repetidos ou rodapés com CNPJ institucional)
+    const isCadastralRow =
+      (/\bcnpj\b/i.test(rawParceiro) || /\bcpf\b/i.test(rawParceiro)) &&
+      (/\b\d{2}\.?\d{3}\.?\d{3}\/\d{4}-?\d{2}\b/.test(rawParceiro) ||
+        /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/.test(rawParceiro) ||
+        /\b\d{2}\.\d{3}\.\d{3}\//.test(rawParceiro))
+    if (isCadastralRow) {
+      avisos.push(
+        `Linha cadastral/institucional (linha ${idx + 2}) ignorada na importação contábil.`,
+      )
+      return
+    }
+
     // Busca anotações manuais em colunas adicionais sem cabeçalho padronizado ou nomeadas observação/conferência
     let manualNote = ''
     for (const h of headers) {

@@ -4,6 +4,7 @@ import {
   calculateNameSimilarity,
   normalizeMoneyValue,
   calculateDateDifferenceInDays,
+  isFiscalIdentifierSequence,
 } from './normalization'
 import {
   reconcileData,
@@ -1800,6 +1801,99 @@ trailer << /Root 1 0 R >>
       // s-p1 e s-p2 devem ser GREEN (conciliados)
       expect(r1.find((r) => r.id.includes('s-p1'))?.status).toBe('GREEN')
       expect(r1.find((r) => r.id.includes('s-p2'))?.status).toBe('GREEN')
+    })
+  })
+
+  // =========================================================================
+  // TESTES DE PROTEÇÃO CONTRA REGISTRO FANTASMA E IDENTIFICADORES FISCAIS
+  // =========================================================================
+  describe('PROTEÇÃO ESTRUTURAL CONTRA IDENTIFICADORES FISCAIS E CABEÇALHOS CADASTRAIS', () => {
+    it('1. isFiscalIdentifierSequence identifica corretamente CNPJ completo, fragmento com barra e CPF', () => {
+      // CNPJ completo
+      expect(isFiscalIdentifierSequence('CNPJ 48.045.090/0001-63')).toBe(true)
+      expect(isFiscalIdentifierSequence('12.345.678/0001-90')).toBe(true)
+      // Fragmento de CNPJ
+      expect(isFiscalIdentifierSequence('48.045.090/')).toBe(true)
+      expect(isFiscalIdentifierSequence('48.045.090/0001')).toBe(true)
+      expect(isFiscalIdentifierSequence('/0001-63')).toBe(true)
+      // CPF
+      expect(isFiscalIdentifierSequence('123.456.789-00')).toBe(true)
+      // Inscrição Estadual
+      expect(isFiscalIdentifierSequence('Inscrição Estadual 123.456.789.000')).toBe(true)
+
+      // Valores monetários válidos NÃO são identificadores fiscais
+      expect(isFiscalIdentifierSequence('R$ 1.954,12')).toBe(false)
+      expect(isFiscalIdentifierSequence('1.114,06')).toBe(false)
+      expect(isFiscalIdentifierSequence('108,40')).toBe(false)
+      expect(isFiscalIdentifierSequence('1199.00')).toBe(false)
+    })
+
+    it('2. normalizeMoneyValue rejeita sequências com máscara fiscal ou barras', () => {
+      // Fragmentos e CNPJs completos não devem virar valores monetários
+      expect(normalizeMoneyValue('48.045.090/')).toBe(0)
+      expect(normalizeMoneyValue('48.045.090/0001-63')).toBe(0)
+      expect(normalizeMoneyValue('48.045.090')).toBe(48045090) // número puro pode ser numérico, mas com máscara/barra é zero:
+      expect(normalizeMoneyValue('CNPJ 48.045.090/0001-63')).toBe(0)
+      expect(normalizeMoneyValue('123.456.789-00')).toBe(0)
+      expect(normalizeMoneyValue('01/02')).toBe(0) // fração/parcela não é dinheiro
+
+      // Valores legítimos continuam normais
+      expect(normalizeMoneyValue('R$ 48.045,09')).toBe(48045.09)
+      expect(normalizeMoneyValue('1.954,12')).toBe(1954.12)
+    })
+
+    it('3. Linha de cabeçalho cadastral com Razão Social + CNPJ completo e fragmento "XX.XXX.XXX/" NÃO gera transação no conversor de fatura', async () => {
+      const csvContent = [
+        'Data;Estabelecimento;Valor',
+        '29/06;EPA ENG PROT AMBIENTAL LTDA CNPJ 48.045.090/0001-63;48.045.090/',
+        '10/06;SWIFT PIRACUAMA;1.954,12',
+        '15/06;DL *Starlink Brazil;1.199,00',
+      ].join('\n')
+
+      const file = new File([csvContent], 'fatura_teste.csv', { type: 'text/csv' })
+      const result = await convertInvoiceSpreadsheetToExcel(file, 'fatura_teste.csv')
+
+      expect(result.sucesso).toBe(true)
+      // Apenas os 2 lançamentos reais devem ser extraídos
+      expect(result.registros).toHaveLength(2)
+      expect(result.registros.some((r) => r.descricaoOriginal.includes('EPA ENG'))).toBe(false)
+      expect(result.registros.some((r) => r.valorReais === 48045090)).toBe(false)
+      expect(result.registros.map((r) => r.descricaoOriginal)).toEqual([
+        'SWIFT PIRACUAMA',
+        'DL *Starlink Brazil',
+      ])
+    })
+
+    it('4. Linha cadastral com data e fragmento fiscal adjacente rejeitada no Odoo Importer', async () => {
+      const odooCsv = [
+        'Data;Parceiro;Diário;Total',
+        '29/06/2026;EMPRESA ABC CNPJ 12.345.678/0001-90;CBR;12.345.678/',
+        '01/07/2026;SWIFT PIRACUAMA;CBR;1.954,12',
+      ].join('\n')
+
+      const file = new File([odooCsv], 'odoo_teste.csv', { type: 'text/csv' })
+      const odooRes = await importOdooFile(file, 'odoo_teste.csv')
+      expect(odooRes.sucesso).toBe(true)
+      // A linha cadastral deve ser descartada
+      expect(odooRes.registros).toHaveLength(1)
+      expect(odooRes.registros[0].parceiro).toBe('SWIFT PIRACUAMA')
+      expect(odooRes.registros[0].total).toBe(1954.12)
+    })
+
+    it('5. Rastreabilidade estrutural: nenhum registro exibido sem linha de origem real', async () => {
+      const csv = [
+        'Data;Parceiro;Diário;Total',
+        '01/07/2026;FORNECEDOR REAL 1;CBR;500,00',
+        '01/07/2026;FORNECEDOR REAL 2;CBR;300,00',
+      ].join('\n')
+
+      const file = new File([csv], 'odoo_audit.csv', { type: 'text/csv' })
+      const res = await importOdooFile(file, 'odoo_audit.csv')
+      expect(res.registros).toHaveLength(2)
+      // Cada registro deve ter número de linha válido e linha bruta original
+      expect(res.registros[0].linhaOrigem).toBe(2)
+      expect(res.registros[1].linhaOrigem).toBe(3)
+      expect(res.registros[0].rawRow).toBeDefined()
     })
   })
 })
