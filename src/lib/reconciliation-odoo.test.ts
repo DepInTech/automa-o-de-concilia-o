@@ -1840,6 +1840,8 @@ trailer << /Root 1 0 R >>
       // Valores legítimos continuam normais
       expect(normalizeMoneyValue('R$ 48.045,09')).toBe(48045.09)
       expect(normalizeMoneyValue('1.954,12')).toBe(1954.12)
+      // Strings com valores monetários seguidos de barra e observação/moeda não são zeradas
+      expect(normalizeMoneyValue('108,40 / USD 20,00')).toBe(108.4)
     })
 
     it('3. Linha de cabeçalho cadastral com Razão Social + CNPJ completo e fragmento "XX.XXX.XXX/" NÃO gera transação no conversor de fatura', async () => {
@@ -1894,6 +1896,235 @@ trailer << /Root 1 0 R >>
       expect(res.registros[0].linhaOrigem).toBe(2)
       expect(res.registros[1].linhaOrigem).toBe(3)
       expect(res.registros[0].rawRow).toBeDefined()
+    })
+
+    it('6. Planilha de Fatura Itaú XLSX real com colunas oficiais não descarta transações legítimas com palavras cadastrais ou observações', async () => {
+      // Cria planilha simulando a estrutura exata real da Fatura Itaú XLSX:
+      // Campos: Data, Estabelecimento, Portador, Parcela, Valor em reais, Valor em dólares, Cotação, Categoria, Observação
+      const faturaRows = [
+        [
+          'Data',
+          'Estabelecimento',
+          'Portador',
+          'Parcela',
+          'Valor em reais',
+          'Valor em dólares',
+          'Cotação',
+          'Categoria',
+          'Observação',
+        ],
+        // Transação 1: Estabelecimento com palavra "Razão" no nome
+        [
+          '10/06/2026',
+          'RAZAO SOCIAL COMERCIO DE MATERIAIS',
+          'DIRETORIA',
+          '01/01',
+          '350,00',
+          '',
+          '',
+          'Serviços',
+          'NF emitida',
+        ],
+        // Transação 2: Observação mencionando "CNPJ" ou "CPF" do fornecedor
+        [
+          '11/06/2026',
+          'POSTO SHELL MARGINAL',
+          'DIRETORIA',
+          '01/01',
+          '150,00',
+          '',
+          '',
+          'Combustível',
+          'Fornecedor CNPJ 12.345.678/0001-90',
+        ],
+        // Transação 3: Internacional com dólares e cotação
+        [
+          '12/06/2026',
+          'OPENAI *CHATGPT SUBSCR',
+          'TI',
+          '01/01',
+          '108,40',
+          '20,00',
+          '5,42',
+          'Software',
+          'Assinatura mensal',
+        ],
+        // Transação 4: Estabelecimento com "Endereço" ou "SAC" ou "Titular"
+        [
+          '13/06/2026',
+          'TITULAR SUPRIMENTOS LTDA',
+          'COMPRAS',
+          '01/01',
+          '500,00',
+          '',
+          '',
+          'Materiais',
+          'SAC atendido',
+        ],
+        // Transação 5: Compra parcelada legítima
+        [
+          '14/06/2026',
+          'MERCADOLIVRE*EQUIPAM',
+          'TI',
+          '01/03',
+          '200,00',
+          '',
+          '',
+          'Equipamentos',
+          'Parcela 1 de 3',
+        ],
+        // Linha fantasma cadastral do Itaú (Razão social da empresa titular + CNPJ + fragmento): DEVE ser descartada!
+        [
+          '29/06/2026',
+          'EPA ENG PROT AMBIENTAL LTDA CNPJ 48.045.090/0001-63',
+          '',
+          '',
+          '48.045.090/',
+          '',
+          '',
+          '',
+          '',
+        ],
+      ]
+
+      const xlsxBlob = generateXlsxBlob([
+        { name: 'Fatura', headers: faturaRows[0], rows: faturaRows.slice(1) },
+      ])
+      const arrayBuffer = await xlsxBlob.arrayBuffer()
+      const convResult = await convertInvoicePdfToExcel(arrayBuffer, 'fatura_itau_oficial.xlsx')
+
+      expect(convResult.sucesso).toBe(true)
+      // Deve ter extraído EXATAMENTE as 5 transações legítimas, NENHUMA descartada por falso positivo!
+      expect(convResult.registros).toHaveLength(5)
+      // A linha fantasma "EPA ENG PROT AMBIENTAL LTDA" NÃO pode estar presente
+      expect(convResult.registros.some((r) => r.descricaoOriginal.includes('EPA ENG'))).toBe(false)
+
+      // Total esperado: 350 + 150 + 108.40 + 500 + 200 = 1308.40
+      expect(convResult.resumo.totalValorReais).toBe(1308.4)
+
+      // Verifica todos os nomes legítimos preservados
+      expect(convResult.registros.map((r) => r.descricaoOriginal)).toEqual([
+        'RAZAO SOCIAL COMERCIO DE MATERIAIS',
+        'POSTO SHELL MARGINAL',
+        'OPENAI *CHATGPT SUBSCR',
+        'TITULAR SUPRIMENTOS LTDA',
+        'MERCADOLIVRE*EQUIPAM',
+      ])
+
+      // Verifica valores numéricos exatos
+      expect(convResult.registros.map((r) => r.valorReais)).toEqual([350, 150, 108.4, 500, 200])
+    })
+
+    it('7. Fluxo integrado Odoo XLSX + Fatura Itaú XLSX calcula metricas e totais de fatura sem perdas', async () => {
+      // 1. Fatura com 3 itens
+      const faturaRows = [
+        [
+          'Data',
+          'Estabelecimento',
+          'Portador',
+          'Parcela',
+          'Valor em reais',
+          'Categoria',
+          'Observação',
+        ],
+        [
+          '10/06/2026',
+          'SWIFT PIRACUAMA',
+          'DIRETORIA',
+          '01/01',
+          '1.954,12',
+          'Alimentação',
+          'Apenas Fatura',
+        ],
+        ['11/06/2026', 'POSTO SHELL MARGINAL', 'DIRETORIA', '01/01', '150,00', 'Combustível', ''],
+        ['12/06/2026', 'DL *Starlink Brazil', 'TI', '01/01', '1.199,00', 'Internet', ''],
+      ]
+      const faturaBlob = generateXlsxBlob([
+        { name: 'Fatura', headers: faturaRows[0], rows: faturaRows.slice(1) },
+      ])
+      const faturaBuffer = await faturaBlob.arrayBuffer()
+      const convResult = await convertInvoicePdfToExcel(faturaBuffer, 'fatura_itau_integrado.xlsx')
+
+      expect(convResult.sucesso).toBe(true)
+      expect(convResult.registros).toHaveLength(3)
+      // Total da fatura: 1954.12 + 150 + 1199 = 3303.12
+      expect(convResult.resumo.totalValorReais).toBe(3303.12)
+
+      // 2. Odoo com 3 lançamentos (um conciliado, um exclusivo anotado "Apenas odoo", um divergente)
+      const odooRows = [
+        ['Data', 'Número', 'Parceiro', 'Referência', 'Diário', 'Total', 'Observação'],
+        [
+          '01/07/2026',
+          'NF1',
+          'STARLINK BRAZIL SERVICOS DE INTERNET LTDA',
+          'REF1',
+          'CBR',
+          '1.199,00',
+          '',
+        ],
+        [
+          '01/07/2026',
+          'NF2',
+          'FORNECEDOR EXCLUSIVO SISTEMA',
+          'REF2',
+          'CBR',
+          '500,00',
+          'Apenas odoo',
+        ],
+        ['01/07/2026', 'NF3', 'POSTO SHELL MARGINAL', 'REF3', 'CBR', '160,00', 'divergente'],
+      ]
+      const odooBlob = generateXlsxBlob([
+        { name: 'Odoo', headers: odooRows[0], rows: odooRows.slice(1) },
+      ])
+      const odooBuffer = await odooBlob.arrayBuffer()
+      const odooRes = await importOdooFile(odooBuffer, 'odoo_integrado.xlsx')
+
+      expect(odooRes.sucesso).toBe(true)
+      expect(odooRes.registros).toHaveLength(3)
+      expect(odooRes.totalMonetario).toBe(1859.0) // 1199 + 500 + 160
+
+      // 3. Conciliação
+      const mappedCards: CardRecord[] = convResult.registros.map((r) => ({
+        id: r.id,
+        data: r.data,
+        estabelecimento: r.descricaoOriginal,
+        valor: r.valorReais,
+        observacaoManual: r.observacaoManual,
+      }))
+      const mappedSys: SystemRecord[] = odooRes.registros.map((r) => ({
+        id: r.id,
+        data: r.data,
+        parceiro: r.parceiro,
+        credito: r.total,
+        total: r.total,
+        debito: null,
+        observacaoManual: r.observacaoManual,
+      }))
+
+      const results = reconcileData(mappedSys, mappedCards, 'itau')
+      const metrics = calculateReconciliationMetrics(results, mappedSys.length, mappedCards.length)
+
+      // Total da fatura nos cards e métricas DEVE ser exatamente o total real extraído
+      expect(metrics.totalValorFatura).toBe(3303.12)
+      expect(metrics.totalRegistrosFatura).toBe(3)
+      expect(metrics.totalValorSistema).toBe(1859.0)
+      expect(metrics.totalRegistrosSistema).toBe(3)
+
+      // SWIFT é exclusivo fatura anotado "Apenas Fatura"
+      const swift = results.find((r) => r.estabelecimento === 'SWIFT PIRACUAMA')
+      expect(swift?.status).toBe('RED')
+      expect(swift?.classificacao).toBe('SOMENTE_FATURA')
+
+      // Starlink é conciliado (GREEN)
+      const starlink = results.find((r) => r.estabelecimento.includes('Starlink'))
+      expect(starlink?.status).toBe('GREEN')
+      expect(starlink?.classificacao).toBe('CONCILIADO')
+
+      // Shell é divergente (YELLOW)
+      const shell = results.find((r) => r.estabelecimento.includes('SHELL'))
+      expect(shell?.status).toBe('YELLOW')
+      expect(shell?.classificacao).toBe('DIVERGENTE')
+      expect(shell?.diferenca).toBe(-10.0) // 150 - 160 = -10
     })
   })
 })

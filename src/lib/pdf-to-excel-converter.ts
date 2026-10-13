@@ -111,17 +111,15 @@ const SUMMARY_PATTERNS = [
   /produtos,\s+servi[cç]os\s+e\s+encargos/i,
   /limite\s+de\s+cr[eé]dito/i,
   /limite\s+total/i,
-  // Padrões cadastrais e institucionais universais
-  /\bcnpj\b/i,
-  /\bcpf\b/i,
-  /\binscri[cç][aã]o\s+estadual\b/i,
-  /\bi\.?e\.?\b/i,
-  /\braz[aã]o\s+social\b/i,
-  /\bnome\s+empresarial\b/i,
-  /\btitular\s+(da\s+conta|do\s+cart[aã]o)\b/i,
-  /\bendere[cç]o\b/i,
-  /\bcep\b/i,
-  /\bbanco\s+(m[uú]ltiplo|s\.?a\.?)\b/i,
+  // Padrões cadastrais e institucionais universais (cabeçalhos fiscais de fatura)
+  /^(?:cnpj|cpf)[\s:]*[\d.-]+/i,
+  /^(?:inscri[cç][aã]o\s+estadual|i\.?e\.?)[\s:]*[\d.-]+/i,
+  /^raz[aã]o\s+social[\s:]*/i,
+  /^nome\s+empresarial[\s:]*/i,
+  /^titular\s+(?:da\s+conta|do\s+cart[aã]o)[\s:]*/i,
+  /^endere[cç]o[\s:]+/i,
+  /^cep[\s:]*\d{5}-?\d{3}/i,
+  /^banco\s+(?:m[uú]ltiplo|s\.?a\.?)\b/i,
 ]
 
 function isSummaryOrFooter(line: string): boolean {
@@ -527,20 +525,40 @@ export async function convertInvoiceSpreadsheetToExcel(
     'lancamento',
     'nome',
   ])
+  // Na fatura Itaú XLSX, as colunas podem ser "Valor em reais" e "Valor em dólares".
+  // Buscamos especificamente "valor em reais" antes de aliases genéricos como "valor" ou "total".
   const colValor = findCol([
     'valor em reais',
     'valor reais',
     'valor r$',
+    'valor (r$)',
+    'valor_reais',
     'valor',
     'total',
     'montante',
     'credito',
     'debito',
   ])
-  const colParcela = findCol(['parcela', 'n parcela', 'numero parcela'])
-  const colPortador = findCol(['portador', 'titular', 'cartao titular'])
+  const colValorDolar = findCol([
+    'valor em dolares',
+    'valor em dolar',
+    'valor dolares',
+    'valor us$',
+    'valor usd',
+    'valor (us$)',
+  ])
+  const colCotacao = findCol(['cotacao', 'cotacao us$', 'cotacao usd'])
+  const colParcela = findCol(['parcela', 'n parcela', 'numero parcela', 'nro parcela'])
+  const colPortador = findCol(['portador', 'titular', 'cartao titular', 'nome portador'])
   const colTipo = findCol(['tipo', 'tipo de lancamento', 'categoria'])
-  const colObservacao = findCol(['observacao', 'obs', 'conferencia', 'nota', 'status'])
+  const colObservacao = findCol([
+    'observacao',
+    'observacoes',
+    'obs',
+    'conferencia',
+    'nota',
+    'status',
+  ])
 
   const records: InvoiceExtractedRecord[] = []
   let rowIdx = 1
@@ -552,21 +570,42 @@ export async function convertInvoiceSpreadsheetToExcel(
     const rawParcela = colParcela ? r[colParcela]?.trim() || '' : ''
 
     // Detecta linha de total no rodapé (ex.: "Parcela: total", ou descrição vazia com valor igual à soma)
-    if (rawParcela.toLowerCase() === 'total' || /^(total|total\s+geral)$/i.test(rawDesc)) {
+    if (
+      rawParcela.toLowerCase() === 'total' ||
+      /^(total|total\s+geral|saldo\s+atual|total\s+desta\s+fatura|total\s+da\s+fatura)$/i.test(
+        rawDesc,
+      )
+    ) {
       continue
     }
 
     if (!rawDesc && (!rawVal || rawVal === '')) continue
-    if (isSummaryOrFooter(rawDesc)) continue
+
+    // Verifica se a descrição é cabeçalho ou rodapé cadastral
+    // Nota: um estabelecimento legítimo que contenha termos corporativos não deve ser descartado
+    // Linha cadastral fantasma (ex.: "EPA ENG PROT AMBIENTAL LTDA CNPJ 48.045.090/0001-63") possui CNPJ
+    if (isFiscalIdentifierSequence(rawDesc) || isSummaryOrFooter(rawDesc)) continue
 
     const valReais = rawVal !== undefined ? normalizeMoneyValue(rawVal) : 0
     if (isNaN(valReais) || valReais === 0) continue
 
+    // Se o valor em si for identificador fiscal (ex: 48.045.090/), rejeita
+    if (rawVal !== undefined && isFiscalIdentifierSequence(String(rawVal))) continue
+
     const rawDate = colData ? r[colData]?.trim() || '' : ''
     const normDate = normalizeCardDateYear(rawDate || '01/06')
     const nomeNorm = normalizeEntityName(rawDesc)
+    const rawValUs = colValorDolar ? r[colValorDolar] : undefined
+    const parsedValUs = rawValUs !== undefined ? normalizeMoneyValue(rawValUs) : 0
+    const rawCotacao = colCotacao ? r[colCotacao] : undefined
+
     const isEstorno = valReais < 0 || /estorno|reembolso|desconto/i.test(rawDesc)
-    const isIntl = /usd|us\$|moeda\s*local|cota[cç][aã]o/i.test(rawDesc)
+    const isIntl =
+      parsedValUs > 0 ||
+      (rawCotacao !== undefined && rawCotacao !== '') ||
+      /usd|us\$|moeda\s*local|cota[cç][aã]o/i.test(rawDesc) ||
+      (colTipo && /internacional/i.test(r[colTipo] || ''))
+
     const tipoVal = colTipo && r[colTipo]?.trim()
     const tipo: InvoiceExtractedRecord['tipo'] =
       tipoVal === 'Internacional' ||
@@ -585,7 +624,7 @@ export async function convertInvoiceSpreadsheetToExcel(
       data: normDate,
       descricaoOriginal: rawDesc,
       nomeNormalizado: nomeNorm,
-      valorOriginal: Math.abs(valReais),
+      valorOriginal: isIntl && parsedValUs > 0 ? parsedValUs : Math.abs(valReais),
       moedaOriginal: isIntl ? 'USD' : 'BRL',
       valorReais: valReais,
       portador: colPortador ? r[colPortador]?.trim() : undefined,

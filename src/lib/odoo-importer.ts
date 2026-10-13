@@ -12,7 +12,11 @@
 
 import { parseExcel } from './excel-parser'
 import { parseCSV, parseBrazilianNumber, type ParsedCSV } from './csv-parser'
-import { normalizeEntityName, normalizeMoneyValue } from './normalization'
+import {
+  isFiscalIdentifierSequence,
+  normalizeEntityName,
+  normalizeMoneyValue,
+} from './normalization'
 
 export interface OdooParsedRecord {
   id: string
@@ -329,7 +333,9 @@ export async function importOdooFile(
       (/\b\d{2}\.?\d{3}\.?\d{3}\/\d{4}-?\d{2}\b/.test(rawParceiro) ||
         /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/.test(rawParceiro) ||
         /\b\d{2}\.\d{3}\.\d{3}\//.test(rawParceiro))
-    if (isCadastralRow) {
+    // Também rejeita se o valor monetário for fragmento fiscal
+    const isFiscalVal = rawVal !== undefined && isFiscalIdentifierSequence(String(rawVal))
+    if (isCadastralRow || isFiscalVal) {
       avisos.push(
         `Linha cadastral/institucional (linha ${idx + 2}) ignorada na importação contábil.`,
       )

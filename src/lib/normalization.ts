@@ -501,10 +501,26 @@ export function normalizeMoneyValue(val: unknown): number {
     return 0
   }
 
-  // Se a string contiver barra '/' que não seja identificador de parcela (ex: 01/03)
-  // Valores monetários NÃO têm barras!
+  // Se a string contiver barra '/', verifica se é um padrão de valor seguido de cotação/parcela/sufixo
+  // ou se é uma fração/parcela pura ou fragmento fiscal
   if (str.includes('/')) {
-    return 0
+    // 1. Se for apenas parcela isolada ex "01/02", "01/10" -> não é valor monetário
+    if (/^\s*\d{1,2}\s*\/\s*\d{1,2}\s*$/.test(str)) {
+      return 0
+    }
+    // 2. Se a barra estiver colada a um número sem vírgula ou ponto decimal típico de moeda (ex: "48.045.090/")
+    if (/\d{2,}\/$/.test(str) || /^\/\d{2,}/.test(str)) {
+      return 0
+    }
+    // 3. Se for string como "108,40 / USD 20,00" ou "50,00 / 01/03", remove a barra e o conteúdo à direita
+    // desde que a parte esquerda seja um valor monetário válido
+    const parts = str.split('/')
+    const firstPart = parts[0].trim()
+    if (/(?:-?\s*R\$\s*|-?\s*US\$\s*|-?\s*USD\s*)?-?\s*[\d.,]+\d{2}/.test(firstPart)) {
+      str = firstPart
+    } else {
+      return 0
+    }
   }
 
   // Remove moeda e espaços

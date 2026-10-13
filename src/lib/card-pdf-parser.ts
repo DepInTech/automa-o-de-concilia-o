@@ -63,17 +63,15 @@ const SUMMARY_OR_FOOTER_PATTERNS = [
   /vencimento:/i,
   /data\s+de\s+fechamento:/i,
   /produtos,\s+servi[cç]os\s+e\s+encargos/i,
-  // Padrões cadastrais e institucionais universais
-  /\bcnpj\b/i,
-  /\bcpf\b/i,
-  /\binscri[cç][aã]o\s+estadual\b/i,
-  /\bi\.?e\.?\b/i,
-  /\braz[aã]o\s+social\b/i,
-  /\bnome\s+empresarial\b/i,
-  /\btitular\s+(da\s+conta|do\s+cart[aã]o)\b/i,
-  /\bendere[cç]o\b/i,
-  /\bcep\b/i,
-  /\bbanco\s+(m[uú]ltiplo|s\.?a\.?)\b/i,
+  // Padrões cadastrais e institucionais universais (cabeçalhos fiscais de fatura)
+  /^(?:cnpj|cpf)[\s:]*[\d.-]+/i,
+  /^(?:inscri[cç][aã]o\s+estadual|i\.?e\.?)[\s:]*[\d.-]+/i,
+  /^raz[aã]o\s+social[\s:]*/i,
+  /^nome\s+empresarial[\s:]*/i,
+  /^titular\s+(?:da\s+conta|do\s+cart[aã]o)[\s:]*/i,
+  /^endere[cç]o[\s:]+/i,
+  /^cep[\s:]*\d{5}-?\d{3}/i,
+  /^banco\s+(?:m[uú]ltiplo|s\.?a\.?)\b/i,
 ]
 
 /**
