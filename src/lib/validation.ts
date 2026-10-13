@@ -32,31 +32,56 @@ export function validateExport(
   return { isValid: errors.length === 0, errors }
 }
 
-export function generateExportCSV(results: ReconciliationResult[]): string {
+export function generateExportCSV(
+  results: ReconciliationResult[],
+  systemRecords?: SystemRecord[],
+  cardRecords?: CardRecord[],
+): string {
+  const sysMap = systemRecords
+    ? new Map<string, SystemRecord>(systemRecords.map((s) => [s.id, s]))
+    : null
+  const cardMap = cardRecords
+    ? new Map<string, CardRecord>(cardRecords.map((c) => [c.id, c]))
+    : null
+
   const header =
-    'Data da Fatura;Data do Odoo;Número;Referência;Lançamento Diário;Parceiro (Odoo);Estabelecimento (Fatura);Categoria;Valor Odoo (R$);Valor Fatura (R$);Diferença (R$);Status;Classificação;Motivo da Classificação;Origem;Anotação Fatura;Anotação Odoo'
+    'ID Associação;ID Fatura;ID Odoo;Data da Fatura;Data do Odoo;Número;Referência;Lançamento Diário;Parceiro (Odoo);Estabelecimento (Fatura);Categoria;Valor Odoo (R$);Valor Fatura (R$);Diferença (R$);Status;Classificação;Motivo da Classificação;Origem;Anotação Fatura;Anotação Odoo'
+
   const rows = results.map((r) => {
-    const dataFatura = r.origem === 'FATURA' || r.origem === 'AMBOS' ? r.data : ''
-    const dataOdoo = r.origem === 'SISTEMA' || r.origem === 'AMBOS' ? r.data : ''
-    const parceiroOdoo = r.parceiro !== '-' ? r.parceiro : ''
-    const estabFatura = r.estabelecimento !== '-' ? r.estabelecimento : ''
+    // Consulta prioritária aos registros de origem imutáveis
+    const origSys = r.systemRecordId && sysMap ? sysMap.get(r.systemRecordId) : undefined
+    const origCard = r.cardRecordId && cardMap ? cardMap.get(r.cardRecordId) : undefined
+
+    const dataFatura =
+      origCard?.data ||
+      (r.origem === 'FATURA' || r.origem === 'AMBOS' ? r.dataFatura || r.data : '')
+    const dataOdoo =
+      origSys?.data || (r.origem === 'SISTEMA' || r.origem === 'AMBOS' ? r.dataOdoo || r.data : '')
+    const parceiroOdoo = origSys?.parceiro || (r.parceiro !== '-' ? r.parceiro : '')
+    const estabFatura =
+      origCard?.estabelecimento || (r.estabelecimento !== '-' ? r.estabelecimento : '')
+
+    const rawValOdoo = origSys !== undefined ? origSys.credito : r.credito
+    const rawValFat = origCard !== undefined ? origCard.valor : r.valorFatura
+
     const valOdoo =
-      r.credito !== null && r.credito !== undefined ? r.credito.toFixed(2).replace('.', ',') : ''
+      rawValOdoo !== null && rawValOdoo !== undefined ? rawValOdoo.toFixed(2).replace('.', ',') : ''
     const valFatura =
-      r.valorFatura !== null && r.valorFatura !== undefined
-        ? r.valorFatura.toFixed(2).replace('.', ',')
-        : ''
+      rawValFat !== null && rawValFat !== undefined ? rawValFat.toFixed(2).replace('.', ',') : ''
     const dif =
       r.diferenca !== null && r.diferenca !== undefined
         ? r.diferenca.toFixed(2).replace('.', ',')
         : ''
 
     return [
+      r.id,
+      r.cardRecordId ?? '',
+      r.systemRecordId ?? '',
       dataFatura,
       dataOdoo,
-      r.numero ?? '',
-      r.referencia ?? '',
-      r.lancamentoDiario ?? '',
+      origSys?.numero ?? r.numero ?? '',
+      origSys?.referencia ?? r.referencia ?? '',
+      origSys?.lancamentoDiario ?? r.lancamentoDiario ?? '',
       parceiroOdoo,
       estabFatura,
       r.categoria ?? '',

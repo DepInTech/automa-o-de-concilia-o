@@ -62,6 +62,12 @@ export function ResultsTable({
 
   const adherenceReport = generateAdherenceReport(data)
 
+  // Mapa de registros originais indexados por seus IDs únicos estáveis
+  // para consulta e garantia inegociável de que nenhum valor exibido/exportado
+  // seja desvinculado ou alterado por filtros e ordenação da interface
+  const systemRecordsMap = new Map<string, SystemRecord>(systemRecords.map((sys) => [sys.id, sys]))
+  const cardRecordsMap = new Map<string, CardRecord>(cardRecords.map((card) => [card.id, card]))
+
   const filtered = data
     .filter((r) => {
       const q = search.toLowerCase()
@@ -77,16 +83,34 @@ export function ResultsTable({
     .sort((a, b) => {
       const valA = a.credito !== null && a.credito !== undefined ? a.credito : a.valorFatura || 0
       const valB = b.credito !== null && b.credito !== undefined ? b.credito : b.valorFatura || 0
-      if (sortOrder === 'VALOR_ASC') return valA - valB
-      if (sortOrder === 'VALOR_DESC') return valB - valA
-      if (sortOrder === 'VALOR_ODOO') return (a.credito || 0) - (b.credito || 0)
-      if (sortOrder === 'VALOR_FATURA') return (a.valorFatura || 0) - (b.valorFatura || 0)
+      if (sortOrder === 'VALOR_ASC') {
+        if (valA !== valB) return valA - valB
+        return a.id.localeCompare(b.id)
+      }
+      if (sortOrder === 'VALOR_DESC') {
+        if (valA !== valB) return valB - valA
+        return b.id.localeCompare(a.id)
+      }
+      if (sortOrder === 'VALOR_ODOO') {
+        const diffOdoo = (a.credito || 0) - (b.credito || 0)
+        if (diffOdoo !== 0) return diffOdoo
+        return a.id.localeCompare(b.id)
+      }
+      if (sortOrder === 'VALOR_FATURA') {
+        const diffFat = (a.valorFatura || 0) - (b.valorFatura || 0)
+        if (diffFat !== 0) return diffFat
+        return a.id.localeCompare(b.id)
+      }
       if (sortOrder === 'ESTABELECIMENTO') {
         const nameA = a.estabelecimento || a.parceiro || ''
         const nameB = b.estabelecimento || b.parceiro || ''
-        return nameA.localeCompare(nameB)
+        const nameCmp = nameA.localeCompare(nameB, 'pt-BR')
+        if (nameCmp !== 0) return nameCmp
+        return a.id.localeCompare(b.id)
       }
-      return a.data.localeCompare(b.data)
+      const dtCmp = a.data.localeCompare(b.data, 'pt-BR')
+      if (dtCmp !== 0) return dtCmp
+      return a.id.localeCompare(b.id)
     })
 
   const getRowClass = (r: ReconciliationResult) => {
@@ -168,14 +192,17 @@ export function ResultsTable({
       setValidationErrors(validation.errors)
       return
     }
-    const csv = generateExportCSV(data)
+    // Exportação estrita usando os dados originais indexados por ID
+    const csv = generateExportCSV(data, systemRecords, cardRecords)
     downloadCSV(csv, 'relatorio_conciliacao_epa.csv')
   }
 
   const handleDownloadExcel = () => {
-    // Relatório completo de rastreabilidade (Item 8 da diretriz técnica)
+    // Relatório completo de rastreabilidade com valores estritamente originais
     const headers = [
       'ID Associação',
+      'ID Origem Fatura',
+      'ID Origem Odoo',
       'Data Fatura',
       'Data Odoo',
       'Estabelecimento Original (Fatura)',
@@ -194,25 +221,50 @@ export function ResultsTable({
       'Internacional',
     ]
 
-    const rows = data.map((r) => [
-      r.id,
-      r.dataFatura || (r.origem === 'FATURA' || r.origem === 'AMBOS' ? r.data : ''),
-      r.dataOdoo || (r.origem === 'SISTEMA' || r.origem === 'AMBOS' ? r.data : ''),
-      r.estabelecimento || '',
-      r.parceiro || '',
-      r.numero || '',
-      r.referencia || '',
-      r.lancamentoDiario || '',
-      r.valorFatura !== null && r.valorFatura !== undefined ? r.valorFatura : '',
-      r.credito !== null && r.credito !== undefined ? r.credito : '',
-      r.diferenca !== null && r.diferenca !== undefined ? r.diferenca : '',
-      r.status,
-      r.classificacao,
-      r.motivo || '',
-      r.linhaOdooOrigem ?? '',
-      r.paginaFaturaOrigem ?? '',
-      r.isInternacional ? 'Sim' : 'Não',
-    ])
+    const rows = data.map((r) => {
+      // Busca dados originais imutáveis via ID estável
+      const origSys = r.systemRecordId ? systemRecordsMap.get(r.systemRecordId) : undefined
+      const origCard = r.cardRecordId ? cardRecordsMap.get(r.cardRecordId) : undefined
+
+      const valFat =
+        origCard !== undefined
+          ? origCard.valor
+          : r.valorFatura !== null && r.valorFatura !== undefined
+            ? r.valorFatura
+            : ''
+      const valOdoo =
+        origSys !== undefined
+          ? origSys.credito
+          : r.credito !== null && r.credito !== undefined
+            ? r.credito
+            : ''
+
+      return [
+        r.id,
+        r.cardRecordId || '',
+        r.systemRecordId || '',
+        origCard?.data ||
+          r.dataFatura ||
+          (r.origem === 'FATURA' || r.origem === 'AMBOS' ? r.data : ''),
+        origSys?.data ||
+          r.dataOdoo ||
+          (r.origem === 'SISTEMA' || r.origem === 'AMBOS' ? r.data : ''),
+        origCard?.estabelecimento || r.estabelecimento || '',
+        origSys?.parceiro || r.parceiro || '',
+        origSys?.numero || r.numero || '',
+        origSys?.referencia || r.referencia || '',
+        origSys?.lancamentoDiario || r.lancamentoDiario || '',
+        valFat,
+        valOdoo,
+        r.diferenca !== null && r.diferenca !== undefined ? r.diferenca : '',
+        r.status,
+        r.classificacao,
+        r.motivo || '',
+        r.linhaOdooOrigem ?? '',
+        r.paginaFaturaOrigem ?? '',
+        r.isInternacional ? 'Sim' : 'Não',
+      ]
+    })
 
     const sheets: ExcelSheet[] = [
       {

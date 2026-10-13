@@ -24,6 +24,7 @@ import {
 } from '@/lib/pdf-to-excel-converter'
 import { importOdooFile, type OdooImportResult } from '@/lib/odoo-importer'
 import { reconcileData } from '@/lib/reconciliation'
+import { cloneAndFreezeArray } from '@/lib/immutability'
 import { downloadXlsxFile } from '@/lib/xlsx-generator'
 import { generateSystemCSV, downloadCSV } from '@/lib/sample-csv'
 import { createMockInvoicePdfFile } from '@/lib/sample-pdf'
@@ -153,36 +154,40 @@ export default function Index() {
         }
       }
 
-      // Prepara os registros para os próximos passos
-      const mappedCards: CardRecord[] = convResult.registros.map((r) => ({
-        id: r.id,
-        data: r.data,
-        estabelecimento: r.descricaoOriginal,
-        valor: r.valorReais,
-        categoria: r.tipo,
-        isInternacional: r.tipo === 'Internacional',
-        moedaGlobal: r.moedaOriginal,
-        parcela: r.parcela,
-        cartaoTitular: r.portador,
-        observacaoManual: r.observacaoManual,
-        paginaOrigem: r.paginaOrigem,
-        confianca: r.confianca,
-      }))
+      // Prepara os registros para os próximos passos garantindo imutabilidade profunda
+      const mappedCards: CardRecord[] = cloneAndFreezeArray(
+        convResult.registros.map((r) => ({
+          id: r.id,
+          data: r.data,
+          estabelecimento: r.descricaoOriginal,
+          valor: r.valorReais,
+          categoria: r.tipo,
+          isInternacional: r.tipo === 'Internacional',
+          moedaGlobal: r.moedaOriginal,
+          parcela: r.parcela,
+          cartaoTitular: r.portador,
+          observacaoManual: r.observacaoManual,
+          paginaOrigem: r.paginaOrigem,
+          confianca: r.confianca,
+        })),
+      ) as CardRecord[]
 
-      const mappedSystem: SystemRecord[] = odooRes.registros.map((r) => ({
-        id: r.id,
-        data: r.data,
-        parceiro: r.parceiro,
-        lancamentoDiario: r.lancamentoDiario,
-        numero: r.numero,
-        referencia: r.referencia,
-        categoria: r.categoria,
-        debito: r.debito,
-        credito: r.credito,
-        total: r.total,
-        linhaOrigem: r.linhaOrigem,
-        observacaoManual: r.observacaoManual,
-      }))
+      const mappedSystem: SystemRecord[] = cloneAndFreezeArray(
+        odooRes.registros.map((r) => ({
+          id: r.id,
+          data: r.data,
+          parceiro: r.parceiro,
+          lancamentoDiario: r.lancamentoDiario,
+          numero: r.numero,
+          referencia: r.referencia,
+          categoria: r.categoria,
+          debito: r.debito,
+          credito: r.credito,
+          total: r.total,
+          linhaOrigem: r.linhaOrigem,
+          observacaoManual: r.observacaoManual,
+        })),
+      ) as SystemRecord[]
 
       setInvoiceConversion(convResult)
       setOdooImport(odooRes)
@@ -270,33 +275,37 @@ export default function Index() {
         avisos: [],
       }
 
-      const mappedCards: CardRecord[] = convResult.registros.map((r) => ({
-        id: r.id,
-        data: r.data,
-        estabelecimento: r.descricaoOriginal,
-        valor: r.valorReais,
-        categoria: r.tipo,
-        isInternacional: r.tipo === 'Internacional',
-        moedaGlobal: r.moedaOriginal,
-        parcela: r.parcela,
-        cartaoTitular: r.portador,
-        paginaOrigem: r.paginaOrigem,
-        confianca: r.confianca,
-      }))
+      const mappedCards: CardRecord[] = cloneAndFreezeArray(
+        convResult.registros.map((r) => ({
+          id: r.id,
+          data: r.data,
+          estabelecimento: r.descricaoOriginal,
+          valor: r.valorReais,
+          categoria: r.tipo,
+          isInternacional: r.tipo === 'Internacional',
+          moedaGlobal: r.moedaOriginal,
+          parcela: r.parcela,
+          cartaoTitular: r.portador,
+          paginaOrigem: r.paginaOrigem,
+          confianca: r.confianca,
+        })),
+      ) as CardRecord[]
 
-      const mappedSystem: SystemRecord[] = odooRes.registros.map((r) => ({
-        id: r.id,
-        data: r.data,
-        parceiro: r.parceiro,
-        lancamentoDiario: r.lancamentoDiario,
-        numero: r.numero,
-        referencia: r.referencia,
-        categoria: r.categoria,
-        debito: r.debito,
-        credito: r.credito,
-        total: r.total,
-        linhaOrigem: r.linhaOrigem,
-      }))
+      const mappedSystem: SystemRecord[] = cloneAndFreezeArray(
+        odooRes.registros.map((r) => ({
+          id: r.id,
+          data: r.data,
+          parceiro: r.parceiro,
+          lancamentoDiario: r.lancamentoDiario,
+          numero: r.numero,
+          referencia: r.referencia,
+          categoria: r.categoria,
+          debito: r.debito,
+          credito: r.credito,
+          total: r.total,
+          linhaOrigem: r.linhaOrigem,
+        })),
+      ) as SystemRecord[]
 
       setInvoiceConversion(convResult)
       setOdooImport(odooRes)

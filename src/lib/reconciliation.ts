@@ -43,24 +43,30 @@ import {
   calculateDateDifferenceInDays,
   parseFlexibleDate,
 } from './normalization'
+import {
+  cloneAndFreezeArray,
+  computeStrictDifference,
+  roundToCents,
+  toIntegerCents,
+} from './immutability'
 
 /**
- * Extrai o valor monetário do registro do Odoo
+ * Extrai o valor monetário do registro do Odoo com precisão de centavos
  */
 export function getSystemValue(sys: SystemRecord, bank: BankType = 'itau'): number {
   if (bank === 'itau') {
     const val = sys.total !== null && sys.total !== undefined ? sys.total : sys.credito
-    return normalizeMoneyValue(val)
+    return roundToCents(normalizeMoneyValue(val))
   }
   const val = sys.credito !== null && sys.credito !== undefined ? sys.credito : sys.total
-  return normalizeMoneyValue(val)
+  return roundToCents(normalizeMoneyValue(val))
 }
 
 /**
- * Extrai o valor monetário da fatura (preserva estorno como negativo)
+ * Extrai o valor monetário da fatura (preserva estorno como negativo) com precisão de centavos
  */
 export function getCardValue(card: CardRecord): number {
-  return normalizeMoneyValue(card.valor)
+  return roundToCents(normalizeMoneyValue(card.valor))
 }
 
 function parseDateTimestamp(dateStr?: string): number {
@@ -93,9 +99,12 @@ function evaluateCandidate(
   sysVal: number,
   cardVal: number,
 ): MatchCandidate {
-  const diffVal = Math.round((cardVal - sysVal) * 100) / 100
+  const diffVal = computeStrictDifference(cardVal, sysVal)
+  const cardCents = toIntegerCents(cardVal)
+  const sysCents = toIntegerCents(sysVal)
+  const absDiffCents = Math.abs(cardCents - sysCents)
+  const isExactVal = absDiffCents === 0
   const absDiff = Math.abs(diffVal)
-  const isExactVal = absDiff < 0.01
 
   const nameSim = calculateNameSimilarity(sys.parceiro, card.estabelecimento)
   const dateDiffDays = calculateDateDifferenceInDays(sys.data, card.data)
@@ -190,6 +199,7 @@ export function reconcileData(
   // 1. Organização preliminar padronizada canônica para garantir determinismo total
   // Ordena por valor e depois por campos intrínsecos de negócio (parceiro/estabelecimento, data)
   // NÃO depende da ordem em que os arquivos foram lidos nem da posição de linha
+  // Trabalha com referências aos objetos originais (read-only), sem qualquer mutação de campos
   const normalizedSys = systemRecords
     .map((sys) => ({
       sys,
@@ -198,9 +208,9 @@ export function reconcileData(
     }))
     .sort((a, b) => {
       if (a.val !== b.val) return a.val - b.val
-      const nameCmp = (a.sys.parceiro || '').localeCompare(b.sys.parceiro || '')
+      const nameCmp = (a.sys.parceiro || '').localeCompare(b.sys.parceiro || '', 'pt-BR')
       if (nameCmp !== 0) return nameCmp
-      const dateCmp = (a.sys.data || '').localeCompare(b.sys.data || '')
+      const dateCmp = (a.sys.data || '').localeCompare(b.sys.data || '', 'pt-BR')
       if (dateCmp !== 0) return dateCmp
       return (a.sys.id || '').localeCompare(b.sys.id || '')
     })
@@ -213,9 +223,12 @@ export function reconcileData(
     }))
     .sort((a, b) => {
       if (a.val !== b.val) return a.val - b.val
-      const nameCmp = (a.card.estabelecimento || '').localeCompare(b.card.estabelecimento || '')
+      const nameCmp = (a.card.estabelecimento || '').localeCompare(
+        b.card.estabelecimento || '',
+        'pt-BR',
+      )
       if (nameCmp !== 0) return nameCmp
-      const dateCmp = (a.card.data || '').localeCompare(b.card.data || '')
+      const dateCmp = (a.card.data || '').localeCompare(b.card.data || '', 'pt-BR')
       if (dateCmp !== 0) return dateCmp
       return (a.card.id || '').localeCompare(b.card.id || '')
     })
@@ -228,6 +241,7 @@ export function reconcileData(
       matchedSystemIds.add(s.sys.id)
       results.push({
         id: `RED-SYS-${s.sys.id}`,
+        systemRecordId: s.sys.id,
         dataOdoo: s.sys.data,
         data: s.sys.data,
         numero: s.sys.numero,
@@ -237,7 +251,7 @@ export function reconcileData(
         estabelecimento: '-',
         categoria: s.sys.categoria || '',
         debito: s.sys.debito,
-        credito: s.val,
+        credito: s.sys.credito ?? s.val,
         valorFatura: null,
         diferenca: null,
         status: 'RED',
@@ -256,6 +270,7 @@ export function reconcileData(
       matchedCardIds.add(c.card.id)
       results.push({
         id: `RED-CARD-${c.card.id}`,
+        cardRecordId: c.card.id,
         dataFatura: c.card.data,
         data: c.card.data,
         parceiro: '-',
@@ -263,7 +278,7 @@ export function reconcileData(
         categoria: c.card.categoria || (c.card.isInternacional ? 'Internacional' : ''),
         debito: null,
         credito: null,
-        valorFatura: c.val,
+        valorFatura: c.card.valor,
         diferenca: null,
         status: 'RED',
         origem: 'FATURA',
@@ -317,6 +332,8 @@ export function reconcileData(
 
     results.push({
       id: `GREEN-${cand.sys.id}-${cand.card.id}`,
+      systemRecordId: cand.sys.id,
+      cardRecordId: cand.card.id,
       dataFatura: cand.card.data,
       dataOdoo: cand.sys.data,
       data: cand.sys.data || cand.card.data,
@@ -327,8 +344,8 @@ export function reconcileData(
       estabelecimento: cand.card.estabelecimento,
       categoria: cand.card.categoria || cand.sys.categoria || '',
       debito: cand.sys.debito,
-      credito: cand.sysVal,
-      valorFatura: cand.cardVal,
+      credito: cand.sys.credito ?? cand.sysVal,
+      valorFatura: cand.card.valor ?? cand.cardVal,
       diferenca: 0,
       status: 'GREEN',
       origem: 'AMBOS',
@@ -375,6 +392,8 @@ export function reconcileData(
 
     results.push({
       id: `GREEN-${cand.sys.id}-${cand.card.id}`,
+      systemRecordId: cand.sys.id,
+      cardRecordId: cand.card.id,
       dataFatura: cand.card.data,
       dataOdoo: cand.sys.data,
       data: cand.sys.data || cand.card.data,
@@ -385,8 +404,8 @@ export function reconcileData(
       estabelecimento: cand.card.estabelecimento,
       categoria: cand.card.categoria || cand.sys.categoria || '',
       debito: cand.sys.debito,
-      credito: cand.sysVal,
-      valorFatura: cand.cardVal,
+      credito: cand.sys.credito ?? cand.sysVal,
+      valorFatura: cand.card.valor ?? cand.cardVal,
       diferenca: 0,
       status: 'GREEN',
       origem: 'AMBOS',
@@ -461,6 +480,8 @@ export function reconcileData(
 
         results.push({
           id: `GREEN-${s.sys.id}-${c.card.id}`,
+          systemRecordId: s.sys.id,
+          cardRecordId: c.card.id,
           dataFatura: c.card.data,
           dataOdoo: s.sys.data,
           data: s.sys.data || c.card.data,
@@ -471,8 +492,8 @@ export function reconcileData(
           estabelecimento: c.card.estabelecimento,
           categoria: c.card.categoria || s.sys.categoria || '',
           debito: s.sys.debito,
-          credito: s.val,
-          valorFatura: c.val,
+          credito: s.sys.credito ?? s.val,
+          valorFatura: c.card.valor ?? c.val,
           diferenca: 0,
           status: 'GREEN',
           origem: 'AMBOS',
@@ -521,6 +542,8 @@ export function reconcileData(
     const difStr = Math.abs(cand.diffVal).toFixed(2).replace('.', ',')
     results.push({
       id: `YELLOW-${cand.sys.id}-${cand.card.id}`,
+      systemRecordId: cand.sys.id,
+      cardRecordId: cand.card.id,
       dataFatura: cand.card.data,
       dataOdoo: cand.sys.data,
       data: cand.sys.data || cand.card.data,
@@ -531,8 +554,8 @@ export function reconcileData(
       estabelecimento: cand.card.estabelecimento,
       categoria: cand.card.categoria || cand.sys.categoria || '',
       debito: cand.sys.debito,
-      credito: cand.sysVal,
-      valorFatura: cand.cardVal,
+      credito: cand.sys.credito ?? cand.sysVal,
+      valorFatura: cand.card.valor ?? cand.cardVal,
       diferenca: cand.diffVal,
       status: 'YELLOW',
       origem: 'AMBOS',
@@ -563,11 +586,13 @@ export function reconcileData(
       if (nameSim >= 0.2) {
         matchedSystemIds.add(s.sys.id)
         matchedCardIds.add(c.card.id)
-        const diffVal = Math.round((c.val - s.val) * 100) / 100
+        const diffVal = computeStrictDifference(c.val, s.val)
         const difStr = Math.abs(diffVal).toFixed(2).replace('.', ',')
 
         results.push({
           id: `YELLOW-${s.sys.id}-${c.card.id}`,
+          systemRecordId: s.sys.id,
+          cardRecordId: c.card.id,
           dataFatura: c.card.data,
           dataOdoo: s.sys.data,
           data: s.sys.data || c.card.data,
@@ -578,8 +603,8 @@ export function reconcileData(
           estabelecimento: c.card.estabelecimento,
           categoria: c.card.categoria || s.sys.categoria || '',
           debito: s.sys.debito,
-          credito: s.val,
-          valorFatura: c.val,
+          credito: s.sys.credito ?? s.val,
+          valorFatura: c.card.valor ?? c.val,
           diferenca: diffVal,
           status: 'YELLOW',
           origem: 'AMBOS',
@@ -607,6 +632,7 @@ export function reconcileData(
 
     results.push({
       id: `RED-SYS-${s.sys.id}`,
+      systemRecordId: s.sys.id,
       dataOdoo: s.sys.data,
       data: s.sys.data,
       numero: s.sys.numero,
@@ -616,7 +642,7 @@ export function reconcileData(
       estabelecimento: '-',
       categoria: s.sys.categoria || '',
       debito: s.sys.debito,
-      credito: s.val,
+      credito: s.sys.credito ?? s.val,
       valorFatura: null,
       diferenca: null,
       status: 'RED',
@@ -635,6 +661,7 @@ export function reconcileData(
 
     results.push({
       id: `RED-CARD-${c.card.id}`,
+      cardRecordId: c.card.id,
       dataFatura: c.card.data,
       data: c.card.data,
       parceiro: '-',
@@ -642,7 +669,7 @@ export function reconcileData(
       categoria: c.card.categoria || (c.card.isInternacional ? 'Internacional' : ''),
       debito: null,
       credito: null,
-      valorFatura: c.val,
+      valorFatura: c.card.valor ?? c.val,
       diferenca: null,
       status: 'RED',
       origem: 'FATURA',
@@ -657,7 +684,8 @@ export function reconcileData(
   }
 
   // 7. Ordenação padrão canônica: crescente por valor (com critério de desempate canônico)
-  return results.sort((a, b) => {
+  // Retorna com congelamento profundo para proteção total contra mutações posteriores
+  results.sort((a, b) => {
     const valA = a.credito !== null && a.credito !== undefined ? a.credito : a.valorFatura || 0
     const valB = b.credito !== null && b.credito !== undefined ? b.credito : b.valorFatura || 0
     if (valA !== valB) return valA - valB
@@ -665,6 +693,8 @@ export function reconcileData(
     if (dateCmp !== 0) return dateCmp
     return (a.id || '').localeCompare(b.id || '')
   })
+
+  return cloneAndFreezeArray(results) as ReconciliationResult[]
 }
 
 export function normalizeManualAnnotation(annotation?: string): ManualAnnotationCategory {
@@ -823,69 +853,64 @@ export function calculateReconciliationMetrics(
   const onlySys = results.filter((r) => r.classificacao === 'SOMENTE_SISTEMA')
   const onlyFat = results.filter((r) => r.classificacao === 'SOMENTE_FATURA')
 
-  // Totais separados e estritos
-  const totalValorSistema =
-    Math.round(
-      results.reduce(
-        (sum, r) => sum + (r.credito !== null && r.credito !== undefined ? r.credito : 0),
-        0,
-      ) * 100,
-    ) / 100
+  // Totais separados e estritos calculados em centavos inteiros para precisão absoluta
+  const totalValorSistemaCents = results.reduce(
+    (sum, r) =>
+      sum + (r.credito !== null && r.credito !== undefined ? toIntegerCents(r.credito) : 0),
+    0,
+  )
+  const totalValorSistema = roundToCents(totalValorSistemaCents / 100)
 
-  const totalValorFatura =
-    Math.round(
-      results.reduce(
-        (sum, r) =>
-          sum + (r.valorFatura !== null && r.valorFatura !== undefined ? r.valorFatura : 0),
-        0,
-      ) * 100,
-    ) / 100
+  const totalValorFaturaCents = results.reduce(
+    (sum, r) =>
+      sum +
+      (r.valorFatura !== null && r.valorFatura !== undefined ? toIntegerCents(r.valorFatura) : 0),
+    0,
+  )
+  const totalValorFatura = roundToCents(totalValorFaturaCents / 100)
 
   // Total conciliado em CADA fonte
-  const totalValorConciliadoSistema =
-    Math.round(
-      conciliated.reduce(
-        (sum, r) => sum + (r.credito !== null && r.credito !== undefined ? r.credito : 0),
-        0,
-      ) * 100,
-    ) / 100
+  const totalValorConciliadoSistemaCents = conciliated.reduce(
+    (sum, r) =>
+      sum + (r.credito !== null && r.credito !== undefined ? toIntegerCents(r.credito) : 0),
+    0,
+  )
+  const totalValorConciliadoSistema = roundToCents(totalValorConciliadoSistemaCents / 100)
 
-  const totalValorConciliadoFatura =
-    Math.round(
-      conciliated.reduce(
-        (sum, r) =>
-          sum + (r.valorFatura !== null && r.valorFatura !== undefined ? r.valorFatura : 0),
-        0,
-      ) * 100,
-    ) / 100
+  const totalValorConciliadoFaturaCents = conciliated.reduce(
+    (sum, r) =>
+      sum +
+      (r.valorFatura !== null && r.valorFatura !== undefined ? toIntegerCents(r.valorFatura) : 0),
+    0,
+  )
+  const totalValorConciliadoFatura = roundToCents(totalValorConciliadoFaturaCents / 100)
 
-  const totalValorExclusivoSistema =
-    Math.round(
-      onlySys.reduce(
-        (sum, r) => sum + (r.credito !== null && r.credito !== undefined ? r.credito : 0),
-        0,
-      ) * 100,
-    ) / 100
+  const totalValorExclusivoSistemaCents = onlySys.reduce(
+    (sum, r) =>
+      sum + (r.credito !== null && r.credito !== undefined ? toIntegerCents(r.credito) : 0),
+    0,
+  )
+  const totalValorExclusivoSistema = roundToCents(totalValorExclusivoSistemaCents / 100)
 
-  const totalValorExclusivoFatura =
-    Math.round(
-      onlyFat.reduce(
-        (sum, r) =>
-          sum + (r.valorFatura !== null && r.valorFatura !== undefined ? r.valorFatura : 0),
-        0,
-      ) * 100,
-    ) / 100
+  const totalValorExclusivoFaturaCents = onlyFat.reduce(
+    (sum, r) =>
+      sum +
+      (r.valorFatura !== null && r.valorFatura !== undefined ? toIntegerCents(r.valorFatura) : 0),
+    0,
+  )
+  const totalValorExclusivoFatura = roundToCents(totalValorExclusivoFaturaCents / 100)
 
-  const totalDiferencaDivergentes =
-    Math.round(
-      divergent.reduce(
-        (sum, r) =>
-          sum + Math.abs(r.diferenca !== null && r.diferenca !== undefined ? r.diferenca : 0),
-        0,
-      ) * 100,
-    ) / 100
+  const totalDiferencaDivergentesCents = divergent.reduce(
+    (sum, r) =>
+      sum +
+      (r.diferenca !== null && r.diferenca !== undefined
+        ? Math.abs(toIntegerCents(r.diferenca))
+        : 0),
+    0,
+  )
+  const totalDiferencaDivergentes = roundToCents(totalDiferencaDivergentesCents / 100)
 
-  const diferencaTotal = Math.round((totalValorFatura - totalValorSistema) * 100) / 100
+  const diferencaTotal = computeStrictDifference(totalValorFatura, totalValorSistema)
 
   const totalRegistrosSistema =
     totalSistemaOriginal ??
