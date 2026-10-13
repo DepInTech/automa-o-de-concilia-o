@@ -299,4 +299,92 @@ describe('Integridade Financeira e Imutabilidade das Fontes de Origem', () => {
     expect(metrics.totalValorFatura).toBe(-18.75)
     expect(metrics.totalValorExclusivoFatura).toBe(-18.75)
   })
+
+  it('10. Conciliação com lançamentos duplicados sem misturar referências ou valores', () => {
+    // Duas compras idênticas no mesmo dia de valores iguais, porém referências/IDs distintos
+    const sys1: SystemRecord = {
+      id: 'sys-dup-1',
+      data: '12/06/2026',
+      parceiro: 'LOJA COPIAS EXPRESS LTDA',
+      credito: 45.0,
+      total: 45.0,
+      debito: null,
+      referencia: 'DOC-101',
+    }
+    const sys2: SystemRecord = {
+      id: 'sys-dup-2',
+      data: '12/06/2026',
+      parceiro: 'LOJA COPIAS EXPRESS LTDA',
+      credito: 45.0,
+      total: 45.0,
+      debito: null,
+      referencia: 'DOC-102',
+    }
+
+    const card1: CardRecord = {
+      id: 'card-dup-1',
+      data: '12/06/2026',
+      estabelecimento: 'LOJA COPIAS EXPRESS',
+      valor: 45.0,
+    }
+    const card2: CardRecord = {
+      id: 'card-dup-2',
+      data: '12/06/2026',
+      estabelecimento: 'LOJA COPIAS EXPRESS',
+      valor: 45.0,
+    }
+
+    const results = reconcileData([sys1, sys2], [card1, card2], 'itau')
+
+    // Deve parear exatamente 2 pares verdes, cada registro usado estritamente uma única vez
+    expect(results).toHaveLength(2)
+    expect(results[0].status).toBe('GREEN')
+    expect(results[1].status).toBe('GREEN')
+
+    const usedSysIds = new Set(results.map((r) => r.systemRecordId))
+    const usedCardIds = new Set(results.map((r) => r.cardRecordId))
+    expect(usedSysIds.size).toBe(2)
+    expect(usedCardIds.size).toBe(2)
+    expect(usedSysIds.has('sys-dup-1')).toBe(true)
+    expect(usedSysIds.has('sys-dup-2')).toBe(true)
+    expect(usedCardIds.has('card-dup-1')).toBe(true)
+    expect(usedCardIds.has('card-dup-2')).toBe(true)
+  })
+
+  it('11. Alterar apresentação ou ordenar resultado não altera referências originais (deep-freeze check)', () => {
+    const sys: SystemRecord = {
+      id: 'sys-freeze-check',
+      data: '18/06/2026',
+      parceiro: 'POSTO COMBUSTIVEL BRASIL',
+      credito: 250.0,
+      total: 250.0,
+      debito: null,
+      numero: 'NF-7788',
+      referencia: 'REF-COMBUSTIVEL',
+    }
+    const card: CardRecord = {
+      id: 'card-freeze-check',
+      data: '18/06/2026',
+      estabelecimento: 'POSTO COMBUSTIVEL BRASIL',
+      valor: 250.0,
+    }
+
+    const sysList = [sys]
+    const cardList = [card]
+
+    const results = reconcileData(sysList, cardList, 'itau')
+
+    // O resultado retornado deve ser estritamente congelado
+    expect(Object.isFrozen(results)).toBe(true)
+    expect(Object.isFrozen(results[0])).toBe(true)
+
+    // Tentar mutar propriedade do resultado em runtime não modifica o objeto original
+    expect(() => {
+      ;(results[0] as unknown as { credito: number }).credito = 9999.99
+    }).toThrow()
+
+    // O objeto original permanece intacto
+    expect(sys.credito).toBe(250.0)
+    expect(card.valor).toBe(250.0)
+  })
 })

@@ -94,6 +94,15 @@ function normalizeOdooDate(raw: string): string {
   if (!raw) return ''
   const trimmed = raw.trim()
 
+  // Se for string de Date do Excel (ex: "Mon Jun 01 2026 00:00:00 GMT+0000...")
+  const ts = Date.parse(trimmed)
+  if (!isNaN(ts) && /[a-zA-Z]{3}/.test(trimmed)) {
+    const d = new Date(ts)
+    const day = String(d.getUTCDate()).padStart(2, '0')
+    const mon = String(d.getUTCMonth() + 1).padStart(2, '0')
+    return `${day}/${mon}/${d.getUTCFullYear()}`
+  }
+
   const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/)
   if (isoMatch) {
     return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`
@@ -106,14 +115,6 @@ function normalizeOdooDate(raw: string): string {
     let y = brMatch[3] || '2026'
     if (y.length === 2) y = `20${y}`
     return `${d}/${m}/${y}`
-  }
-
-  const ts = Date.parse(trimmed)
-  if (!isNaN(ts)) {
-    const d = new Date(ts)
-    const day = String(d.getUTCDate()).padStart(2, '0')
-    const mon = String(d.getUTCMonth() + 1).padStart(2, '0')
-    return `${day}/${mon}/${d.getUTCFullYear()}`
   }
 
   return trimmed

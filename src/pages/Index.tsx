@@ -154,7 +154,7 @@ export default function Index() {
         }
       }
 
-      // Prepara os registros para os próximos passos garantindo imutabilidade profunda
+      // Camadas 1 e 2: Preparação dos registros originais independentes com congelamento profundo
       const mappedCards: CardRecord[] = cloneAndFreezeArray(
         convResult.registros.map((r) => ({
           id: r.id,
@@ -193,7 +193,6 @@ export default function Index() {
       setOdooImport(odooRes)
       setCardRecords(mappedCards)
       setSystemRecords(mappedSystem)
-
       // Avança para a Etapa 3 & 4 (Validação e Conferência Prévia)
       setStep('validation')
     } catch (err) {
@@ -211,6 +210,7 @@ export default function Index() {
    * ETAPA 5: Iniciar Conciliação Automática
    */
   const handleConfirmReconciliation = () => {
+    // Camada 3: Processamento da conciliação a partir de clones profundos e congelados das fontes
     const reconciled = reconcileData(systemRecords, cardRecords, bank)
     setResults(reconciled)
     setStep('results')

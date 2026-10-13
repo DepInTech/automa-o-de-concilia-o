@@ -130,7 +130,25 @@ function isSummaryOrFooter(line: string): boolean {
 }
 
 function normalizeCardDateYear(raw: string, refYear = 2026): string {
-  const parts = raw.split(/[/.-]/)
+  if (!raw) return ''
+  const trimmed = raw.trim()
+
+  // Se for string de Date do Excel (ex.: "Fri Jun 19 2026 00:00:00 GMT+0000...")
+  const ts = Date.parse(trimmed)
+  if (!isNaN(ts) && /[a-zA-Z]{3}/.test(trimmed)) {
+    const d = new Date(ts)
+    const day = String(d.getUTCDate()).padStart(2, '0')
+    const mon = String(d.getUTCMonth() + 1).padStart(2, '0')
+    return `${day}/${mon}/${d.getUTCFullYear()}`
+  }
+
+  // Se for formato ISO "AAAA-MM-DD"
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (isoMatch) {
+    return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`
+  }
+
+  const parts = trimmed.split(/[/.-]/)
   if (parts.length === 2) {
     const d = parts[0].padStart(2, '0')
     const m = parts[1].padStart(2, '0')
@@ -143,7 +161,7 @@ function normalizeCardDateYear(raw: string, refYear = 2026): string {
     if (y.length === 2) y = `20${y}`
     return `${d}/${m}/${y}`
   }
-  return raw
+  return trimmed
 }
 
 /**

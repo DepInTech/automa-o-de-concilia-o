@@ -42,6 +42,10 @@ export type MatchClassification = 'CONCILIADO' | 'DIVERGENTE' | 'SOMENTE_SISTEMA
 
 export interface ReconciliationResult {
   id: string
+  /** ID estável e imutável do registro do sistema Odoo associado (se houver) */
+  systemRecordId?: string
+  /** ID estável e imutável do registro da fatura Itaú associado (se houver) */
+  cardRecordId?: string
   /** Data da fatura (quando aplicável) */
   dataFatura?: string
   /** Data do sistema Odoo (quando aplicável) */
