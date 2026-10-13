@@ -12,20 +12,23 @@ interface ResultRowMobileProps {
 export function ResultRowMobile({ r, bank, getRowClass, statusLabel }: ResultRowMobileProps) {
   return (
     <div className={`p-4 rounded-2xl border ${getRowClass(r.status)} shadow-sm transition-all`}>
-      <div className="flex justify-between items-center mb-3">
-        <span className="font-bold text-sm tracking-tight">{r.data}</span>
-        <Badge
-          variant="outline"
-          className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none ${
-            r.status === 'GREEN'
-              ? 'bg-emerald-100/90 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
-              : r.status === 'YELLOW'
-                ? 'bg-amber-100/90 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
-                : 'bg-rose-100/90 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800'
-          }`}
-        >
-          {statusLabel(r.status)}
-        </Badge>
+      <div className="flex justify-between items-start gap-2">
+        <div>
+          <Badge
+            variant="outline"
+            className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none ${
+              r.status === 'GREEN'
+                ? 'bg-emerald-100/90 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
+                : r.status === 'YELLOW'
+                  ? 'bg-amber-100/90 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
+                  : r.status === 'GRAY'
+                    ? 'bg-slate-200/90 text-slate-800 border-slate-400 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600'
+                    : 'bg-rose-100/90 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800'
+            }`}
+          >
+            {statusLabel(r.status)}
+          </Badge>
+        </div>
       </div>
       <div className="space-y-1.5 text-xs sm:text-sm">
         <p>

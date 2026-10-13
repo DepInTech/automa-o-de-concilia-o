@@ -85,9 +85,6 @@ export function ResultsTable({
     })
 
   const getRowClass = (r: ReconciliationResult) => {
-    if (r.classificacao === 'POSSIVEL_CORRESPONDENCIA') {
-      return 'bg-blue-50/70 hover:bg-blue-100/70 text-blue-950 border-blue-200 dark:bg-blue-950/20 dark:hover:bg-blue-900/30 dark:text-blue-200 dark:border-blue-900/40'
-    }
     switch (r.status) {
       case 'GREEN':
         return 'bg-emerald-50/70 hover:bg-emerald-100/70 text-emerald-950 border-emerald-200 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-900/40'
@@ -95,6 +92,8 @@ export function ResultsTable({
         return 'bg-amber-50/70 hover:bg-amber-100/70 text-amber-950 border-amber-200 dark:bg-amber-950/20 dark:hover:bg-amber-900/30 dark:text-amber-200 dark:border-amber-900/40'
       case 'RED':
         return 'bg-rose-50/70 hover:bg-rose-100/70 text-rose-950 border-rose-200 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 dark:text-rose-200 dark:border-rose-900/40'
+      case 'GRAY':
+        return 'bg-slate-100/80 hover:bg-slate-200/80 text-slate-900 border-slate-300 dark:bg-slate-900/40 dark:hover:bg-slate-800/50 dark:text-slate-200 dark:border-slate-700'
       default:
         return ''
     }
@@ -108,19 +107,21 @@ export function ResultsTable({
         return 'bg-amber-50/70 hover:bg-amber-100/70 text-amber-950 border-amber-200 dark:bg-amber-950/20 dark:hover:bg-amber-900/30 dark:text-amber-200 dark:border-amber-900/40'
       case 'RED':
         return 'bg-rose-50/70 hover:bg-rose-100/70 text-rose-950 border-rose-200 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 dark:text-rose-200 dark:border-rose-900/40'
+      case 'GRAY':
+        return 'bg-slate-100/80 hover:bg-slate-200/80 text-slate-900 border-slate-300 dark:bg-slate-900/40 dark:hover:bg-slate-800/50 dark:text-slate-200 dark:border-slate-700'
       default:
         return ''
     }
   }
 
   const renderBadge = (r: ReconciliationResult) => {
-    if (r.classificacao === 'POSSIVEL_CORRESPONDENCIA') {
+    if (r.status === 'GRAY' || r.classificacao === 'POSSIVEL_CORRESPONDENCIA') {
       return (
         <Badge
           variant="outline"
-          className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
+          className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-slate-200/80 text-slate-800 border-slate-400 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600"
         >
-          ? Ambíguo / Revisão
+          ⚪ Ambíguo / Revisão
         </Badge>
       )
     }
@@ -131,7 +132,7 @@ export function ResultsTable({
           variant="outline"
           className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-emerald-100/80 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800"
         >
-          ✓ Conciliado
+          🟢 Conciliado
         </Badge>
       )
     }
@@ -142,7 +143,7 @@ export function ResultsTable({
           variant="outline"
           className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-amber-100/80 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800"
         >
-          ⚠ Divergente
+          🟡 Divergente
         </Badge>
       )
     }
@@ -153,7 +154,7 @@ export function ResultsTable({
           variant="outline"
           className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-rose-100/80 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800"
         >
-          ! Somente Sistema
+          🔴 Somente Sistema
         </Badge>
       )
     }
@@ -163,13 +164,19 @@ export function ResultsTable({
         variant="outline"
         className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-rose-100/80 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800"
       >
-        ! Somente Fatura
+        🔴 Somente Fatura
       </Badge>
     )
   }
 
   const statusLabel = (s: string) =>
-    s === 'GREEN' ? 'Conciliado' : s === 'YELLOW' ? 'Divergente' : 'Não Encontrado'
+    s === 'GREEN'
+      ? 'Conciliado'
+      : s === 'YELLOW'
+        ? 'Divergente'
+        : s === 'GRAY'
+          ? 'Ambíguo / Revisão'
+          : 'Exclusivo'
 
   const handleDownloadCSV = () => {
     const validation = validateExport(data, systemRecords, cardRecords)
@@ -269,6 +276,12 @@ export function ResultsTable({
                 <span className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-rose-500" />
                   Exclusivos (Vermelho)
+                </span>
+              </SelectItem>
+              <SelectItem value="GRAY">
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-slate-400" />
+                  Ambíguos / Revisão (Cinza)
                 </span>
               </SelectItem>
             </SelectContent>

@@ -100,13 +100,15 @@ function evaluateCandidate(
 
   // Referência cruzada (NF, número de pedido ou código nos detalhes)
   let refMatch = false
-  if (sys.referencia && sys.referencia.length >= 3) {
-    if (card.estabelecimento.toLowerCase().includes(sys.referencia.toLowerCase())) {
+  if (sys.referencia && sys.referencia.trim().length >= 3) {
+    const refClean = sys.referencia.trim().toLowerCase()
+    if (card.estabelecimento.toLowerCase().includes(refClean)) {
       refMatch = true
     }
   }
-  if (sys.numero && sys.numero.length >= 4) {
-    if (card.estabelecimento.toLowerCase().includes(sys.numero.toLowerCase())) {
+  if (sys.numero && sys.numero.trim().length >= 4) {
+    const numClean = sys.numero.trim().toLowerCase()
+    if (card.estabelecimento.toLowerCase().includes(numClean)) {
       refMatch = true
     }
   }
@@ -116,10 +118,10 @@ function evaluateCandidate(
   let score = 0
   if (isExactVal) {
     score += 45
-  } else if (absDiff <= 2.0) {
-    score += 30 - absDiff * 5
-  } else if (absDiff <= 20.0) {
-    score += 15
+  } else if (absDiff <= 1.0) {
+    score += 25 - absDiff * 10
+  } else if (absDiff <= 10.0) {
+    score += 10
   }
 
   // 2. Componente Nome (até 40 pts)
@@ -129,11 +131,11 @@ function evaluateCandidate(
     score += 30
   } else if (nameSim >= 0.4) {
     score += 20
-  } else if (nameSim >= 0.2) {
+  } else if (nameSim >= 0.25) {
     score += 10
   }
 
-  // 3. Componente Data (até 10 pts) — tolerância contábil ampla
+  // 3. Componente Data (até 10 pts) — proximidade temporal
   if (dateDiffDays !== null) {
     if (dateDiffDays <= 3) {
       score += 10
@@ -167,6 +169,13 @@ function evaluateCandidate(
 
 /**
  * Executa a conciliação completa entre registros do Sistema e da Fatura
+ * Regras estritas:
+ * 1) Estabelecimento correspondente + Valor exato (GREEN)
+ * 2) Nomes abreviados/semelhantes + Valor exato e evidências adicionais (GREEN)
+ * 3) Mesmo estabelecimento com valores diferentes (YELLOW), após esgotar exatas
+ * 4) Ambíguos / dados insuficientes (GRAY / POSSIVEL_CORRESPONDENCIA)
+ * 5) Exclusivos de cada fonte (RED / SOMENTE_SISTEMA ou SOMENTE_FATURA)
+ * Invariância à ordem: ordenação canônica preliminar baseada em conteúdo intrínseco.
  */
 export function reconcileData(
   systemRecords: SystemRecord[],
@@ -177,12 +186,17 @@ export function reconcileData(
   const matchedSystemIds = new Set<string>()
   const matchedCardIds = new Set<string>()
 
-  // 1. Organização preliminar padronizada por valor e data para garantir determinismo total
-  // (Invariância à ordem de importação)
+  // 1. Organização preliminar padronizada canônica para garantir determinismo total
+  // Ordena por valor e depois por campos intrínsecos de negócio (parceiro/estabelecimento, data)
+  // NÃO depende da ordem em que os arquivos foram lidos nem da posição de linha
   const normalizedSys = systemRecords
     .map((sys) => ({ sys, val: getSystemValue(sys, bank) }))
     .sort((a, b) => {
       if (a.val !== b.val) return a.val - b.val
+      const nameCmp = (a.sys.parceiro || '').localeCompare(b.sys.parceiro || '')
+      if (nameCmp !== 0) return nameCmp
+      const dateCmp = (a.sys.data || '').localeCompare(b.sys.data || '')
+      if (dateCmp !== 0) return dateCmp
       return (a.sys.id || '').localeCompare(b.sys.id || '')
     })
 
@@ -190,6 +204,10 @@ export function reconcileData(
     .map((card) => ({ card, val: getCardValue(card) }))
     .sort((a, b) => {
       if (a.val !== b.val) return a.val - b.val
+      const nameCmp = (a.card.estabelecimento || '').localeCompare(b.card.estabelecimento || '')
+      if (nameCmp !== 0) return nameCmp
+      const dateCmp = (a.card.data || '').localeCompare(b.card.data || '')
+      if (dateCmp !== 0) return dateCmp
       return (a.card.id || '').localeCompare(b.card.id || '')
     })
 
@@ -201,17 +219,20 @@ export function reconcileData(
     }
   }
 
-  // 3. FASE 1: Prioridade Máxima — Valor Exato + Alta/Média Similaridade de Nome
-  // Ordena candidatos por valor exato primeiro, depois score e nameSim
-  const exactCandidates = candidates
-    .filter((cand) => cand.absDiff < 0.01 && cand.nameSim >= 0.3)
+  // 3. FASE 1: Prioridade 1 — Alta Confiabilidade: Valor Exato + Alta Similaridade de Nome (nameSim >= 0.45)
+  // Ordenação de candidatos: score decrescente, similaridade decrescente, menor diferença de data, determinismo canônico
+  const highConfExact = candidates
+    .filter((cand) => cand.absDiff < 0.01 && cand.nameSim >= 0.45)
     .sort((a, b) => {
-      if (b.nameSim !== a.nameSim) return b.nameSim - a.nameSim
       if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore
-      return (a.dateDiffDays ?? 999) - (b.dateDiffDays ?? 999)
+      if (b.nameSim !== a.nameSim) return b.nameSim - a.nameSim
+      const dtA = a.dateDiffDays ?? 999
+      const dtB = b.dateDiffDays ?? 999
+      if (dtA !== dtB) return dtA - dtB
+      return (a.sys.id || '').localeCompare(b.sys.id || '')
     })
 
-  for (const cand of exactCandidates) {
+  for (const cand of highConfExact) {
     if (matchedSystemIds.has(cand.sys.id) || matchedCardIds.has(cand.card.id)) {
       continue
     }
@@ -246,16 +267,26 @@ export function reconcileData(
     })
   }
 
-  // 4. FASE 1b: Valor Exato + Similaridade de Nome Abreviado / Marginal (0.22 a 0.30 ou RefMatch)
+  // 4. FASE 2: Prioridade 2 — Nomes Abreviados / Semelhantes + Valor Exato
+  // Requer: valor rigorosamente exato E (nameSim >= 0.32 OU refMatch confirmado)
+  // Além disso, se o score for marginal (nameSim < 0.35 sem refMatch) ou houver múltiplos concorrentes idênticos,
+  // não pode associar levianamente
   const abreviatedCandidates = candidates
     .filter(
       (cand) =>
         cand.absDiff < 0.01 &&
-        (cand.nameSim >= 0.22 || cand.refMatch) &&
+        (cand.nameSim >= 0.32 || cand.refMatch) &&
         !matchedSystemIds.has(cand.sys.id) &&
         !matchedCardIds.has(cand.card.id),
     )
-    .sort((a, b) => b.totalScore - a.totalScore)
+    .sort((a, b) => {
+      if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore
+      if (b.nameSim !== a.nameSim) return b.nameSim - a.nameSim
+      const dtA = a.dateDiffDays ?? 999
+      const dtB = b.dateDiffDays ?? 999
+      if (dtA !== dtB) return dtA - dtB
+      return (a.sys.id || '').localeCompare(b.sys.id || '')
+    })
 
   for (const cand of abreviatedCandidates) {
     if (matchedSystemIds.has(cand.sys.id) || matchedCardIds.has(cand.card.id)) {
@@ -292,14 +323,15 @@ export function reconcileData(
     })
   }
 
-  // 5. FASE 2: Casos DIVERGENTES (AMARELO)
-  // Regra obrigatória: Estabelecimentos correspondentes (nameSim >= 0.40) com valores diferentes,
-  // apenas após esgotadas todas as correspondências exatas de valor.
+  // 5. FASE 3: Prioridade 3 — Divergência de Valor (AMARELO / DIVERGENTE)
+  // Regra fundamental da usuária: "mesmo estabelecimento com valores diferentes,
+  // depois de esgotadas as exatas". Requer alta certeza de identidade (nameSim >= 0.55 OU refMatch)
+  // para evitar casar estabelecimentos diferentes com valores arbitrários!
   const divergentCandidates = candidates
     .filter(
       (cand) =>
         cand.absDiff >= 0.01 &&
-        cand.nameSim >= 0.4 &&
+        (cand.nameSim >= 0.55 || cand.refMatch) &&
         !matchedSystemIds.has(cand.sys.id) &&
         !matchedCardIds.has(cand.card.id),
     )
@@ -343,7 +375,57 @@ export function reconcileData(
     })
   }
 
-  // 6. FASE 3: Lançamentos Exclusivos do Sistema (RED / SOMENTE_SISTEMA)
+  // 6. FASE 4: Ambíguos / Dados Insuficientes (CINZA / POSSIVEL_CORRESPONDENCIA)
+  // Candidatos não conciliados que possuem alguma evidência plausível (nameSim entre 0.35 e 0.55 com valor divergente pequeno)
+  // Mas segundo a regra da usuária: "Se o sistema não encontrar uma correspondência confiável,
+  // não deve marcar o registro como conciliado."
+  // Mantemos como pares ambíguos para revisão manual quando a afinidade for intermediária e ambos estiverem soltos
+  const ambiguousCandidates = candidates
+    .filter(
+      (cand) =>
+        cand.nameSim >= 0.4 &&
+        cand.absDiff <= 50.0 &&
+        !matchedSystemIds.has(cand.sys.id) &&
+        !matchedCardIds.has(cand.card.id),
+    )
+    .sort((a, b) => b.totalScore - a.totalScore)
+
+  for (const cand of ambiguousCandidates) {
+    if (matchedSystemIds.has(cand.sys.id) || matchedCardIds.has(cand.card.id)) {
+      continue
+    }
+
+    matchedSystemIds.add(cand.sys.id)
+    matchedCardIds.add(cand.card.id)
+
+    const difStr = cand.absDiff.toFixed(2).replace('.', ',')
+    results.push({
+      id: `GRAY-${cand.sys.id}-${cand.card.id}`,
+      dataFatura: cand.card.data,
+      dataOdoo: cand.sys.data,
+      data: cand.sys.data || cand.card.data,
+      numero: cand.sys.numero,
+      referencia: cand.sys.referencia,
+      lancamentoDiario: cand.sys.lancamentoDiario,
+      parceiro: cand.sys.parceiro,
+      estabelecimento: cand.card.estabelecimento,
+      categoria: cand.card.categoria || cand.sys.categoria || '',
+      debito: cand.sys.debito,
+      credito: cand.sysVal,
+      valorFatura: cand.cardVal,
+      diferenca: cand.diffVal,
+      status: 'GRAY',
+      origem: 'AMBOS',
+      classificacao: 'POSSIVEL_CORRESPONDENCIA',
+      motivo: `Correspondência ambígua para revisão manual (dif. R$ ${difStr})`,
+      scoreConfianca: cand.totalScore,
+      linhaOdooOrigem: cand.sys.linhaOrigem,
+      paginaFaturaOrigem: cand.card.paginaOrigem,
+      isInternacional: cand.card.isInternacional,
+    })
+  }
+
+  // 7. FASE 5: Prioridade 4 — Lançamentos Exclusivos do Sistema (RED / SOMENTE_SISTEMA)
   for (const s of normalizedSys) {
     if (matchedSystemIds.has(s.sys.id)) continue
 
@@ -370,7 +452,7 @@ export function reconcileData(
     })
   }
 
-  // 7. FASE 4: Lançamentos Exclusivos da Fatura (RED / SOMENTE_FATURA)
+  // 8. FASE 6: Prioridade 4 — Lançamentos Exclusivos da Fatura (RED / SOMENTE_FATURA)
   for (const c of normalizedCard) {
     if (matchedCardIds.has(c.card.id)) continue
 
@@ -396,12 +478,14 @@ export function reconcileData(
     })
   }
 
-  // 8. Ordenação padrão: crescente por valor
+  // 9. Ordenação padrão: crescente por valor (com critério de desempate canônico)
   return results.sort((a, b) => {
     const valA = a.credito !== null && a.credito !== undefined ? a.credito : a.valorFatura || 0
     const valB = b.credito !== null && b.credito !== undefined ? b.credito : b.valorFatura || 0
     if (valA !== valB) return valA - valB
-    return parseDateTimestamp(a.data) - parseDateTimestamp(b.data)
+    const dateCmp = parseDateTimestamp(a.data) - parseDateTimestamp(b.data)
+    if (dateCmp !== 0) return dateCmp
+    return (a.id || '').localeCompare(b.id || '')
   })
 }
 
@@ -432,7 +516,9 @@ export function calculateReconciliationMetrics(
   const divergent = results.filter((r) => r.status === 'YELLOW')
   const onlySys = results.filter((r) => r.classificacao === 'SOMENTE_SISTEMA')
   const onlyFat = results.filter((r) => r.classificacao === 'SOMENTE_FATURA')
-  const inReview = results.filter((r) => r.classificacao === 'POSSIVEL_CORRESPONDENCIA')
+  const inReview = results.filter(
+    (r) => r.status === 'GRAY' || r.classificacao === 'POSSIVEL_CORRESPONDENCIA',
+  )
 
   // Totais separados e estritos
   const totalValorSistema =

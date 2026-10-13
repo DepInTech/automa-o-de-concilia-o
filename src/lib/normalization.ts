@@ -246,28 +246,40 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
 
   const overlapScore = coveredOfMin * 0.65 + coveredOfMax * 0.35
 
-  // Bônus se a primeira palavra principal for idêntica (marca central, ex: "STARLINK", "SWIFT", "SJX", "VERISURE", "AUTENTIQUE", "NETLAB", "BIOCENTRIX", "SENDAS")
+  // Bônus proporcional se a primeira palavra (marca central) coincidir, ponderada pelo tamanho do nome
   const firstA = tokensA[0]
   const firstB = tokensB[0]
   let brandBonus = 0
   if (firstA && firstB) {
-    if (firstA === firstB) {
-      brandBonus = 0.3
+    if (firstA === firstB && firstA.length >= 3) {
+      // Se ambos os nomes têm apenas 1 ou 2 tokens, ter a mesma primeira palavra é muito significativo
+      // Se têm muitos tokens, a relevância da primeira palavra não pode inflar nomes completamente distintos
+      const brevityFactor = Math.min(1.0, 2 / Math.min(tokensA.length, tokensB.length))
+      brandBonus = 0.25 * brevityFactor
     } else if (
       (firstA.startsWith(firstB) || firstB.startsWith(firstA)) &&
       Math.min(firstA.length, firstB.length) >= 3
     ) {
-      brandBonus = 0.25
+      const brevityFactor = Math.min(1.0, 2 / Math.min(tokensA.length, tokensB.length))
+      brandBonus = 0.18 * brevityFactor
     }
   }
 
-  // Verifica se qualquer token significativo de A coincide exatamente com qualquer um de B (ex: "netlab", "biocentrix", "swift", "starlink", "autentique", "arquivei")
-  const anyTokenMatch = tokensA.some((tA) => tokensB.some((tB) => tA === tB && tA.length >= 4))
-  if (anyTokenMatch && brandBonus === 0) {
-    brandBonus = 0.25
+  // Bônus se qualquer token com 5+ caracteres for idêntico (ex: "biocentrix", "starlink", "autentique"),
+  // apenas se houver alguma sobreposição mínima global
+  const anyDistinctiveTokenMatch = tokensA.some((tA) =>
+    tokensB.some(
+      (tB) =>
+        tA === tB &&
+        tA.length >= 5 &&
+        !/^(brasil|brazil|servico|servicos|comercio|comercial)$/i.test(tA),
+    ),
+  )
+  if (anyDistinctiveTokenMatch && brandBonus === 0 && coveredOfMin >= 0.2) {
+    brandBonus = 0.15
   }
 
-  return Math.min(1.0, overlapScore * 0.75 + brandBonus)
+  return Math.min(1.0, overlapScore * 0.8 + brandBonus)
 }
 
 /**

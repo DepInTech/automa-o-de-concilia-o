@@ -729,4 +729,196 @@ trailer << /Root 1 0 R >>
     expect(convResult.erroCritico).toBeDefined()
     expect(convResult.erroCritico).toMatch(/nenhum lançamento identificado/i)
   })
+
+  // =========================================================================
+  // TESTES DE AUDITORIA COMPLETA (EXIGÊNCIAS DO ITEM 8)
+  // =========================================================================
+
+  it('22. Invariância estrita à ordem aleatória (shuffle determinism)', () => {
+    const originalSys: SystemRecord[] = [
+      { id: 's1', data: '01/07/2026', parceiro: 'SWIFT PIRACUAMA', credito: 1954.12, debito: null },
+      { id: 's2', data: '01/07/2026', parceiro: 'STARLINK BRAZIL', credito: 1199.0, debito: null },
+      { id: 's3', data: '01/07/2026', parceiro: 'OPENAI LLC', credito: 108.4, debito: null },
+      {
+        id: 's4',
+        data: '01/07/2026',
+        parceiro: 'AMAZON WEB SERVICES',
+        credito: 500.0,
+        debito: null,
+      },
+      { id: 's5', data: '01/07/2026', parceiro: 'UBER DO BRASIL', credito: 35.5, debito: null },
+      {
+        id: 's6',
+        data: '01/07/2026',
+        parceiro: 'AUTENTIQUE TECNOLOGIA',
+        credito: 200.0,
+        debito: null,
+      },
+    ]
+
+    const originalCard: CardRecord[] = [
+      { id: 'c1', data: '23/06/2026', estabelecimento: 'SWIFT PIRACUAMA', valor: 1954.12 },
+      { id: 'c2', data: '12/06/2026', estabelecimento: 'DL *Starlink Brazil', valor: 1199.0 },
+      { id: 'c3', data: '05/06/2026', estabelecimento: 'OPENAI *CHATGPT SUBSCR', valor: 108.4 },
+      { id: 'c4', data: '20/06/2026', estabelecimento: 'AMAZON WEB SERVICES', valor: 525.5 }, // Divergente
+      { id: 'c5', data: '05/06/2026', estabelecimento: 'UBER *TRIP', valor: 35.5 },
+      { id: 'c6', data: '18/06/2026', estabelecimento: 'AUTENTIQUE TECNOLOGIA', valor: 200.0 },
+    ]
+
+    const baseline = reconcileData(originalSys, originalCard, 'itau')
+
+    // Executa com 5 permutações pseudo-aleatórias diferentes
+    const shuffle = <T>(arr: T[], seed: number): T[] => {
+      const copy = [...arr]
+      let m = copy.length
+      let s = seed
+      while (m) {
+        s = (s * 9301 + 49297) % 233280
+        const rnd = s / 233280
+        const i = Math.floor(rnd * m--)
+        const t = copy[m]
+        copy[m] = copy[i]
+        copy[i] = t
+      }
+      return copy
+    }
+
+    for (let seed = 1; seed <= 5; seed++) {
+      const shuffledSys = shuffle(originalSys, seed * 17)
+      const shuffledCard = shuffle(originalCard, seed * 31)
+
+      const shuffledResult = reconcileData(shuffledSys, shuffledCard, 'itau')
+
+      expect(shuffledResult.length).toBe(baseline.length)
+      // Mesmas associações e mesmos status independentemente da ordem
+      const baselinePairs = baseline.map(
+        (r) => `${r.estabelecimento}|${r.parceiro}|${r.status}|${r.diferenca}`,
+      )
+      const shuffledPairs = shuffledResult.map(
+        (r) => `${r.estabelecimento}|${r.parceiro}|${r.status}|${r.diferenca}`,
+      )
+      expect(shuffledPairs).toEqual(baselinePairs)
+    }
+  })
+
+  it('23. Não associar estabelecimentos não correlacionados com valores iguais (prevenção de falsos positivos)', () => {
+    // 3 compras de R$ 89,90 com estabelecimentos completamente diferentes
+    const sys: SystemRecord[] = [
+      {
+        id: 's-farmacia',
+        data: '10/06/2026',
+        parceiro: 'FARMACIA RAIA DROGASIL',
+        credito: 89.9,
+        debito: null,
+      },
+      {
+        id: 's-estaciona',
+        data: '10/06/2026',
+        parceiro: 'ESTAPAR ESTACIONAMENTOS',
+        credito: 89.9,
+        debito: null,
+      },
+    ]
+
+    const card: CardRecord[] = [
+      { id: 'c-padaria', data: '10/06/2026', estabelecimento: 'PADARIA REAL SANTANA', valor: 89.9 },
+      { id: 'c-pet', data: '10/06/2026', estabelecimento: 'PETZ CENTRO VETERINARIO', valor: 89.9 },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    // Nenhum par deve ser marcado como GREEN (conciliado)
+    const greens = results.filter((r) => r.status === 'GREEN')
+    expect(greens).toHaveLength(0)
+
+    // Devem constar como exclusivos (RED)
+    expect(results.filter((r) => r.status === 'RED')).toHaveLength(4)
+  })
+
+  it('24. Compras repetidas de mesmo valor e mesmo estabelecimento casam 1 a 1 sem omitir nem duplicar', () => {
+    // 3 corridas de Uber no mesmo dia de R$ 25,00
+    const sys: SystemRecord[] = [
+      { id: 's-u1', data: '15/06/2026', parceiro: 'UBER DO BRASIL', credito: 25.0, debito: null },
+      { id: 's-u2', data: '15/06/2026', parceiro: 'UBER DO BRASIL', credito: 25.0, debito: null },
+      { id: 's-u3', data: '15/06/2026', parceiro: 'UBER DO BRASIL', credito: 25.0, debito: null },
+    ]
+
+    const card: CardRecord[] = [
+      { id: 'c-u1', data: '15/06/2026', estabelecimento: 'UBER *TRIP', valor: 25.0 },
+      { id: 'c-u2', data: '15/06/2026', estabelecimento: 'UBER *TRIP', valor: 25.0 },
+      { id: 'c-u3', data: '15/06/2026', estabelecimento: 'UBER *TRIP', valor: 25.0 },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(3)
+    expect(results.every((r) => r.status === 'GREEN')).toBe(true)
+    expect(results.every((r) => r.origem === 'AMBOS')).toBe(true)
+
+    // Unicidade estrita: cada ID do Odoo e cada ID da fatura deve aparecer exatamente uma vez
+    const usedSysIds = new Set(results.map((r) => r.id.split('-')[1]))
+    const usedCardIds = new Set(results.map((r) => r.id.split('-')[2]))
+    expect(usedSysIds.size).toBe(3)
+    expect(usedCardIds.size).toBe(3)
+  })
+
+  it('25. Arquivos com quantidades desiguais preservam todos os resíduos com auditoria 100%', () => {
+    // 4 registros no Odoo, 2 na fatura
+    const sys: SystemRecord[] = [
+      { id: 's1', data: '01/07/2026', parceiro: 'SWIFT PIRACUAMA', credito: 1954.12, debito: null },
+      { id: 's2', data: '01/07/2026', parceiro: 'STARLINK BRAZIL', credito: 1199.0, debito: null },
+      {
+        id: 's3',
+        data: '01/07/2026',
+        parceiro: 'HONORARIOS ADVOCATICIOS',
+        credito: 3500.0,
+        debito: null,
+      },
+      {
+        id: 's4',
+        data: '01/07/2026',
+        parceiro: 'TARIFAS BANCARIAS DIVERSAS',
+        credito: 150.0,
+        debito: null,
+      },
+    ]
+
+    const card: CardRecord[] = [
+      { id: 'c1', data: '23/06/2026', estabelecimento: 'SWIFT PIRACUAMA', valor: 1954.12 },
+      { id: 'c2', data: '12/06/2026', estabelecimento: 'DL *Starlink Brazil', valor: 1199.0 },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    // Esperado: 2 conciliados + 2 somente sistema = 4 registros na tabela
+    expect(results).toHaveLength(4)
+    expect(results.filter((r) => r.status === 'GREEN')).toHaveLength(2)
+    expect(results.filter((r) => r.status === 'RED' && r.origem === 'SISTEMA')).toHaveLength(2)
+
+    const metrics = calculateReconciliationMetrics(results, sys.length, card.length)
+    expect(metrics.totalRegistrosSistema).toBe(4)
+    expect(metrics.totalRegistrosFatura).toBe(2)
+    expect(metrics.paresConciliados).toBe(2)
+    expect(metrics.somenteSistema).toBe(2)
+    expect(metrics.somenteFatura).toBe(0)
+    expect(metrics.totalValorSistema).toBe(6803.12)
+    expect(metrics.totalValorFatura).toBe(3153.12)
+    expect(metrics.diferencaTotal).toBe(-3650.0)
+
+    const validation = validateExport(results, sys, card)
+    expect(validation.isValid).toBe(true)
+  })
+
+  it('26. Dados incompletos e ausência de campos auxiliares não quebram o fluxo', () => {
+    const sys: SystemRecord[] = [
+      { id: 's-incomp', data: '', parceiro: 'PÃO DE AÇÚCAR', credito: 120.5, debito: null },
+    ]
+
+    const card: CardRecord[] = [
+      { id: 'c-incomp', data: '', estabelecimento: 'PAO DE ACUCAR', valor: 120.5 },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(1)
+    expect(results[0].status).toBe('GREEN')
+    expect(results[0].credito).toBe(120.5)
+    expect(results[0].valorFatura).toBe(120.5)
+  })
 })

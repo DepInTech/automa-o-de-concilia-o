@@ -59,8 +59,8 @@ export interface ReconciliationResult {
   credito: number | null
   valorFatura: number | null
   diferenca: number | null
-  /** GREEN = Conciliado | YELLOW = Divergente | RED = Somente Sistema / Somente Fatura */
-  status: 'GREEN' | 'YELLOW' | 'RED'
+  /** GREEN = Conciliado | YELLOW = Divergente | RED = Somente Sistema / Somente Fatura | GRAY = Ambíguo / Revisão */
+  status: 'GREEN' | 'YELLOW' | 'RED' | 'GRAY'
   origem: 'SISTEMA' | 'FATURA' | 'AMBOS'
   classificacao: MatchClassification
   motivo: string

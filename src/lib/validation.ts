@@ -24,9 +24,10 @@ export function validateExport(
   const green = results.filter((r) => r.status === 'GREEN').length
   const yellow = results.filter((r) => r.status === 'YELLOW').length
   const red = results.filter((r) => r.status === 'RED').length
+  const gray = results.filter((r) => r.status === 'GRAY').length
 
-  if (green + yellow + red !== results.length) {
-    errors.push('Soma de statuses inconsistente (GREEN + YELLOW + RED != total).')
+  if (green + yellow + red + gray !== results.length) {
+    errors.push('Soma de statuses inconsistente (GREEN + YELLOW + RED + GRAY != total).')
   }
 
   return { isValid: errors.length === 0, errors }
