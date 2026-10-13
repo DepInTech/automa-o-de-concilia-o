@@ -815,9 +815,11 @@ trailer << /Root 1 0 R >>
     expect(results[0].diferenca).toBe(0)
   })
 
-  // Teste C: Competição de dois candidatos de mesmo valor na mesma família sem diferencial → CINZA (Padrão 1 e 3)
-  it('29. Competição de candidatos de mesmo valor na mesma família de marketplace vai para CINZA (revisão manual)', () => {
-    const sys: SystemRecord[] = [
+  // Teste C: Pela nova regra da usuária: casos ambíguos com valor idêntico (diferença R$ 0,00) viram VERDE (CONCILIADO)
+  // Já casos ambíguos com valores diferentes continuam CINZA
+  it('29. Casos ambíguos com valor idêntico viram VERDE (conciliado) e com valores divergentes continuam CINZA', () => {
+    // Caso 1: Ambíguo com valor idêntico -> VERDE
+    const sysEqual: SystemRecord[] = [
       {
         id: 's-comp-1',
         data: '10/06/2026',
@@ -836,7 +838,7 @@ trailer << /Root 1 0 R >>
       },
     ]
 
-    const card: CardRecord[] = [
+    const cardEqual: CardRecord[] = [
       {
         id: 'c-comp-1',
         data: '10/06/2026',
@@ -851,11 +853,37 @@ trailer << /Root 1 0 R >>
       },
     ]
 
-    const results = reconcileData(sys, card, 'itau')
-    // Pelo menos os candidatos que competem sem diferencial são marcados como GRAY para revisão
-    const grayMatches = results.filter((r) => r.status === 'GRAY')
-    expect(grayMatches.length).toBeGreaterThanOrEqual(1)
+    const resultsEqual = reconcileData(sysEqual, cardEqual, 'itau')
+    // Pela regra da usuária: valor igual resolve a ambiguidade -> VERDE
+    const greenMatches = resultsEqual.filter((r) => r.status === 'GREEN')
+    expect(greenMatches.length).toBeGreaterThanOrEqual(1)
+    expect(greenMatches.every((r) => r.classificacao === 'CONCILIADO')).toBe(true)
+    expect(greenMatches.every((r) => r.diferenca === 0)).toBe(true)
+
+    // Caso 2: Ambíguo com valores divergentes (ex: diferença de R$ 3,00 e nomes parcialmente semelhantes) -> CINZA
+    const sysDiff: SystemRecord[] = [
+      {
+        id: 's-ambig-diff',
+        data: '10/06/2026',
+        parceiro: 'LOJA TESTE BRASIL COMERCIO',
+        credito: 100.0,
+        total: 100.0,
+        debito: null,
+      },
+    ]
+    const cardDiff: CardRecord[] = [
+      {
+        id: 'c-ambig-diff',
+        data: '10/06/2026',
+        estabelecimento: 'LOJA TESTE PRODUTOS',
+        valor: 103.5, // Diferença R$ 3,50, nameSim moderado
+      },
+    ]
+    const resultsDiff = reconcileData(sysDiff, cardDiff, 'itau')
+    const grayMatches = resultsDiff.filter((r) => r.status === 'GRAY')
+    expect(grayMatches).toHaveLength(1)
     expect(grayMatches[0].classificacao).toBe('POSSIVEL_CORRESPONDENCIA')
+    expect(grayMatches[0].diferenca).toBe(3.5)
   })
 
   // Teste D: Pares com nomes totalmente distintos e valor único em cada fonte (Padrão 3)
@@ -1150,5 +1178,128 @@ trailer << /Root 1 0 R >>
     expect(results[0].status).toBe('GREEN')
     expect(results[0].credito).toBe(120.5)
     expect(results[0].valorFatura).toBe(120.5)
+  })
+
+  // Testes de regressão específicos solicitados pelo ajuste do usuário:
+  it('33. Intermediador "Vindi *LojaNetlab": token real é "lojanetlab" e casa com "LOJANETLAB COMERCIO"', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-netlab',
+        data: '15/06/2026',
+        parceiro: 'LOJANETLAB EQUIPAMENTOS E MATERIAIS LTDA',
+        credito: 450.0,
+        total: 450.0,
+        debito: null,
+      },
+    ]
+
+    const card: CardRecord[] = [
+      {
+        id: 'c-netlab',
+        data: '15/06/2026',
+        estabelecimento: 'Vindi *LojaNetlab',
+        valor: 450.0,
+      },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(1)
+    expect(results[0].status).toBe('GREEN')
+    expect(results[0].classificacao).toBe('CONCILIADO')
+    expect(results[0].parceiro).toBe('LOJANETLAB EQUIPAMENTOS E MATERIAIS LTDA')
+    expect(results[0].estabelecimento).toBe('Vindi *LojaNetlab')
+  })
+
+  it('34. "Vindi *LojaNetlab" NÃO casa como verde com parceiro não relacionado quando há concorrente de valor próximo', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-outro',
+        data: '15/06/2026',
+        parceiro: 'CONSTRUTORA E REFORMAS LTDA',
+        credito: 450.0,
+        total: 450.0,
+        debito: null,
+      },
+      {
+        id: 's-outro2',
+        data: '15/06/2026',
+        parceiro: 'CONSULTORIA FINANCEIRA',
+        credito: 452.0, // Concorrente com valor próximo (R$ 452 vs R$ 450)
+        total: 452.0,
+        debito: null,
+      },
+    ]
+
+    const card: CardRecord[] = [
+      {
+        id: 'c-vindi',
+        data: '15/06/2026',
+        estabelecimento: 'Vindi *LojaNetlab',
+        valor: 450.0,
+      },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    // Não deve casar como verde direto por valor sem afinidade de nome com concorrente de valor próximo
+    const vindiMatch = results.find((r) => r.estabelecimento === 'Vindi *LojaNetlab')
+    expect(vindiMatch).toBeDefined()
+    // Como há concorrência de valor próximo e os nomes não compartilham token, deve ir para cinza (revisão) ou não casar com verde
+    expect(vindiMatch?.status).toBe('GRAY')
+    expect(vindiMatch?.classificacao).toBe('POSSIVEL_CORRESPONDENCIA')
+  })
+
+  it('35. Intermediadores conhecidos (Cielo, PagSeguro, Stone, Getnet, Rede, Mercado Pago) extraem o vendedor real', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-cielo',
+        data: '10/06/2026',
+        parceiro: 'FARMACIA SAO BENTO LTDA',
+        credito: 85.0,
+        total: 85.0,
+        debito: null,
+      },
+      {
+        id: 's-stone',
+        data: '11/06/2026',
+        parceiro: 'LANCHONETE BOM SABOR ME',
+        credito: 42.5,
+        total: 42.5,
+        debito: null,
+      },
+      {
+        id: 's-pagseguro',
+        data: '12/06/2026',
+        parceiro: 'PAPELARIA ESCOLAR CENTRAL LTDA',
+        credito: 110.0,
+        total: 110.0,
+        debito: null,
+      },
+    ]
+
+    const card: CardRecord[] = [
+      {
+        id: 'c-cielo',
+        data: '10/06/2026',
+        estabelecimento: 'CIELO *Farmacia Sao Bento',
+        valor: 85.0,
+      },
+      {
+        id: 'c-stone',
+        data: '11/06/2026',
+        estabelecimento: 'STONE *Lanchonete Bom Sabor',
+        valor: 42.5,
+      },
+      {
+        id: 'c-pagseguro',
+        data: '12/06/2026',
+        estabelecimento: 'PAGSEGURO *Papelaria Escolar',
+        valor: 110.0,
+      },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(3)
+    expect(results.every((r) => r.status === 'GREEN')).toBe(true)
+    expect(results.every((r) => r.classificacao === 'CONCILIADO')).toBe(true)
   })
 })

@@ -357,7 +357,7 @@ export function reconcileData(
       (item) => !matchedCardIds.has(item.card.id) && Math.abs(item.val - s.val) < 0.01,
     )
 
-    // Caso A: Exatamente 1 no Odoo e 1 na Fatura com o mesmo valor único
+    // Caso A: Exatamente 1 no Odoo e 1 na Fatura com o mesmo valor único entre os remanescentes
     if (remSysWithVal.length === 1 && remCardWithVal.length === 1) {
       const c = remCardWithVal[0]
 
@@ -405,13 +405,39 @@ export function reconcileData(
       // Ex: Padrão 3 da usuária: "pares corretos em que o nome comercial da fatura e o parceiro do Odoo
       // NÃO compartilham nenhum token; a conferência manual validou esses pares apoiada em valor que aparece
       // uma única vez em cada fonte + informações auxiliares."
-      // Pela regra inegociável da usuária: valor único nas duas fontes é evidência forte para proposta (verde quando sem concorrente)
-      // MAS não pode ser aplicado levianamente se ambos não tiverem coerência mínima.
-      // Se não for marketplace, verificamos se o valor é único no universo global de cada arquivo:
-      if ((sysValueFreq.get(s.val) || 0) === 1 && (cardValueFreq.get(c.val) || 0) === 1) {
-        // Confere se não são tipos categoricamente incompatíveis
-        const nameSim = calculateNameSimilarity(s.sys.parceiro, c.card.estabelecimento)
-        // Se a similaridade for muito baixa mas o valor for 100% único em ambas as tabelas
+      // REGRA ESTRITA:
+      // Quando os nomes normalizados das duas fontes não compartilham NENHUM token distintivo relevante,
+      // o pareamento por valor único só deve ocorrer se o valor for de fato estritamente único globalmente
+      // (freq === 1 em ambas as fontes) E NÃO HOUVER NENHUM OUTRO CANDIDATO CONCORRENTE com valor igual ou próximo
+      // (absDiff <= 5.0 ou 2% do valor) em qualquer das fontes.
+      // Se houver qualquer outro candidato com valor igual ou próximo, o caso NÃO pode ir para VERDE:
+      // deve ir para CINZA (revisão) ou permanecer não pareado para análise.
+      const isGloballyUniqueSys = (sysValueFreq.get(s.val) || 0) === 1
+      const isGloballyUniqueCard = (cardValueFreq.get(c.val) || 0) === 1
+      const nameSim = calculateNameSimilarity(s.sys.parceiro, c.card.estabelecimento)
+
+      // Tolerância para detectar candidatos com valor próximo concorrente
+      const nearThreshold = Math.max(0.5, Math.min(5.0, s.val * 0.02))
+      const hasNearSysCompetitor = normalizedSys.some(
+        (otherSys) =>
+          otherSys.sys.id !== s.sys.id &&
+          Math.abs(otherSys.val - s.val) > 0.009 &&
+          Math.abs(otherSys.val - s.val) <= nearThreshold,
+      )
+      const hasNearCardCompetitor = normalizedCard.some(
+        (otherCard) =>
+          otherCard.card.id !== c.card.id &&
+          Math.abs(otherCard.val - c.val) > 0.009 &&
+          Math.abs(otherCard.val - c.val) <= nearThreshold,
+      )
+      const hasCompetingCandidate =
+        !isGloballyUniqueSys ||
+        !isGloballyUniqueCard ||
+        hasNearSysCompetitor ||
+        hasNearCardCompetitor
+
+      if (isGloballyUniqueSys && isGloballyUniqueCard && !hasCompetingCandidate) {
+        // Sem nenhum concorrente com valor igual ou próximo em ambas as fontes
         matchedSystemIds.add(s.sys.id)
         matchedCardIds.add(c.card.id)
 
@@ -443,23 +469,15 @@ export function reconcileData(
           observacaoManualOdoo: s.sys.observacaoManual,
         })
         continue
-      }
-    } else if (remSysWithVal.length > 1 && remCardWithVal.length > 0) {
-      // Caso B: Mais de um candidato competindo pelo mesmo valor na mesma família sem diferencial de nome
-      // Padrão 1 & Padrão 3: "se dois candidatos da família competem pelo mesmo valor, é caso CINZA de revisão"
-      // "NUNCA usar valor repetido como confirmação automática — valor repetido com nomes incomparáveis é CINZA"
-      const isMlSys = /mercado\s*livre|mercadolivre/i.test(s.sys.parceiro)
-      const c = remCardWithVal[0]
-      const isMlCard = /mercado\s*livre|mercadolivre|mercado\*|mp\s*\*/i.test(
-        c.card.estabelecimento,
-      )
-
-      if (isMlSys && isMlCard) {
+      } else if (hasCompetingCandidate && (isGloballyUniqueSys || isGloballyUniqueCard)) {
+        // Decisão explícita da usuária: quando o valor for IDÊNTICO (diferença R$ 0,00),
+        // ele é classificado como VERDE (conciliado) em vez de cinza.
+        // O valor igual resolve a ambiguidade.
         matchedSystemIds.add(s.sys.id)
         matchedCardIds.add(c.card.id)
 
         results.push({
-          id: `GRAY-${s.sys.id}-${c.card.id}`,
+          id: `GREEN-${s.sys.id}-${c.card.id}`,
           dataFatura: c.card.data,
           dataOdoo: s.sys.data,
           data: s.sys.data || c.card.data,
@@ -473,19 +491,57 @@ export function reconcileData(
           credito: s.val,
           valorFatura: c.val,
           diferenca: 0,
-          status: 'GRAY',
+          status: 'GREEN',
           origem: 'AMBOS',
-          classificacao: 'POSSIVEL_CORRESPONDENCIA',
+          classificacao: 'CONCILIADO',
           motivo:
-            'Competição de candidatos de mesmo valor na família de marketplace: revisão manual necessária',
-          scoreConfianca: 50,
+            'Valor monetário idêntico nas duas fontes (resolvido como conciliado por valor igual)',
+          scoreConfianca: 65,
           linhaOdooOrigem: s.sys.linhaOrigem,
           paginaFaturaOrigem: c.card.paginaOrigem,
           isInternacional: c.card.isInternacional,
           observacaoManualFatura: c.card.observacaoManual,
           observacaoManualOdoo: s.sys.observacaoManual,
         })
+        continue
       }
+    } else if (remSysWithVal.length > 1 && remCardWithVal.length > 0) {
+      // Caso B: Mais de um candidato competindo pelo mesmo valor exato
+      // Decisão explícita da usuária: "esses que estão em cinzas (Ambíguos) pode colocar como verde pois o valor e o mesmo"
+      // Quando um caso classificado como ambíguo/cinza tiver valor IDÊNTICO nas duas fontes (diferença de R$ 0,00),
+      // ele deve ser classificado como VERDE (conciliado) em vez de cinza.
+      const c = remCardWithVal[0]
+
+      matchedSystemIds.add(s.sys.id)
+      matchedCardIds.add(c.card.id)
+
+      results.push({
+        id: `GREEN-${s.sys.id}-${c.card.id}`,
+        dataFatura: c.card.data,
+        dataOdoo: s.sys.data,
+        data: s.sys.data || c.card.data,
+        numero: s.sys.numero,
+        referencia: s.sys.referencia,
+        lancamentoDiario: s.sys.lancamentoDiario,
+        parceiro: s.sys.parceiro,
+        estabelecimento: c.card.estabelecimento,
+        categoria: c.card.categoria || s.sys.categoria || '',
+        debito: s.sys.debito,
+        credito: s.val,
+        valorFatura: c.val,
+        diferenca: 0,
+        status: 'GREEN',
+        origem: 'AMBOS',
+        classificacao: 'CONCILIADO',
+        motivo:
+          'Valor monetário idêntico nas duas fontes (resolvido como conciliado por valor igual)',
+        scoreConfianca: 60,
+        linhaOdooOrigem: s.sys.linhaOrigem,
+        paginaFaturaOrigem: c.card.paginaOrigem,
+        isInternacional: c.card.isInternacional,
+        observacaoManualFatura: c.card.observacaoManual,
+        observacaoManualOdoo: s.sys.observacaoManual,
+      })
     }
   }
 
@@ -600,8 +656,11 @@ export function reconcileData(
     }
   }
 
-  // 6. FASE 4: Ambíguos / Dados Insuficientes (CINZA / POSSIVEL_CORRESPONDENCIA)
+  // 6. FASE 4: Ambíguos / Dados Insuficientes (CINZA / POSSIVEL_CORRESPONDENCIA ou VERDE se valor idêntico)
   // Candidatos não conciliados que possuem alguma evidência plausível (nameSim entre 0.4 e 0.55 com valor divergente pequeno)
+  // MUDANÇA DE REGRA (decisão explícita da usuária):
+  // Quando um caso classificado como ambíguo tiver valor IDÊNTICO nas duas fontes (diferença de R$ 0,00),
+  // ele deve ser classificado como VERDE (conciliado) em vez de cinza. Casos com valores diferentes continuam cinza.
   const ambiguousCandidates = candidates
     .filter(
       (cand) =>
@@ -620,33 +679,65 @@ export function reconcileData(
     matchedSystemIds.add(cand.sys.id)
     matchedCardIds.add(cand.card.id)
 
-    const difStr = cand.absDiff.toFixed(2).replace('.', ',')
-    results.push({
-      id: `GRAY-${cand.sys.id}-${cand.card.id}`,
-      dataFatura: cand.card.data,
-      dataOdoo: cand.sys.data,
-      data: cand.sys.data || cand.card.data,
-      numero: cand.sys.numero,
-      referencia: cand.sys.referencia,
-      lancamentoDiario: cand.sys.lancamentoDiario,
-      parceiro: cand.sys.parceiro,
-      estabelecimento: cand.card.estabelecimento,
-      categoria: cand.card.categoria || cand.sys.categoria || '',
-      debito: cand.sys.debito,
-      credito: cand.sysVal,
-      valorFatura: cand.cardVal,
-      diferenca: cand.diffVal,
-      status: 'GRAY',
-      origem: 'AMBOS',
-      classificacao: 'POSSIVEL_CORRESPONDENCIA',
-      motivo: `Correspondência ambígua para revisão manual (dif. R$ ${difStr})`,
-      scoreConfianca: cand.totalScore,
-      linhaOdooOrigem: cand.sys.linhaOrigem,
-      paginaFaturaOrigem: cand.card.paginaOrigem,
-      isInternacional: cand.card.isInternacional,
-      observacaoManualFatura: cand.card.observacaoManual,
-      observacaoManualOdoo: cand.sys.observacaoManual,
-    })
+    const isExact = cand.absDiff < 0.01
+
+    if (isExact) {
+      results.push({
+        id: `GREEN-${cand.sys.id}-${cand.card.id}`,
+        dataFatura: cand.card.data,
+        dataOdoo: cand.sys.data,
+        data: cand.sys.data || cand.card.data,
+        numero: cand.sys.numero,
+        referencia: cand.sys.referencia,
+        lancamentoDiario: cand.sys.lancamentoDiario,
+        parceiro: cand.sys.parceiro,
+        estabelecimento: cand.card.estabelecimento,
+        categoria: cand.card.categoria || cand.sys.categoria || '',
+        debito: cand.sys.debito,
+        credito: cand.sysVal,
+        valorFatura: cand.cardVal,
+        diferenca: 0,
+        status: 'GREEN',
+        origem: 'AMBOS',
+        classificacao: 'CONCILIADO',
+        motivo: 'Ambíguo resolvido como conciliado por valor monetário idêntico',
+        scoreConfianca: cand.totalScore,
+        linhaOdooOrigem: cand.sys.linhaOrigem,
+        paginaFaturaOrigem: cand.card.paginaOrigem,
+        isInternacional: cand.card.isInternacional,
+        moedaOriginal: cand.card.moedaGlobal || 'BRL',
+        observacaoManualFatura: cand.card.observacaoManual,
+        observacaoManualOdoo: cand.sys.observacaoManual,
+      })
+    } else {
+      const difStr = cand.absDiff.toFixed(2).replace('.', ',')
+      results.push({
+        id: `GRAY-${cand.sys.id}-${cand.card.id}`,
+        dataFatura: cand.card.data,
+        dataOdoo: cand.sys.data,
+        data: cand.sys.data || cand.card.data,
+        numero: cand.sys.numero,
+        referencia: cand.sys.referencia,
+        lancamentoDiario: cand.sys.lancamentoDiario,
+        parceiro: cand.sys.parceiro,
+        estabelecimento: cand.card.estabelecimento,
+        categoria: cand.card.categoria || cand.sys.categoria || '',
+        debito: cand.sys.debito,
+        credito: cand.sysVal,
+        valorFatura: cand.cardVal,
+        diferenca: cand.diffVal,
+        status: 'GRAY',
+        origem: 'AMBOS',
+        classificacao: 'POSSIVEL_CORRESPONDENCIA',
+        motivo: `Correspondência ambígua para revisão manual (dif. R$ ${difStr})`,
+        scoreConfianca: cand.totalScore,
+        linhaOdooOrigem: cand.sys.linhaOrigem,
+        paginaFaturaOrigem: cand.card.paginaOrigem,
+        isInternacional: cand.card.isInternacional,
+        observacaoManualFatura: cand.card.observacaoManual,
+        observacaoManualOdoo: cand.sys.observacaoManual,
+      })
+    }
   }
 
   // 7. FASE 5: Prioridade 4 — Lançamentos Exclusivos do Sistema (RED / SOMENTE_SISTEMA)
