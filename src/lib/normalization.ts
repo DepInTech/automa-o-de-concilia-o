@@ -91,7 +91,9 @@ export function normalizeEntityName(raw: string): string {
   // 3. Normaliza referências a Mercado Livre / Mercado Pago antes da remoção
   // Se for apenas Mercado Livre ou variação, preserva um token identificador
   const isPureMercadoLivre =
-    /^(mercado\s*livre|mercadolivre|mercado\*mercadolivre|mercadolivre\*mercadol)/i.test(cleaned)
+    /^(mercado\s*livre|mercadolivre|mercado\*mercadolivre|mercadolivre\*mercadol)(\s|$)/i.test(
+      cleaned,
+    )
 
   // Remove prefixos comuns de gateways sucessivamente
   let changed = true
@@ -104,6 +106,7 @@ export function normalizeEntityName(raw: string): string {
     changed = cleaned !== before
   }
 
+  // Se restou vazio após remover "mercadolivre*", "mercado*" ou similar, define como genérico de marketplace
   if (!cleaned && isPureMercadoLivre) {
     cleaned = 'mercadolivre'
   }
@@ -210,12 +213,11 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
     if (found) matchesB++
   }
 
-  // Caso Mercado Livre: ambos mencionam mercadolivre ou mercado livre
-  const isMlA = /mercado/i.test(rawA)
-  const isMlB = /mercado/i.test(rawB)
-  if (isMlA && isMlB) {
-    return 0.8
-  }
+  // Importante: NÃO atribuir pontuação alta arbitrária (0.8) apenas por pertencerem à família do Mercado Livre!
+  // A semelhança deve ser calculada pelos tokens do vendedor real ou pelo overlap dos termos substantivos.
+  const isMlA = /mercado\s*livre|mercadolivre|mercado\*|mp\s*\*/i.test(rawA)
+  const isMlB = /mercado\s*livre|mercadolivre|mercado\*|mp\s*\*/i.test(rawB)
+  const bothMarketplaceFamily = isMlA && isMlB
 
   // Caso Uber: "DL*UberRides" vs "Uber"
   const isUberA = /uber/i.test(rawA)
@@ -224,8 +226,21 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
     return 0.85
   }
 
-  // Overlap assimétrico: se um nome curto da fatura ("SJX ATACAD") está quase todo contido
-  // na razão social longa do Odoo ("SJX COMERCIAL ATACADISTA DE MERCADORIAS LTDA - Sacolão São Jorge"),
+  // Se ambos são do mesmo marketplace (ex: Mercado Livre) e um dos lados é genérico sem vendedor
+  // (ex.: "Mercado Livre" no Odoo ou "MERCADOLIVRE*MERCADOL" na fatura):
+  const isGenericMlA =
+    tokensA.length === 0 || (tokensA.length === 1 && tokensA[0] === 'mercadolivre')
+  const isGenericMlB =
+    tokensB.length === 0 || (tokensB.length === 1 && tokensB[0] === 'mercadolivre')
+
+  if (bothMarketplaceFamily && (isGenericMlA || isGenericMlB)) {
+    // Afinidade moderada para pertencer à mesma família de marketplace
+    // mas sem evidência distintiva suficiente para pontuar 0.8+
+    return 0.35
+  }
+
+  // Overlap assimétrico: se um nome curto da fatura ("SJX ATACAD") ou token truncado ("DONEMBALAGENS")
+  // está quase todo contido na razão social longa do Odoo ("DON COMERCIO E IMPORTACAO DE EMBALAGENS"),
   // o minMatch (proporção do menor conjunto coberto) tem grande relevância.
   const coveredOfMin =
     tokensA.length <= tokensB.length
@@ -244,16 +259,51 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
         ? matchesB / tokensB.length
         : 0
 
-  const overlapScore = coveredOfMin * 0.65 + coveredOfMax * 0.35
+  let overlapScore = coveredOfMin * 0.65 + coveredOfMax * 0.35
+
+  // Verificação de token distintivo composto ou truncado (ex: "DONEMBALAGENS" no meio de "DON COMERCIO... EMBALAGENS")
+  // ou "MERCADOLIVRE*AXPNEUMA" vs "LEONARDO DA SILVA FERREIRA" (não bate) vs "AX PNEUMATICA" (bate)
+  // ou "MERCADO*FANTASIACAROL" vs "Iria Carolina... / CAROL FANTASIAS"
+  const joinedA = tokensA.join('')
+  const joinedB = tokensB.join('')
+  let subTokenMatch = false
+  for (const tA of tokensA) {
+    if (tA.length >= 4 && !/^(mercadolivre|brasil|brazil|comercio|servicos)$/i.test(tA)) {
+      if (
+        joinedB.includes(tA) ||
+        tokensB.some((tB) => tB.includes(tA) || (tB.length >= 4 && tA.startsWith(tB)))
+      ) {
+        subTokenMatch = true
+        break
+      }
+    }
+  }
+  for (const tB of tokensB) {
+    if (tB.length >= 4 && !/^(mercadolivre|brasil|brazil|comercio|servicos)$/i.test(tB)) {
+      if (
+        joinedA.includes(tB) ||
+        tokensA.some((tA) => tA.includes(tB) || (tA.length >= 4 && tB.startsWith(tA)))
+      ) {
+        subTokenMatch = true
+        break
+      }
+    }
+  }
+
+  if (subTokenMatch && overlapScore < 0.6) {
+    overlapScore = Math.max(overlapScore, 0.65)
+  }
 
   // Bônus proporcional se a primeira palavra (marca central) coincidir, ponderada pelo tamanho do nome
+  // NUNCA pontuar se a primeira palavra for termo de intermediador/marketplace como "mercadolivre"
   const firstA = tokensA[0]
   const firstB = tokensB[0]
   let brandBonus = 0
-  if (firstA && firstB) {
+  const isGenericBrand = (w?: string) =>
+    !w || /^(mercadolivre|mercado|brasil|brazil|comercio|servicos|servico)$/i.test(w)
+
+  if (firstA && firstB && !isGenericBrand(firstA) && !isGenericBrand(firstB)) {
     if (firstA === firstB && firstA.length >= 3) {
-      // Se ambos os nomes têm apenas 1 ou 2 tokens, ter a mesma primeira palavra é muito significativo
-      // Se têm muitos tokens, a relevância da primeira palavra não pode inflar nomes completamente distintos
       const brevityFactor = Math.min(1.0, 2 / Math.min(tokensA.length, tokensB.length))
       brandBonus = 0.25 * brevityFactor
     } else if (
@@ -265,21 +315,25 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
     }
   }
 
-  // Bônus se qualquer token com 5+ caracteres for idêntico (ex: "biocentrix", "starlink", "autentique"),
+  // Bônus se qualquer token distintivo com 5+ caracteres for idêntico (ex: "biocentrix", "starlink", "autentique"),
   // apenas se houver alguma sobreposição mínima global
   const anyDistinctiveTokenMatch = tokensA.some((tA) =>
     tokensB.some(
       (tB) =>
         tA === tB &&
         tA.length >= 5 &&
-        !/^(brasil|brazil|servico|servicos|comercio|comercial)$/i.test(tA),
+        !/^(mercadolivre|brasil|brazil|servico|servicos|comercio|comercial|produtos)$/i.test(tA),
     ),
   )
-  if (anyDistinctiveTokenMatch && brandBonus === 0 && coveredOfMin >= 0.2) {
-    brandBonus = 0.15
+  if (anyDistinctiveTokenMatch && brandBonus === 0 && (coveredOfMin >= 0.2 || subTokenMatch)) {
+    brandBonus = 0.2
   }
 
-  return Math.min(1.0, overlapScore * 0.8 + brandBonus)
+  // Se ambos pertencem à família do marketplace, adiciona um leve ajuste de coerência (0.05),
+  // mas o resultado geral só é alto se houver token do vendedor correspondente
+  const marketplaceFamilyBonus = bothMarketplaceFamily ? 0.05 : 0
+
+  return Math.min(1.0, overlapScore * 0.8 + brandBonus + marketplaceFamilyBonus)
 }
 
 /**

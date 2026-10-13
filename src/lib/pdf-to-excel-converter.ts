@@ -33,6 +33,8 @@ export interface InvoiceExtractedRecord {
   portador?: string
   /** Parcela, se informada (ex: '01/03') */
   parcela?: string
+  /** Observação manual presente na conferência */
+  observacaoManual?: string
   /** 'Nacional' | 'Internacional' | 'Tarifa' | 'Estorno' */
   tipo: 'Nacional' | 'Internacional' | 'Tarifa' | 'Estorno'
   /** Página de origem onde o lançamento foi encontrado */
@@ -50,6 +52,8 @@ export interface InvoiceConversionSummary {
   quantidadeRevisao: number
   registrosComFalha: number
   totalValorReais: number
+  totalDeclaradoChecksum?: number
+  divergenciaChecksum?: number
   paginasComFalha: number[]
   avisos: string[]
   isDigitalizadoOuVazio: boolean
@@ -498,6 +502,7 @@ export async function convertInvoiceSpreadsheetToExcel(
   const colParcela = findCol(['parcela', 'n parcela', 'numero parcela'])
   const colPortador = findCol(['portador', 'titular', 'cartao titular'])
   const colTipo = findCol(['tipo', 'tipo de lancamento', 'categoria'])
+  const colObservacao = findCol(['observacao', 'obs', 'conferencia', 'nota', 'status'])
 
   const records: InvoiceExtractedRecord[] = []
   let rowIdx = 1
@@ -505,6 +510,14 @@ export async function convertInvoiceSpreadsheetToExcel(
   for (const r of rows) {
     const rawDesc = colDesc ? r[colDesc]?.trim() || '' : ''
     const rawVal = colValor ? r[colValor] : undefined
+    const rawObs = colObservacao ? r[colObservacao]?.trim() || '' : ''
+    const rawParcela = colParcela ? r[colParcela]?.trim() || '' : ''
+
+    // Detecta linha de total no rodapé (ex.: "Parcela: total", ou descrição vazia com valor igual à soma)
+    if (rawParcela.toLowerCase() === 'total' || /^(total|total\s+geral)$/i.test(rawDesc)) {
+      continue
+    }
+
     if (!rawDesc && (!rawVal || rawVal === '')) continue
     if (isSummaryOrFooter(rawDesc)) continue
 
@@ -539,6 +552,7 @@ export async function convertInvoiceSpreadsheetToExcel(
       valorReais: valReais,
       portador: colPortador ? r[colPortador]?.trim() : undefined,
       parcela: colParcela ? r[colParcela]?.trim() : undefined,
+      observacaoManual: rawObs || undefined,
       tipo,
       paginaOrigem: 1,
       confianca: nomeNorm.length >= 3 ? 98 : 80,
@@ -568,7 +582,32 @@ export async function convertInvoiceSpreadsheetToExcel(
     }
   }
 
+  // Procura linha de total declarada na planilha (ex.: "Parcela: total" ou "TOTAL GERAL")
+  let totalDeclaradoChecksum: number | undefined
+  for (const r of rows) {
+    const rawP = colParcela ? r[colParcela]?.trim() || '' : ''
+    const rawD = colDesc ? r[colDesc]?.trim() || '' : ''
+    const rawV = colValor ? r[colValor] : undefined
+    if (rawP.toLowerCase() === 'total' || /^(total|total\s+geral)$/i.test(rawD)) {
+      const v = normalizeMoneyValue(rawV)
+      if (v > 0) {
+        totalDeclaradoChecksum = v
+        break
+      }
+    }
+  }
+
   const totalValorReais = Math.round(records.reduce((sum, r) => sum + r.valorReais, 0) * 100) / 100
+  let divergenciaChecksum: number | undefined
+  const sheetAvisos: string[] = []
+  if (totalDeclaradoChecksum !== undefined) {
+    divergenciaChecksum = Math.round((totalValorReais - totalDeclaradoChecksum) * 100) / 100
+    if (Math.abs(divergenciaChecksum) > 0.01) {
+      sheetAvisos.push(
+        `Aviso de Checksum Fatura: Soma extraída (R$ ${totalValorReais}) difere do total declarado na fatura (R$ ${totalDeclaradoChecksum}) por R$ ${divergenciaChecksum}.`,
+      )
+    }
+  }
   const baseName = fileName.replace(/\.[^/.]+$/, '')
   const nomeArquivoExcel = `${baseName}_convertido.xlsx`
 
@@ -625,8 +664,10 @@ export async function convertInvoiceSpreadsheetToExcel(
       quantidadeRevisao: 0,
       registrosComFalha: 0,
       totalValorReais,
+      totalDeclaradoChecksum,
+      divergenciaChecksum,
       paginasComFalha: [],
-      avisos: [],
+      avisos: sheetAvisos,
       isDigitalizadoOuVazio: false,
     },
     excelBlob,

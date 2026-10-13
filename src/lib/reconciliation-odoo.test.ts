@@ -5,7 +5,11 @@ import {
   normalizeMoneyValue,
   calculateDateDifferenceInDays,
 } from './normalization'
-import { reconcileData, calculateReconciliationMetrics } from './reconciliation'
+import {
+  reconcileData,
+  calculateReconciliationMetrics,
+  generateAdherenceReport,
+} from './reconciliation'
 import {
   convertInvoicePdfToExcel,
   convertInvoiceSpreadsheetToExcel,
@@ -728,6 +732,232 @@ trailer << /Root 1 0 R >>
     expect(convResult.resumo.totalValorReais).toBe(0)
     expect(convResult.erroCritico).toBeDefined()
     expect(convResult.erroCritico).toMatch(/nenhum lançamento identificado/i)
+  })
+
+  // =========================================================================
+  // TESTES ESPECÍFICOS DE REGRESSÃO COM DADOS SINTÉTICOS (PADRÕES ESTRUTURAIS)
+  // =========================================================================
+
+  // Teste A: Família Marketplace com token truncado e variações (Padrão Estrutural 1)
+  it('27. Família Marketplace com token truncado casa pelo token distintivo do vendedor sem inflar por "Mercado Livre"', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-seller-1',
+        data: '15/06/2026',
+        parceiro: 'MERCADO LIVRE - EMBALAGENS DONA BRANCA LTDA',
+        credito: 55.4,
+        total: 55.4,
+        debito: null,
+      },
+      {
+        id: 's-seller-2',
+        data: '15/06/2026',
+        parceiro: 'MERCADO LIVRE - PAPELARIA BRASIL CENTRAL',
+        credito: 80.0,
+        total: 80.0,
+        debito: null,
+      },
+    ]
+
+    const card: CardRecord[] = [
+      {
+        id: 'c-seller-1',
+        data: '15/06/2026',
+        estabelecimento: 'MERCADO*DONABRANCA',
+        valor: 55.4,
+      },
+      {
+        id: 'c-seller-2',
+        data: '15/06/2026',
+        estabelecimento: 'MERCADOLIVRE*PAPELARI',
+        valor: 80.0,
+      },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(2)
+    expect(results.every((r) => r.status === 'GREEN')).toBe(true)
+    expect(results.every((r) => r.classificacao === 'CONCILIADO')).toBe(true)
+
+    const match1 = results.find((r) => r.estabelecimento === 'MERCADO*DONABRANCA')
+    expect(match1?.parceiro).toBe('MERCADO LIVRE - EMBALAGENS DONA BRANCA LTDA')
+
+    const match2 = results.find((r) => r.estabelecimento === 'MERCADOLIVRE*PAPELARI')
+    expect(match2?.parceiro).toBe('MERCADO LIVRE - PAPELARIA BRASIL CENTRAL')
+  })
+
+  // Teste B: Parceiro genérico sem vendedor no Odoo com valor único (Padrão 1)
+  it('28. Parceiro genérico "Mercado Livre" no Odoo com valor único casa com a fatura', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-gen-ml',
+        data: '01/06/2026',
+        parceiro: 'Mercado Livre',
+        credito: 19.99,
+        total: 19.99,
+        debito: null,
+      },
+    ]
+
+    const card: CardRecord[] = [
+      {
+        id: 'c-token-ml',
+        data: '01/06/2026',
+        estabelecimento: 'MERCADOLIVRE*XPTOSTORE',
+        valor: 19.99,
+      },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(1)
+    expect(results[0].status).toBe('GREEN')
+    expect(results[0].classificacao).toBe('CONCILIADO')
+    expect(results[0].diferenca).toBe(0)
+  })
+
+  // Teste C: Competição de dois candidatos de mesmo valor na mesma família sem diferencial → CINZA (Padrão 1 e 3)
+  it('29. Competição de candidatos de mesmo valor na mesma família de marketplace vai para CINZA (revisão manual)', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-comp-1',
+        data: '10/06/2026',
+        parceiro: 'Mercado Livre',
+        credito: 49.9,
+        total: 49.9,
+        debito: null,
+      },
+      {
+        id: 's-comp-2',
+        data: '10/06/2026',
+        parceiro: 'Mercado Livre',
+        credito: 49.9,
+        total: 49.9,
+        debito: null,
+      },
+    ]
+
+    const card: CardRecord[] = [
+      {
+        id: 'c-comp-1',
+        data: '10/06/2026',
+        estabelecimento: 'MERCADOLIVRE*LOJAA',
+        valor: 49.9,
+      },
+      {
+        id: 'c-comp-2',
+        data: '10/06/2026',
+        estabelecimento: 'MERCADOLIVRE*LOJAB',
+        valor: 49.9,
+      },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    // Pelo menos os candidatos que competem sem diferencial são marcados como GRAY para revisão
+    const grayMatches = results.filter((r) => r.status === 'GRAY')
+    expect(grayMatches.length).toBeGreaterThanOrEqual(1)
+    expect(grayMatches[0].classificacao).toBe('POSSIVEL_CORRESPONDENCIA')
+  })
+
+  // Teste D: Pares com nomes totalmente distintos e valor único em cada fonte (Padrão 3)
+  it('30. Pares com nomes comerciais distintos e valor único em cada fonte são propostos com segurança', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-uniq-partner',
+        data: '20/06/2026',
+        parceiro: 'DISTRIBUIDORA NACIONAL DE INSUMOS LTDA',
+        credito: 4321.87,
+        total: 4321.87,
+        debito: null,
+      },
+    ]
+
+    const card: CardRecord[] = [
+      {
+        id: 'c-uniq-card',
+        data: '15/06/2026',
+        estabelecimento: 'INSUTECH BR',
+        valor: 4321.87,
+      },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(1)
+    expect(results[0].status).toBe('GREEN')
+    expect(results[0].classificacao).toBe('CONCILIADO')
+    expect(results[0].valorFatura).toBe(4321.87)
+    expect(results[0].credito).toBe(4321.87)
+  })
+
+  // Teste E: Leitura de anotações manuais e geração de Relatório de Aderência
+  it('31. Relatório de Aderência à conferência manual detecta concordâncias e discordâncias', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-annot-1',
+        data: '01/07/2026',
+        parceiro: 'FORNECEDOR EXCLUSIVO',
+        credito: 150.0,
+        total: 150.0,
+        debito: null,
+        observacaoManual: 'Apenas odoo',
+      },
+      {
+        id: 's-annot-2',
+        data: '01/07/2026',
+        parceiro: 'PARCEIRO COMUM LTDA',
+        credito: 300.0,
+        total: 300.0,
+        debito: null,
+        // Sem anotação: esperado conciliar
+      },
+    ]
+
+    const card: CardRecord[] = [
+      {
+        id: 'c-annot-2',
+        data: '15/06/2026',
+        estabelecimento: 'PARCEIRO COMUM LTDA',
+        valor: 300.0,
+      },
+      {
+        id: 'c-annot-3',
+        data: '15/06/2026',
+        estabelecimento: 'COMPRA AVULSA FATURA',
+        valor: 99.0,
+        observacaoManual: 'Apenas Fatura',
+      },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    const adherence = generateAdherenceReport(results)
+
+    expect(adherence.hasAnnotations).toBe(true)
+    expect(adherence.totalItensComAnotacao).toBe(2)
+    // Os concordantes devem incluir o comum (verde) e os dois exclusivos anotados
+    expect(adherence.totalConcordantes).toBe(3)
+    expect(adherence.taxaAderenciaPercentual).toBe(100)
+  })
+
+  // Teste F: Checksum de total no Odoo e na fatura sem descartar compras legítimas
+  it('32. Linha de total no rodapé é excluída sem descartar compras legítimas e checksum é verificado', async () => {
+    const odooRows = [
+      ['Data', 'Número', 'Parceiro', 'Referência', 'Diário', 'Total'],
+      ['01/06/2026', 'CIT1', 'FORNECEDOR A', '100', 'DIARIO', '100.00'],
+      ['02/06/2026', 'CIT2', 'FORNECEDOR B', '101', 'DIARIO', '200.00'],
+      ['', '', '', '', '', '300.00'], // Linha de total
+    ]
+
+    const odooBlob = generateXlsxBlob([
+      { name: 'Sheet1', headers: odooRows[0], rows: odooRows.slice(1) },
+    ])
+    const odooBuffer = await odooBlob.arrayBuffer()
+    const odooRes = await importOdooFile(odooBuffer, 'odoo_teste.xlsx')
+
+    expect(odooRes.sucesso).toBe(true)
+    // Apenas 2 registros legítimos
+    expect(odooRes.registros).toHaveLength(2)
+    expect(odooRes.totalMonetario).toBe(300.0)
+    expect(odooRes.totalDeclaradoChecksum).toBe(300.0)
+    expect(odooRes.divergenciaChecksum).toBe(0)
   })
 
   // =========================================================================

@@ -35,7 +35,7 @@ export function validateExport(
 
 export function generateExportCSV(results: ReconciliationResult[]): string {
   const header =
-    'Data da Fatura;Data do Odoo;Número;Referência;Lançamento Diário;Parceiro (Odoo);Estabelecimento (Fatura);Categoria;Valor Odoo (R$);Valor Fatura (R$);Diferença (R$);Status;Classificação;Motivo da Classificação;Origem'
+    'Data da Fatura;Data do Odoo;Número;Referência;Lançamento Diário;Parceiro (Odoo);Estabelecimento (Fatura);Categoria;Valor Odoo (R$);Valor Fatura (R$);Diferença (R$);Status;Classificação;Motivo da Classificação;Origem;Anotação Fatura;Anotação Odoo'
   const rows = results.map((r) => {
     const dataFatura = r.origem === 'FATURA' || r.origem === 'AMBOS' ? r.data : ''
     const dataOdoo = r.origem === 'SISTEMA' || r.origem === 'AMBOS' ? r.data : ''
@@ -68,6 +68,8 @@ export function generateExportCSV(results: ReconciliationResult[]): string {
       r.classificacao ?? '',
       r.motivo ?? '',
       r.origem,
+      r.observacaoManualFatura ?? '',
+      r.observacaoManualOdoo ?? '',
     ].join(';')
   })
   return [header, ...rows].join('\n')

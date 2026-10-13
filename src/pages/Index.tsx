@@ -150,6 +150,7 @@ export default function Index() {
         moedaGlobal: r.moedaOriginal,
         parcela: r.parcela,
         cartaoTitular: r.portador,
+        observacaoManual: r.observacaoManual,
         paginaOrigem: r.paginaOrigem,
         confianca: r.confianca,
       }))
@@ -166,6 +167,7 @@ export default function Index() {
         credito: r.credito,
         total: r.total,
         linhaOrigem: r.linhaOrigem,
+        observacaoManual: r.observacaoManual,
       }))
 
       setInvoiceConversion(convResult)

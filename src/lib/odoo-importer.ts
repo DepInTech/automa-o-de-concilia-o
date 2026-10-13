@@ -28,6 +28,8 @@ export interface OdooParsedRecord {
   debito: number | null
   credito: number
   total: number
+  /** Observação manual presente na conferência */
+  observacaoManual?: string
   /** Campo bruto para auditoria */
   rawRow: Record<string, string>
 }
@@ -46,6 +48,8 @@ export interface OdooImportResult {
   colunaDebitoDetectada?: string | null
   colunaCreditoDetectada?: string | null
   colunasEncontradas: string[]
+  totalDeclaradoChecksum?: number
+  divergenciaChecksum?: number
   avisos: string[]
   erro?: string
 }
@@ -306,6 +310,37 @@ export async function importOdooFile(
       return
     }
 
+    // Ignora linha de total no rodapé (ex.: linha sem parceiro ou com palavra "total")
+    const isTotalRow =
+      (!rawParceiro &&
+        (row['Diário'] === '' || !row['Diário']) &&
+        (row['Número'] === '' || !row['Número'])) ||
+      /^(total|total\s+geral|soma)$/i.test(rawParceiro.trim())
+    if (isTotalRow) {
+      avisos.push(
+        `Linha de total no rodapé (linha ${idx + 2}) identificada e excluída dos lançamentos.`,
+      )
+      return
+    }
+
+    // Busca anotações manuais em colunas adicionais sem cabeçalho padronizado ou nomeadas observação/conferência
+    let manualNote = ''
+    for (const h of headers) {
+      const val = row[h]?.trim()
+      if (!val) continue
+      if (
+        /^(observacao|obs|conferencia|nota|status_manual|anotacao)/i.test(h) ||
+        h.startsWith('column_') ||
+        h === '' ||
+        !h
+      ) {
+        if (/apenas\s*odoo|apenas\s*fatura|divergente|conciliado/i.test(val)) {
+          manualNote = val
+          break
+        }
+      }
+    }
+
     const rawDate = colData ? row[colData]?.trim() || '' : ''
     const normDate = normalizeOdooDate(rawDate)
     const normParceiro = normalizeEntityName(rawParceiro)
@@ -323,16 +358,43 @@ export async function importOdooFile(
       debito: colDebito ? parseBrazilianNumber(row[colDebito]) : null,
       credito: parsedVal,
       total: parsedVal,
+      observacaoManual: manualNote || undefined,
       rawRow: row,
     }
-
     mappedRecords.push(record)
     somaTotal += parsedVal
   })
 
+  // Procura por linha de total declarada no arquivo original para verificação de checksum
+  let totalDeclaradoChecksum: number | undefined
+  for (const r of rows) {
+    const rawP = colParceiro ? r[colParceiro]?.trim() || '' : ''
+    const rawV = colMonetaria ? r[colMonetaria] : undefined
+    if (
+      /^(total|total\s+geral|soma)$/i.test(rawP) ||
+      (!rawP && !r['Diário'] && rawV !== undefined)
+    ) {
+      const v = normalizeMoneyValue(rawV)
+      if (v > 0) {
+        totalDeclaradoChecksum = v
+        break
+      }
+    }
+  }
+
   // Ordenação crescente por valor por padrão (sem alterar os dados originais)
   mappedRecords.sort((a, b) => a.total - b.total)
   somaTotal = Math.round(somaTotal * 100) / 100
+
+  let divergenciaChecksum: number | undefined
+  if (totalDeclaradoChecksum !== undefined) {
+    divergenciaChecksum = Math.round((somaTotal - totalDeclaradoChecksum) * 100) / 100
+    if (Math.abs(divergenciaChecksum) > 0.01) {
+      avisos.push(
+        `Aviso de Checksum: Soma extraída (R$ ${somaTotal}) difere do total declarado na planilha (R$ ${totalDeclaradoChecksum}) por R$ ${divergenciaChecksum}.`,
+      )
+    }
+  }
 
   return {
     sucesso: true,
@@ -342,6 +404,8 @@ export async function importOdooFile(
     detectedRows: mappedRecords.length,
     valoresInvalidos,
     totalMonetario: somaTotal,
+    totalDeclaradoChecksum,
+    divergenciaChecksum,
     colunaTotalDetectada: colMonetaria,
     colunaParceiroDetectada: colParceiro,
     colunaDataDetectada: colData,

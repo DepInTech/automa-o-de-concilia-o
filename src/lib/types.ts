@@ -13,6 +13,8 @@ export interface SystemRecord {
   total?: number | null
   /** Linha de origem no arquivo para auditoria */
   linhaOrigem?: number
+  /** Observação manual presente no arquivo de conferência */
+  observacaoManual?: string
 }
 
 export interface CardRecord {
@@ -28,6 +30,8 @@ export interface CardRecord {
   cartaoTitular?: string
   parcela?: string
   observacao?: string
+  /** Observação manual presente no arquivo de conferência (ex.: "Apenas Fatura", "divergente") */
+  observacaoManual?: string
   /** Página do PDF de onde foi extraído */
   paginaOrigem?: number
   /** Score de confiança da extração */
@@ -70,6 +74,43 @@ export interface ReconciliationResult {
   paginaFaturaOrigem?: number
   isInternacional?: boolean
   moedaOriginal?: string
+  /** Anotação manual original detectada na fatura ou no Odoo */
+  observacaoManualFatura?: string
+  observacaoManualOdoo?: string
+}
+
+export type ManualAnnotationCategory =
+  | 'APENAS_FATURA'
+  | 'APENAS_ODOO'
+  | 'DIVERGENTE'
+  | 'CONCILIADO_ESPERADO'
+  | 'SEM_ANOTACAO'
+
+export interface AdherenceItem {
+  id: string
+  origem: 'AMBOS' | 'FATURA' | 'SISTEMA'
+  estabelecimento: string
+  parceiro: string
+  valorFatura: number | null
+  valorOdoo: number | null
+  anotacaoFatura?: string
+  anotacaoOdoo?: string
+  classificacaoAlgoritmo: MatchClassification
+  statusAlgoritmo: 'GREEN' | 'YELLOW' | 'RED' | 'GRAY'
+  statusConferencia: ManualAnnotationCategory
+  aderente: boolean
+  tipoAderencia: 'CONCORDA' | 'DISCORDA' | 'REVISAO_SUGERIDA'
+  detalhe: string
+}
+
+export interface AdherenceReport {
+  hasAnnotations: boolean
+  totalItensComAnotacao: number
+  totalConcordantes: number
+  totalDiscordantes: number
+  totalRevisaoSugerida: number
+  taxaAderenciaPercentual: number
+  itens: AdherenceItem[]
 }
 
 export interface ReconciliationMetrics {
