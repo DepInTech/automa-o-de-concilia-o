@@ -191,7 +191,11 @@ export function reconcileData(
   // Ordena por valor e depois por campos intrínsecos de negócio (parceiro/estabelecimento, data)
   // NÃO depende da ordem em que os arquivos foram lidos nem da posição de linha
   const normalizedSys = systemRecords
-    .map((sys) => ({ sys, val: getSystemValue(sys, bank) }))
+    .map((sys) => ({
+      sys,
+      val: getSystemValue(sys, bank),
+      manualCat: normalizeManualAnnotation(sys.observacaoManual),
+    }))
     .sort((a, b) => {
       if (a.val !== b.val) return a.val - b.val
       const nameCmp = (a.sys.parceiro || '').localeCompare(b.sys.parceiro || '')
@@ -202,7 +206,11 @@ export function reconcileData(
     })
 
   const normalizedCard = cardRecords
-    .map((card) => ({ card, val: getCardValue(card) }))
+    .map((card) => ({
+      card,
+      val: getCardValue(card),
+      manualCat: normalizeManualAnnotation(card.observacaoManual),
+    }))
     .sort((a, b) => {
       if (a.val !== b.val) return a.val - b.val
       const nameCmp = (a.card.estabelecimento || '').localeCompare(b.card.estabelecimento || '')
@@ -212,15 +220,81 @@ export function reconcileData(
       return (a.card.id || '').localeCompare(b.card.id || '')
     })
 
-  // 2. Geração global de todos os pares candidatos
-  const candidates: MatchCandidate[] = []
+  // 2. PRÉ-PROCESSAMENTO OBRIGATÓRIO (PADRÃO 5):
+  // Registros com anotação manual "Apenas Fatura" ou "Apenas odoo" NUNCA entram no pool
+  // de candidatos a pareamento! São pré-marcados como exclusivos da sua respectiva fonte.
   for (const s of normalizedSys) {
-    for (const c of normalizedCard) {
+    if (s.manualCat === 'APENAS_ODOO') {
+      matchedSystemIds.add(s.sys.id)
+      results.push({
+        id: `RED-SYS-${s.sys.id}`,
+        dataOdoo: s.sys.data,
+        data: s.sys.data,
+        numero: s.sys.numero,
+        referencia: s.sys.referencia,
+        lancamentoDiario: s.sys.lancamentoDiario,
+        parceiro: s.sys.parceiro,
+        estabelecimento: '-',
+        categoria: s.sys.categoria || '',
+        debito: s.sys.debito,
+        credito: s.val,
+        valorFatura: null,
+        diferenca: null,
+        status: 'RED',
+        origem: 'SISTEMA',
+        classificacao: 'SOMENTE_SISTEMA',
+        motivo: 'Exclusivo do Odoo (conferência manual: Apenas Odoo)',
+        scoreConfianca: 100,
+        linhaOdooOrigem: s.sys.linhaOrigem,
+        observacaoManualOdoo: s.sys.observacaoManual,
+      })
+    }
+  }
+
+  for (const c of normalizedCard) {
+    if (c.manualCat === 'APENAS_FATURA') {
+      matchedCardIds.add(c.card.id)
+      results.push({
+        id: `RED-CARD-${c.card.id}`,
+        dataFatura: c.card.data,
+        data: c.card.data,
+        parceiro: '-',
+        estabelecimento: c.card.estabelecimento,
+        categoria: c.card.categoria || (c.card.isInternacional ? 'Internacional' : ''),
+        debito: null,
+        credito: null,
+        valorFatura: c.val,
+        diferenca: null,
+        status: 'RED',
+        origem: 'FATURA',
+        classificacao: 'SOMENTE_FATURA',
+        motivo: 'Exclusivo da fatura (conferência manual: Apenas Fatura)',
+        scoreConfianca: 100,
+        paginaFaturaOrigem: c.card.paginaOrigem,
+        isInternacional: c.card.isInternacional,
+        moedaOriginal: c.card.moedaGlobal || 'BRL',
+        observacaoManualFatura: c.card.observacaoManual,
+      })
+    }
+  }
+
+  // 3. Pool elegível para correspondência (somente quem não foi pré-marcado como exclusivo)
+  const eligibleSys = normalizedSys.filter((s) => !matchedSystemIds.has(s.sys.id))
+  const eligibleCard = normalizedCard.filter((c) => !matchedCardIds.has(c.card.id))
+
+  // 4. Geração global de todos os pares candidatos elegíveis
+  const candidates: MatchCandidate[] = []
+  for (const s of eligibleSys) {
+    for (const c of eligibleCard) {
       candidates.push(evaluateCandidate(s.sys, c.card, s.val, c.val))
     }
   }
 
-  // 3. FASE 1: Prioridade 1 — Alta Confiabilidade: Valor Exato + Alta Similaridade de Estabelecimento (nameSim >= 0.45)
+  // Helper para verificar se um nome pertence à família de marketplace
+  const isMarketplaceFamily = (name: string) =>
+    /mercado\s*livre|mercadolivre|mercado\*|mp\s*\*|meli/i.test(name)
+
+  // 5. FASE 1: Prioridade 1 — Alta Confiabilidade: Valor Exato + Alta Similaridade de Estabelecimento (nameSim >= 0.45)
   // Ordenação de candidatos: score decrescente, similaridade decrescente, menor diferença de data, determinismo canônico
   const highConfExact = candidates
     .filter((cand) => cand.absDiff < 0.01 && cand.nameSim >= 0.45)
@@ -270,9 +344,10 @@ export function reconcileData(
     })
   }
 
-  // 4. FASE 2: Prioridade 2 — Nomes Abreviados / Semelhantes + Valor Exato
+  // 6. FASE 2: Prioridade 2 — Nomes Abreviados / Semelhantes + Valor Exato
   // Requer valor rigorosamente exato E evidência confiável de correspondência de estabelecimento:
   // (nameSim >= 0.32 OU refMatch confirmado)
+  // PADRÃO 1 e 3: pareamento par a par usando token distintivo do vendedor
   const abreviatedCandidates = candidates
     .filter(
       (cand) =>
@@ -329,16 +404,104 @@ export function reconcileData(
     })
   }
 
-  // 5. FASE 3: Prioridade 3 — Divergência de Valor (AMARELO / DIVERGENTE)
-  // Regra fundamental: mesmo estabelecimento com valores diferentes, APÓS esgotadas as exatas.
-  // Requer evidência confiável de identidade de estabelecimento: (nameSim >= 0.55 OU refMatch)
-  // para evitar associar estabelecimentos distintos com valores diferentes.
+  // 7. FASE 2b: Fallback por valor estritamente único (PADRÃO 2 e 3)
+  // Lançamentos onde não há vendedor identificável OU afinidade de nome baixa,
+  // SÓ PODEM casar via fallback por valor se o valor for estritamente único em AMBAS as fontes
+  // E NÃO existir NENHUM outro candidato concorrente (mesmo valor ou valor próximo dentro de R$ 0,50)
+  // na mesma família de plataforma em qualquer uma das fontes.
+  // Casos genéricos repetidos ou com concorrentes NUNCA casam entre si.
+  const remainingSysExact = eligibleSys.filter((s) => !matchedSystemIds.has(s.sys.id))
+  const remainingCardExact = eligibleCard.filter((c) => !matchedCardIds.has(c.card.id))
+
+  for (const s of remainingSysExact) {
+    if (matchedSystemIds.has(s.sys.id)) continue
+
+    // Conta quantos registros no Odoo têm esse exato valor (ou próximo dentro de R$ 0,50)
+    const sysSameValCount = eligibleSys.filter((other) => Math.abs(other.val - s.val) < 0.01).length
+    const sysNearValCount = eligibleSys.filter((other) => Math.abs(other.val - s.val) <= 0.5).length
+
+    // Candidatos na fatura com mesmo valor
+    const cardSameValCandidates = remainingCardExact.filter(
+      (c) => !matchedCardIds.has(c.card.id) && Math.abs(c.val - s.val) < 0.01,
+    )
+    const cardAllSameValCount = eligibleCard.filter(
+      (other) => Math.abs(other.val - s.val) < 0.01,
+    ).length
+    const cardNearValCount = eligibleCard.filter(
+      (other) => Math.abs(other.val - s.val) <= 0.5,
+    ).length
+
+    // Condição de unicidade estrita absoluta:
+    // Exatamente 1 em cada fonte com esse valor
+    if (cardSameValCandidates.length === 1 && sysSameValCount === 1 && cardAllSameValCount === 1) {
+      const c = cardSameValCandidates[0]
+
+      const isMlS = isMarketplaceFamily(s.sys.parceiro)
+      const isMlC = isMarketplaceFamily(c.card.estabelecimento)
+
+      // Se ambos pertencem à família de marketplace:
+      if (isMlS && isMlC) {
+        // Checagem rigorosa de concorrentes na família:
+        // Não pode haver outro lançamento com valor próximo (<= R$ 0.50) na família em qualquer fonte
+        const mlSysNear = eligibleSys.filter(
+          (other) => isMarketplaceFamily(other.sys.parceiro) && Math.abs(other.val - s.val) <= 0.5,
+        ).length
+        const mlCardNear = eligibleCard.filter(
+          (other) =>
+            isMarketplaceFamily(other.card.estabelecimento) && Math.abs(other.val - s.val) <= 0.5,
+        ).length
+
+        // Se houver qualquer outro candidato próximo na família, NÃO casa por fallback (fica exclusivo)
+        if (mlSysNear > 1 || mlCardNear > 1 || sysNearValCount > 1 || cardNearValCount > 1) {
+          continue
+        }
+
+        matchedSystemIds.add(s.sys.id)
+        matchedCardIds.add(c.card.id)
+
+        results.push({
+          id: `GREEN-${s.sys.id}-${c.card.id}`,
+          dataFatura: c.card.data,
+          dataOdoo: s.sys.data,
+          data: s.sys.data || c.card.data,
+          numero: s.sys.numero,
+          referencia: s.sys.referencia,
+          lancamentoDiario: s.sys.lancamentoDiario,
+          parceiro: s.sys.parceiro,
+          estabelecimento: c.card.estabelecimento,
+          categoria: c.card.categoria || s.sys.categoria || '',
+          debito: s.sys.debito,
+          credito: s.val,
+          valorFatura: c.val,
+          diferenca: 0,
+          status: 'GREEN',
+          origem: 'AMBOS',
+          classificacao: 'CONCILIADO',
+          motivo: 'Valor rigorosamente único nas duas fontes e plataforma coincidente',
+          scoreConfianca: 70,
+          linhaOdooOrigem: s.sys.linhaOrigem,
+          paginaFaturaOrigem: c.card.paginaOrigem,
+          isInternacional: c.card.isInternacional,
+          moedaOriginal: c.card.moedaGlobal || 'BRL',
+          observacaoManualFatura: c.card.observacaoManual,
+          observacaoManualOdoo: s.sys.observacaoManual,
+        })
+      }
+    }
+  }
+
+  // 8. FASE 3: Prioridade 3 — Divergência de Valor (AMARELO / DIVERGENTE)
+  // Regra fundamental: mesmo fornecedor (evidência textual forte de ambos os lados,
+  // FORA da família de marketplace) com valores DIFERENTES, APÓS esgotadas as exatas.
+  // A conferência manual pode marcar "divergente" explicitamente.
   // Diferença calculada estritamente: valorFatura - valorOdoo.
   const divergentCandidates = candidates
     .filter(
       (cand) =>
         cand.absDiff >= 0.01 &&
-        (cand.nameSim >= 0.55 || cand.refMatch) &&
+        !isMarketplaceFamily(cand.sys.parceiro) &&
+        !isMarketplaceFamily(cand.card.estabelecimento) &&
+        (cand.nameSim >= 0.5 || cand.refMatch) &&
         !matchedSystemIds.has(cand.sys.id) &&
         !matchedCardIds.has(cand.card.id),
     )
@@ -384,18 +547,12 @@ export function reconcileData(
     })
   }
 
-  // 5b. Se houver anotações manuais explícitas de "divergente" em ambos os lados e afinidade de nome razoável
+  // 8b. Casos com anotação explícita de "divergente" na conferência manual de ambos os lados
   const remSysDiv = normalizedSys.filter(
-    (s) =>
-      !matchedSystemIds.has(s.sys.id) &&
-      s.sys.observacaoManual &&
-      /divergente/i.test(s.sys.observacaoManual),
+    (s) => !matchedSystemIds.has(s.sys.id) && s.manualCat === 'DIVERGENTE',
   )
   const remCardDiv = normalizedCard.filter(
-    (c) =>
-      !matchedCardIds.has(c.card.id) &&
-      c.card.observacaoManual &&
-      /divergente/i.test(c.card.observacaoManual),
+    (c) => !matchedCardIds.has(c.card.id) && c.manualCat === 'DIVERGENTE',
   )
 
   for (const s of remSysDiv) {
@@ -403,7 +560,7 @@ export function reconcileData(
     for (const c of remCardDiv) {
       if (matchedCardIds.has(c.card.id)) continue
       const nameSim = calculateNameSimilarity(s.sys.parceiro, c.card.estabelecimento)
-      if (nameSim >= 0.25) {
+      if (nameSim >= 0.2) {
         matchedSystemIds.add(s.sys.id)
         matchedCardIds.add(c.card.id)
         const diffVal = Math.round((c.val - s.val) * 100) / 100
@@ -439,7 +596,6 @@ export function reconcileData(
       }
     }
   }
-
   // 6. FASE 4: Registros sem correspondência comprovada → Exclusivos da respectiva fonte (VERMELHO)
   // Regra do usuário: "Quando o algoritmo não conseguir estabelecer uma correspondência confiável,
   // deverá manter os registros separados e classificá-los como exclusivos da respectiva fonte,
@@ -513,7 +669,11 @@ export function reconcileData(
 
 export function normalizeManualAnnotation(annotation?: string): ManualAnnotationCategory {
   if (!annotation) return 'SEM_ANOTACAO'
-  const norm = annotation.trim().toLowerCase()
+  const norm = annotation
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
   if (norm.includes('apenas fatura')) return 'APENAS_FATURA'
   if (norm.includes('apenas odoo')) return 'APENAS_ODOO'
   if (norm.includes('divergente')) return 'DIVERGENTE'
@@ -558,43 +718,47 @@ export function generateAdherenceReport(results: ReconciliationResult[]): Adhere
       if (r.status === 'RED' && r.origem === 'FATURA') {
         aderente = true
         tipoAderencia = 'CONCORDA'
-        detalhe = 'Algoritmo e conferência concordam: exclusivo da fatura.'
+        detalhe =
+          'Esperado: SOMENTE_FATURA (Apenas Fatura) | Obtido: RED (SOMENTE_FATURA) — Total concordância.'
       } else {
         aderente = false
         tipoAderencia = 'DISCORDA'
-        detalhe = `Anotado como Apenas Fatura, mas o algoritmo classificou como ${r.status} (${r.classificacao}).`
+        detalhe = `Esperado: SOMENTE_FATURA (Apenas Fatura) | Obtido: ${r.status} (${r.classificacao}) — Divergência com a conferência manual.`
       }
     } else if (expectedCategory === 'APENAS_ODOO') {
       if (r.status === 'RED' && r.origem === 'SISTEMA') {
         aderente = true
         tipoAderencia = 'CONCORDA'
-        detalhe = 'Algoritmo e conferência concordam: exclusivo do Odoo.'
+        detalhe =
+          'Esperado: SOMENTE_SISTEMA (Apenas Odoo) | Obtido: RED (SOMENTE_SISTEMA) — Total concordância.'
       } else {
         aderente = false
         tipoAderencia = 'DISCORDA'
-        detalhe = `Anotado como Apenas Odoo, mas o algoritmo classificou como ${r.status} (${r.classificacao}).`
+        detalhe = `Esperado: SOMENTE_SISTEMA (Apenas Odoo) | Obtido: ${r.status} (${r.classificacao}) — Divergência com a conferência manual.`
       }
     } else if (expectedCategory === 'DIVERGENTE') {
       if (r.status === 'YELLOW' || r.classificacao === 'DIVERGENTE') {
         aderente = true
         tipoAderencia = 'CONCORDA'
-        detalhe = 'Algoritmo e conferência concordam: transação com divergência de valor.'
+        detalhe =
+          'Esperado: DIVERGENTE (Divergente) | Obtido: YELLOW (DIVERGENTE) — Total concordância.'
       } else {
         aderente = false
         tipoAderencia = 'DISCORDA'
-        detalhe = `Anotado como Divergente, mas o algoritmo classificou como ${r.status} (${r.classificacao}).`
+        detalhe = `Esperado: DIVERGENTE (Divergente) | Obtido: ${r.status} (${r.classificacao}) — Divergência com a conferência manual.`
       }
     } else {
       // Sem anotação explícita na linha
       if (r.status === 'GREEN') {
         aderente = true
         tipoAderencia = 'CONCORDA'
-        detalhe = 'Transação conciliada pelo algoritmo sem anotação contrária.'
+        detalhe =
+          'Esperado: CONCILIADO | Obtido: GREEN (CONCILIADO) — Transação conciliada automaticamente.'
       } else {
         // Registro exclusivo pelo algoritmo que não continha anotação
         aderente = false
         tipoAderencia = 'REVISAO_SUGERIDA'
-        detalhe = `Sem anotação na planilha de conferência; classificado como ${r.status} (${r.classificacao}) pelo motor.`
+        detalhe = `Sem anotação na conferência | Obtido: ${r.status} (${r.classificacao}) — Revisão manual recomendada.`
       }
     }
 

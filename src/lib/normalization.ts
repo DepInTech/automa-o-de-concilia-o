@@ -69,6 +69,12 @@ export function normalizeEntityName(raw: string): string {
     .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, ' ')
     .trim()
 
+  // Se o nome contiver " - " separando a plataforma do vendedor real
+  // Ex: "MERCADO LIVRE - Z4 COMERCIO...", "MERCADO LIVRE - DON COMERCIO..."
+  // Remove o prefixo de plataforma para expor o nome do vendedor real
+  cleaned = cleaned.replace(/^mercado\s*livre\s*-\s*/i, '')
+  cleaned = cleaned.replace(/^mercado\s*livre\s+/i, '')
+
   // Se tiver portador entre parênteses ex: "NOME (xxxx)", remove
   cleaned = cleaned.replace(/\s*\([^)]*\d+[^)]*\)/g, ' ')
 
@@ -97,6 +103,13 @@ export function normalizeEntityName(raw: string): string {
   const isPureMercadoLivre =
     /^(mercado\s*livre|mercadolivre|mercado\*mercadolivre|mercadolivre\*mercadol)(\s|$)/i.test(
       cleaned,
+    ) ||
+    /^(mercado\s*livre|mercadolivre)$/i.test(
+      raw
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim(),
     )
 
   // Remove prefixos comuns de gateways sucessivamente
@@ -113,6 +126,9 @@ export function normalizeEntityName(raw: string): string {
   // Se restou vazio após remover "mercadolivre*", "mercado*" ou similar, define como genérico de marketplace
   if (!cleaned && isPureMercadoLivre) {
     cleaned = 'mercadolivre'
+  } else if (/^(mercadol|mercadoli|mercadoliv|mercadolivre|mercado|meli)$/i.test(cleaned)) {
+    // Truncamentos de "MERCADOLIVRE*MERCADOL" ou "MERCADO*MERCADOLIVRE"
+    cleaned = 'mercadolivre'
   }
 
   // 4. Se tiver parcelas anexadas como " 04/06", " 03/10", " 11/12", "09/12", "12/12"
@@ -120,6 +136,9 @@ export function normalizeEntityName(raw: string): string {
 
   // 5. Remove prefixos de aviso/alerta comuns do Odoo (ex: ⚠️)
   cleaned = cleaned.replace(/[⚠️\u26A0\uFE0F]/g, ' ')
+
+  // 5b. Separa asterisco ou outros delimitadores
+  cleaned = cleaned.replace(/[*_#+]/g, ' ')
 
   // 6. Substitui pontuação, asteriscos, hífens e traços por espaço
   cleaned = cleaned.replace(/[^a-z0-9]/g, ' ')
@@ -134,6 +153,13 @@ export function normalizeEntityName(raw: string): string {
 
   // 8. Remove múltiplos espaços
   cleaned = cleaned.replace(/\s+/g, ' ').trim()
+
+  // Se a limpeza de sufixos/stop words resultou em vazio ou termo truncado de marketplace
+  if (!cleaned && isPureMercadoLivre) {
+    cleaned = 'mercadolivre'
+  } else if (/^(mercadol|mercadoli|mercadoliv|mercadolivre|mercado|meli)$/i.test(cleaned)) {
+    cleaned = 'mercadolivre'
+  }
 
   return cleaned
 }
@@ -163,14 +189,24 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
   const normB = normalizeEntityName(rawB)
 
   // Caso idêntico após normalização
-  if (normA === normB && normA.length > 0) return 1.0
+  // Se ambos normalizaram para "mercadolivre" (ou seja, eram nomes puramente genéricos de marketplace),
+  // a similaridade NÃO é 1.0! O nome de plataforma isolado vale ZERO como evidência de parceiro.
+  if (normA === normB && normA.length > 0) {
+    if (normA === 'mercadolivre') {
+      return 0.0
+    }
+    return 1.0
+  }
 
   // Se um está inteiramente contido no outro (ex: "SWIFT PIRACUAMA" no meio de "SWIFT PIRACUAMA ALIMENTOS")
+  // Não aplicar se um deles for apenas "mercadolivre"
   if (normA.length >= 4 && normB.length >= 4) {
-    if (normA.includes(normB) || normB.includes(normA)) {
-      const minLen = Math.min(normA.length, normB.length)
-      const maxLen = Math.max(normA.length, normB.length)
-      return Math.max(0.85, minLen / maxLen)
+    if (normA !== 'mercadolivre' && normB !== 'mercadolivre') {
+      if (normA.includes(normB) || normB.includes(normA)) {
+        const minLen = Math.min(normA.length, normB.length)
+        const maxLen = Math.max(normA.length, normB.length)
+        return Math.max(0.85, minLen / maxLen)
+      }
     }
   }
 
@@ -232,35 +268,86 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
 
   // Se ambos são do mesmo marketplace (ex: Mercado Livre) e um dos lados é genérico sem vendedor
   // (ex.: "Mercado Livre" no Odoo ou "MERCADOLIVRE*MERCADOL" na fatura):
-  const isGenericMlA =
-    tokensA.length === 0 || (tokensA.length === 1 && tokensA[0] === 'mercadolivre')
-  const isGenericMlB =
-    tokensB.length === 0 || (tokensB.length === 1 && tokensB[0] === 'mercadolivre')
+  // Regra inviolável: a palavra da plataforma / intermediador vale ZERO como evidência!
+  const isGenericTokenCheck = (w: string) =>
+    /^(mercadolivre|mercado|meli|mercadol|mercadoli|mercadoliv|livre|brasil|brazil|comercio|comercial|servicos|servico|artigos|distribuidora|loja|lojas|ltda)$/i.test(
+      w,
+    )
+
+  const distinctiveA = tokensA.filter((t) => !isGenericTokenCheck(t))
+  const distinctiveB = tokensB.filter((t) => !isGenericTokenCheck(t))
+
+  const isGenericMlA = distinctiveA.length === 0
+  const isGenericMlB = distinctiveB.length === 0
 
   if (bothMarketplaceFamily && (isGenericMlA || isGenericMlB)) {
-    // Afinidade moderada para pertencer à mesma família de marketplace
-    // mas sem evidência distintiva suficiente para pontuar 0.8+
-    return 0.35
+    // Regra: nome da plataforma = zero evidência distintiva
+    return 0.0
   }
 
   // Overlap assimétrico: se um nome curto da fatura ("SJX ATACAD") ou token truncado ("DONEMBALAGENS")
   // está quase todo contido na razão social longa do Odoo ("DON COMERCIO E IMPORTACAO DE EMBALAGENS"),
   // o minMatch (proporção do menor conjunto coberto) tem grande relevância.
+  // Em famílias de marketplace, medimos sobre os tokens DISTINTIVOS para não inflar pontuação com termos comuns!
+  const targetTokensA = bothMarketplaceFamily ? distinctiveA : tokensA
+  const targetTokensB = bothMarketplaceFamily ? distinctiveB : tokensB
+
+  let matchesDistinctiveA = 0
+  for (const tA of targetTokensA) {
+    if (
+      targetTokensB.some((tB) => {
+        if (tA === tB) return true
+        if (tA.length >= 3 && tB.length >= 3) {
+          if (tA.startsWith(tB) || tB.startsWith(tA)) return true
+        }
+        if (tA.length >= 4 && tB.length >= 4) {
+          if (tA.includes(tB) || tB.includes(tA)) return true
+        }
+        return false
+      })
+    ) {
+      matchesDistinctiveA++
+    }
+  }
+
+  let matchesDistinctiveB = 0
+  for (const tB of targetTokensB) {
+    if (
+      targetTokensA.some((tA) => {
+        if (tA === tB) return true
+        if (tA.length >= 3 && tB.length >= 3) {
+          if (tA.startsWith(tB) || tB.startsWith(tA)) return true
+        }
+        if (tA.length >= 4 && tB.length >= 4) {
+          if (tA.includes(tB) || tB.includes(tA)) return true
+        }
+        return false
+      })
+    ) {
+      matchesDistinctiveB++
+    }
+  }
+
+  const effectiveMatchesA = bothMarketplaceFamily ? matchesDistinctiveA : matchesA
+  const effectiveMatchesB = bothMarketplaceFamily ? matchesDistinctiveB : matchesB
+  const effLenA = targetTokensA.length
+  const effLenB = targetTokensB.length
+
   const coveredOfMin =
-    tokensA.length <= tokensB.length
-      ? tokensA.length > 0
-        ? matchesA / tokensA.length
+    effLenA <= effLenB
+      ? effLenA > 0
+        ? effectiveMatchesA / effLenA
         : 0
-      : tokensB.length > 0
-        ? matchesB / tokensB.length
+      : effLenB > 0
+        ? effectiveMatchesB / effLenB
         : 0
   const coveredOfMax =
-    tokensA.length > tokensB.length
-      ? tokensA.length > 0
-        ? matchesA / tokensA.length
+    effLenA > effLenB
+      ? effLenA > 0
+        ? effectiveMatchesA / effLenA
         : 0
-      : tokensB.length > 0
-        ? matchesB / tokensB.length
+      : effLenB > 0
+        ? effectiveMatchesB / effLenB
         : 0
 
   let overlapScore = coveredOfMin * 0.65 + coveredOfMax * 0.35
@@ -268,14 +355,12 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
   // Verificação de token distintivo composto ou truncado (ex: "DONEMBALAGENS" no meio de "DON COMERCIO... EMBALAGENS")
   // ou "MERCADOLIVRE*AXPNEUMA" vs "LEONARDO DA SILVA FERREIRA" (não bate) vs "AX PNEUMATICA" (bate)
   // ou "MERCADO*FANTASIACAROL" vs "Iria Carolina... / CAROL FANTASIAS"
-  const joinedA = tokensA.join('')
-  const joinedB = tokensB.join('')
-  let subTokenMatch = false
   const isGenericToken = (w: string) =>
     /^(mercadolivre|mercado|livre|brasil|brazil|comercio|comercial|servicos|servico|artigos|distribuidora|loja|lojas)$/i.test(
       w,
     )
 
+  let subTokenMatch = false
   for (const tA of tokensA) {
     if (tA.length >= 4 && !isGenericToken(tA)) {
       if (
@@ -285,6 +370,10 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
           // Apenas se o prefixo for relevante e não coincidente com radicais genéricos
           if (tA.length >= 4 && tB.length >= 4) {
             if (tA.startsWith(tB) || tB.startsWith(tA)) return true
+          }
+          // Substring match: tA dentro de tB ou tB dentro de tA (ex: "carol" em "fantasiacarol", "embalagens" em "donembalagens")
+          if (tA.length >= 4 && tB.length >= 4) {
+            if (tA.includes(tB) || tB.includes(tA)) return true
           }
           return false
         })
@@ -302,6 +391,9 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
           if (tA === tB) return true
           if (tA.length >= 4 && tB.length >= 4) {
             if (tA.startsWith(tB) || tB.startsWith(tA)) return true
+          }
+          if (tA.length >= 4 && tB.length >= 4) {
+            if (tA.includes(tB) || tB.includes(tA)) return true
           }
           return false
         })
@@ -351,6 +443,12 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
   // Se ambos pertencem à família do marketplace e há pelo menos um token coincidente do vendedor
   const marketplaceFamilyBonus =
     bothMarketplaceFamily && (coveredOfMin > 0 || subTokenMatch) ? 0.05 : 0
+
+  // Se ambos são do marketplace mas NENHUM token distintivo do vendedor coincidiu,
+  // o overlap deve ser zerado (a família da plataforma não pode casar nomes diferentes)
+  if (bothMarketplaceFamily && coveredOfMin === 0 && !subTokenMatch && brandBonus === 0) {
+    return 0.0
+  }
 
   return Math.min(1.0, overlapScore * 0.8 + brandBonus + marketplaceFamilyBonus)
 }

@@ -1449,4 +1449,357 @@ trailer << /Root 1 0 R >>
     expect(results.every((r) => r.status === 'GREEN')).toBe(true)
     expect(results.every((r) => r.classificacao === 'CONCILIADO')).toBe(true)
   })
+
+  // =========================================================================
+  // NOVOS TESTES SINTÉTICOS ESTRITOS COBRINDO OS PADRÕES 1 A 8
+  // (100% sintéticos, sem qualquer dado real embutido)
+  // =========================================================================
+
+  describe('TESTES SINTÉTICOS ESPECÍFICOS DOS PADRÕES 1 A 8', () => {
+    // Padrão 1: Família de marketplace/intermediador com vendedor identificável dos dois lados
+    it('Padrão 1: Marketplace com vendedor identificado por token casa VERDE por valor igual e par a par', () => {
+      const sys: SystemRecord[] = [
+        {
+          id: 'sys-vendedor-alfa',
+          data: '10/06/2026',
+          parceiro: 'MERCADO LIVRE - VENDEDOR ALFA COMERCIO DE PECAS',
+          credito: 135.5,
+          total: 135.5,
+          debito: null,
+        },
+        {
+          id: 'sys-vendedor-beta',
+          data: '11/06/2026',
+          parceiro: 'MERCADO LIVRE - DISTRIBUIDORA BETA LTDA',
+          credito: 135.5, // Mesmo valor!
+          total: 135.5,
+          debito: null,
+        },
+      ]
+
+      const card: CardRecord[] = [
+        {
+          id: 'card-vendedor-beta',
+          data: '11/06/2026',
+          estabelecimento: 'MERCADOLIVRE*BETADISTRIB', // Ordem invertida
+          valor: 135.5,
+        },
+        {
+          id: 'card-vendedor-alfa',
+          data: '10/06/2026',
+          estabelecimento: 'MERCADOLIVRE*ALFAPECAS',
+          valor: 135.5,
+        },
+      ]
+
+      const results = reconcileData(sys, card, 'itau')
+      expect(results).toHaveLength(2)
+      expect(results.every((r) => r.status === 'GREEN')).toBe(true)
+      expect(results.every((r) => r.classificacao === 'CONCILIADO')).toBe(true)
+
+      // Par Alfa casou com Alfa, Beta com Beta
+      const alfaPair = results.find((r) => r.id.includes('sys-vendedor-alfa'))
+      expect(alfaPair?.estabelecimento).toBe('MERCADOLIVRE*ALFAPECAS')
+
+      const betaPair = results.find((r) => r.id.includes('sys-vendedor-beta'))
+      expect(betaPair?.estabelecimento).toBe('MERCADOLIVRE*BETADISTRIB')
+    })
+
+    // Padrão 2: Lançamento genérico sem vendedor distintivo NÃO pode casar por afinidade de plataforma
+    it('Padrão 2: Lançamentos genéricos sem vendedor distintivo com concorrentes NÃO casam (ficam RED)', () => {
+      const sys: SystemRecord[] = [
+        {
+          id: 'sys-ml-gen-1',
+          data: '10/06/2026',
+          parceiro: 'Mercado Livre',
+          credito: 50.0,
+          total: 50.0,
+          debito: null,
+        },
+        {
+          id: 'sys-ml-gen-2',
+          data: '12/06/2026',
+          parceiro: 'Mercado Livre',
+          credito: 50.0,
+          total: 50.0,
+          debito: null,
+        },
+      ]
+
+      const card: CardRecord[] = [
+        {
+          id: 'card-ml-gen-1',
+          data: '10/06/2026',
+          estabelecimento: 'MERCADOLIVRE*MERCADOL',
+          valor: 50.0,
+        },
+        {
+          id: 'card-ml-gen-2',
+          data: '12/06/2026',
+          estabelecimento: 'MERCADOLIVRE*MERCADOL',
+          valor: 50.0,
+        },
+      ]
+
+      const results = reconcileData(sys, card, 'itau')
+      // Com múltiplos lançamentos de mesmo valor sem identidade de vendedor, NÃO deve casar arbitrariamente
+      expect(results).toHaveLength(4)
+      expect(results.every((r) => r.status === 'RED')).toBe(true)
+      expect(results.filter((r) => r.classificacao === 'SOMENTE_SISTEMA')).toHaveLength(2)
+      expect(results.filter((r) => r.classificacao === 'SOMENTE_FATURA')).toHaveLength(2)
+    })
+
+    // Padrão 3: Compras repetidas com mesmo valor, onde um lado tem vendedor e outro não
+    it('Padrão 3: Lado com vendedor casa com vendedor correspondente; sem identidade fica exclusivo', () => {
+      const sys: SystemRecord[] = [
+        {
+          id: 'sys-vendedor-gama',
+          data: '10/06/2026',
+          parceiro: 'MERCADO LIVRE - GAMA SUPRIMENTOS ELETRONICOS',
+          credito: 75.0,
+          total: 75.0,
+          debito: null,
+        },
+        {
+          id: 'sys-generico-odoo',
+          data: '10/06/2026',
+          parceiro: 'Mercado Livre',
+          credito: 75.0,
+          total: 75.0,
+          debito: null,
+        },
+      ]
+
+      const card: CardRecord[] = [
+        {
+          id: 'card-vendedor-gama',
+          data: '10/06/2026',
+          estabelecimento: 'MERCADOLIVRE*GAMASUPRI',
+          valor: 75.0,
+        },
+        {
+          id: 'card-generico-fatura',
+          data: '10/06/2026',
+          estabelecimento: 'MERCADOLIVRE*MERCADOL',
+          valor: 75.0,
+        },
+      ]
+
+      const results = reconcileData(sys, card, 'itau')
+      // Gama casa com Gama (1 GREEN)
+      const gamaMatch = results.find((r) => r.status === 'GREEN')
+      expect(gamaMatch).toBeDefined()
+      expect(gamaMatch?.parceiro).toBe('MERCADO LIVRE - GAMA SUPRIMENTOS ELETRONICOS')
+      expect(gamaMatch?.estabelecimento).toBe('MERCADOLIVRE*GAMASUPRI')
+
+      // Os genéricos remanescentes NÃO casam entre si: viram 2 RED
+      const reds = results.filter((r) => r.status === 'RED')
+      expect(reds).toHaveLength(2)
+      expect(reds.some((r) => r.classificacao === 'SOMENTE_SISTEMA')).toBe(true)
+      expect(reds.some((r) => r.classificacao === 'SOMENTE_FATURA')).toBe(true)
+    })
+
+    // Padrão 4: Par divergente real (mesmo fornecedor, valores diferentes fora de marketplace)
+    it('Padrão 4: Par divergente com forte evidência textual forma YELLOW com diferença correta', () => {
+      const sys: SystemRecord[] = [
+        {
+          id: 'sys-fornecedor-delta',
+          data: '15/06/2026',
+          parceiro: 'DELTA TECNOLOGIA E SERVICOS INDUSTRIAIS LTDA',
+          credito: 300.0,
+          total: 300.0,
+          debito: null,
+        },
+        {
+          id: 'sys-outro-fornecedor',
+          data: '15/06/2026',
+          parceiro: 'OUTRO FORNECEDOR TOTALMENTE DIFERENTE',
+          credito: 350.0,
+          total: 350.0,
+          debito: null,
+        },
+      ]
+
+      const card: CardRecord[] = [
+        {
+          id: 'card-fornecedor-delta',
+          data: '15/06/2026',
+          estabelecimento: 'DELTA TECNOLOGIA SERV',
+          valor: 350.0, // Fatura é 350, Odoo é 300 (diferença = +50)
+        },
+      ]
+
+      const results = reconcileData(sys, card, 'itau')
+      // Delta forma par AMARELO com diferença 50.0, sem roubar do outro fornecedor
+      const deltaPair = results.find((r) => r.status === 'YELLOW')
+      expect(deltaPair).toBeDefined()
+      expect(deltaPair?.classificacao).toBe('DIVERGENTE')
+      expect(deltaPair?.diferenca).toBe(50.0)
+      expect(deltaPair?.valorFatura).toBe(350.0)
+      expect(deltaPair?.credito).toBe(300.0)
+
+      // O outro fornecedor permanece somente sistema
+      const otherSys = results.find((r) => r.id === 'RED-SYS-sys-outro-fornecedor')
+      expect(otherSys).toBeDefined()
+      expect(otherSys?.classificacao).toBe('SOMENTE_SISTEMA')
+    })
+
+    // Padrão 5: Anotações manuais mandam no resultado e são pré-processadas
+    it('Padrão 5: Linhas anotadas como "Apenas Fatura" ou "Apenas odoo" NUNCA entram no pool de candidatos', () => {
+      // Cenário: dois lançamentos com MESMO fornecedor e MESMO valor,
+      // mas um anotado como "Apenas Fatura" e o outro no Odoo sem anotação
+      const sys: SystemRecord[] = [
+        {
+          id: 'sys-anot-teste',
+          data: '10/06/2026',
+          parceiro: 'FORNECEDOR IDENTICO LTDA',
+          credito: 250.0,
+          total: 250.0,
+          debito: null,
+        },
+      ]
+
+      const card: CardRecord[] = [
+        {
+          id: 'card-anot-fatura',
+          data: '10/06/2026',
+          estabelecimento: 'FORNECEDOR IDENTICO LTDA',
+          valor: 250.0,
+          observacaoManual: 'Apenas Fatura', // Mandatório: não casar!
+        },
+      ]
+
+      const results = reconcileData(sys, card, 'itau')
+      // Nenhum par GREEN pode ser gerado! Ambos ficam RED
+      expect(results).toHaveLength(2)
+      expect(results.every((r) => r.status === 'RED')).toBe(true)
+
+      const cardRes = results.find((r) => r.origem === 'FATURA')
+      expect(cardRes?.classificacao).toBe('SOMENTE_FATURA')
+      expect(cardRes?.observacaoManualFatura).toBe('Apenas Fatura')
+
+      const sysRes = results.find((r) => r.origem === 'SISTEMA')
+      expect(sysRes?.classificacao).toBe('SOMENTE_SISTEMA')
+
+      // Relatório de Aderência deve acusar 100% de conformidade com o que foi anotado
+      const adherence = generateAdherenceReport(results)
+      expect(adherence.hasAnnotations).toBe(true)
+      const fatItem = adherence.itens.find((i) => i.origem === 'FATURA')
+      expect(fatItem?.aderente).toBe(true)
+      expect(fatItem?.tipoAderencia).toBe('CONCORDA')
+    })
+
+    // Padrão 6: Datas não bloqueiam pareamento (dias ou meses subsequentes)
+    it('Padrão 6: Datas com mais de 30 dias de diferença não impedem a conciliação quando os outros critérios batem', () => {
+      const sys: SystemRecord[] = [
+        {
+          id: 'sys-data-julho',
+          data: '15/07/2026', // Mês seguinte
+          parceiro: 'CONSULTORIA FINANCEIRA ESPECIALIZADA',
+          credito: 850.0,
+          total: 850.0,
+          debito: null,
+        },
+      ]
+
+      const card: CardRecord[] = [
+        {
+          id: 'card-data-maio',
+          data: '20/05/2026', // Dois meses antes
+          estabelecimento: 'CONSULTORIA FINANCEIRA ESPECIALIZADA',
+          valor: 850.0,
+        },
+      ]
+
+      const results = reconcileData(sys, card, 'itau')
+      expect(results).toHaveLength(1)
+      expect(results[0].status).toBe('GREEN')
+      expect(results[0].classificacao).toBe('CONCILIADO')
+    })
+
+    // Padrão 7: Estornos/taxas da fatura sem contraparte no Odoo
+    it('Padrão 7: Estorno negativo e IOF ficam exclusivos da fatura preservando sinal', () => {
+      const sys: SystemRecord[] = []
+      const card: CardRecord[] = [
+        {
+          id: 'card-iof',
+          data: '05/06/2026',
+          estabelecimento: 'IOF COMPRA INTERNACIONAL',
+          valor: 4.5,
+        },
+        {
+          id: 'card-estorno-anuidade',
+          data: '08/06/2026',
+          estabelecimento: 'ESTORNO DE ANUIDADE DIFERENCIADA',
+          valor: -25.0,
+        },
+      ]
+
+      const results = reconcileData(sys, card, 'itau')
+      expect(results).toHaveLength(2)
+      expect(results.every((r) => r.status === 'RED' && r.origem === 'FATURA')).toBe(true)
+
+      const estorno = results.find((r) => r.valorFatura === -25.0)
+      expect(estorno).toBeDefined()
+      expect(estorno?.valorFatura).toBe(-25.0)
+    })
+
+    // Padrão 8: Unicidade estrita e invariância de embaralhamento com as novas regras
+    it('Padrão 8: Unicidade estrita e invariância total da ordem com as regras de plataforma e anotações', () => {
+      const sys: SystemRecord[] = [
+        {
+          id: 's-p1',
+          data: '10/06/2026',
+          parceiro: 'MERCADO LIVRE - LOJA ZECA',
+          credito: 40.0,
+          debito: null,
+        },
+        {
+          id: 's-p2',
+          data: '10/06/2026',
+          parceiro: 'MERCADO LIVRE - LOJA TIAGO',
+          credito: 60.0,
+          debito: null,
+        },
+        { id: 's-p3', data: '10/06/2026', parceiro: 'MERCADO LIVRE', credito: 80.0, debito: null }, // genérico
+        {
+          id: 's-p4',
+          data: '10/06/2026',
+          parceiro: 'EXCLUSIVO ODOO ANOTADO',
+          credito: 100.0,
+          debito: null,
+          observacaoManual: 'Apenas odoo',
+        },
+      ]
+
+      const card: CardRecord[] = [
+        { id: 'c-p1', data: '10/06/2026', estabelecimento: 'MERCADOLIVRE*ZECA', valor: 40.0 },
+        { id: 'c-p2', data: '10/06/2026', estabelecimento: 'MERCADOLIVRE*TIAGO', valor: 60.0 },
+        { id: 'c-p3', data: '10/06/2026', estabelecimento: 'MERCADOLIVRE*MERCADOL', valor: 80.0 }, // genérico
+        {
+          id: 'c-p4',
+          data: '10/06/2026',
+          estabelecimento: 'EXCLUSIVO FATURA ANOTADO',
+          valor: 120.0,
+          observacaoManual: 'Apenas Fatura',
+        },
+      ]
+
+      const r1 = reconcileData(sys, card, 'itau')
+      const r2 = reconcileData([...sys].reverse(), [...card].reverse(), 'itau')
+
+      expect(r1.length).toBe(r2.length)
+      const idsR1 = r1.map((r) => `${r.id}|${r.status}|${r.classificacao}`)
+      const idsR2 = r2.map((r) => `${r.id}|${r.status}|${r.classificacao}`)
+      expect(idsR1).toEqual(idsR2)
+
+      // s-p4 e c-p4 devem ser RED (exclusivos)
+      expect(r1.find((r) => r.id === 'RED-SYS-s-p4')?.classificacao).toBe('SOMENTE_SISTEMA')
+      expect(r1.find((r) => r.id === 'RED-CARD-c-p4')?.classificacao).toBe('SOMENTE_FATURA')
+
+      // s-p1 e s-p2 devem ser GREEN (conciliados)
+      expect(r1.find((r) => r.id.includes('s-p1'))?.status).toBe('GREEN')
+      expect(r1.find((r) => r.id.includes('s-p2'))?.status).toBe('GREEN')
+    })
+  })
 })
