@@ -815,57 +815,13 @@ trailer << /Root 1 0 R >>
     expect(results[0].diferenca).toBe(0)
   })
 
-  // Teste C: Pela nova regra da usuária: casos ambíguos com valor idêntico (diferença R$ 0,00) viram VERDE (CONCILIADO)
-  // Já casos ambíguos com valores diferentes continuam CINZA
-  it('29. Casos ambíguos com valor idêntico viram VERDE (conciliado) e com valores divergentes continuam CINZA', () => {
-    // Caso 1: Ambíguo com valor idêntico -> VERDE
-    const sysEqual: SystemRecord[] = [
-      {
-        id: 's-comp-1',
-        data: '10/06/2026',
-        parceiro: 'Mercado Livre',
-        credito: 49.9,
-        total: 49.9,
-        debito: null,
-      },
-      {
-        id: 's-comp-2',
-        data: '10/06/2026',
-        parceiro: 'Mercado Livre',
-        credito: 49.9,
-        total: 49.9,
-        debito: null,
-      },
-    ]
-
-    const cardEqual: CardRecord[] = [
-      {
-        id: 'c-comp-1',
-        data: '10/06/2026',
-        estabelecimento: 'MERCADOLIVRE*LOJAA',
-        valor: 49.9,
-      },
-      {
-        id: 'c-comp-2',
-        data: '10/06/2026',
-        estabelecimento: 'MERCADOLIVRE*LOJAB',
-        valor: 49.9,
-      },
-    ]
-
-    const resultsEqual = reconcileData(sysEqual, cardEqual, 'itau')
-    // Pela regra da usuária: valor igual resolve a ambiguidade -> VERDE
-    const greenMatches = resultsEqual.filter((r) => r.status === 'GREEN')
-    expect(greenMatches.length).toBeGreaterThanOrEqual(1)
-    expect(greenMatches.every((r) => r.classificacao === 'CONCILIADO')).toBe(true)
-    expect(greenMatches.every((r) => r.diferenca === 0)).toBe(true)
-
-    // Caso 2: Ambíguo com valores divergentes (ex: diferença de R$ 3,00 e nomes parcialmente semelhantes) -> CINZA
+  // Teste C: Pela regra estrita: sem categoria ambígua/cinza — casos sem correspondência comprovada viram exclusivos
+  it('29. Casos sem correspondência comprovada viram exclusivos (RED) e nunca cinza ou associados arbitrariamente', () => {
     const sysDiff: SystemRecord[] = [
       {
         id: 's-ambig-diff',
         data: '10/06/2026',
-        parceiro: 'LOJA TESTE BRASIL COMERCIO',
+        parceiro: 'COMERCIO E SERVICOS BRASIL LTDA',
         credito: 100.0,
         total: 100.0,
         debito: null,
@@ -875,19 +831,21 @@ trailer << /Root 1 0 R >>
       {
         id: 'c-ambig-diff',
         data: '10/06/2026',
-        estabelecimento: 'LOJA TESTE PRODUTOS',
-        valor: 103.5, // Diferença R$ 3,50, nameSim moderado
+        estabelecimento: 'DISTRIBUIDORA DE ARTIGOS GERAIS',
+        valor: 103.5,
       },
     ]
     const resultsDiff = reconcileData(sysDiff, cardDiff, 'itau')
-    const grayMatches = resultsDiff.filter((r) => r.status === 'GRAY')
-    expect(grayMatches).toHaveLength(1)
-    expect(grayMatches[0].classificacao).toBe('POSSIVEL_CORRESPONDENCIA')
-    expect(grayMatches[0].diferenca).toBe(3.5)
+    // Não deve haver nenhum status GRAY nem classificação POSSIVEL_CORRESPONDENCIA
+    expect(resultsDiff.some((r) => (r.status as string) === 'GRAY')).toBe(false)
+    expect(resultsDiff).toHaveLength(2)
+    expect(resultsDiff.filter((r) => r.status === 'RED')).toHaveLength(2)
+    expect(resultsDiff.find((r) => r.origem === 'SISTEMA')?.classificacao).toBe('SOMENTE_SISTEMA')
+    expect(resultsDiff.find((r) => r.origem === 'FATURA')?.classificacao).toBe('SOMENTE_FATURA')
   })
 
-  // Teste D: Pares com nomes totalmente distintos e valor único em cada fonte (Padrão 3)
-  it('30. Pares com nomes comerciais distintos e valor único em cada fonte são propostos com segurança', () => {
+  // Teste D: Nomes comerciais distintos sem relação comprovada NÃO são associados mesmo se o valor for único
+  it('30. Nomes comerciais distintos sem relação comprovada ficam exclusivos de cada fonte mesmo com mesmo valor', () => {
     const sys: SystemRecord[] = [
       {
         id: 's-uniq-partner',
@@ -909,11 +867,11 @@ trailer << /Root 1 0 R >>
     ]
 
     const results = reconcileData(sys, card, 'itau')
-    expect(results).toHaveLength(1)
-    expect(results[0].status).toBe('GREEN')
-    expect(results[0].classificacao).toBe('CONCILIADO')
-    expect(results[0].valorFatura).toBe(4321.87)
-    expect(results[0].credito).toBe(4321.87)
+    // Sem evidência textual legítima entre os estabelecimentos, não inventar associação por valor
+    expect(results).toHaveLength(2)
+    expect(results.every((r) => r.status === 'RED')).toBe(true)
+    expect(results.find((r) => r.origem === 'SISTEMA')?.classificacao).toBe('SOMENTE_SISTEMA')
+    expect(results.find((r) => r.origem === 'FATURA')?.classificacao).toBe('SOMENTE_FATURA')
   })
 
   // Teste E: Leitura de anotações manuais e geração de Relatório de Aderência
@@ -1210,42 +1168,231 @@ trailer << /Root 1 0 R >>
     expect(results[0].estabelecimento).toBe('Vindi *LojaNetlab')
   })
 
-  it('34. "Vindi *LojaNetlab" NÃO casa como verde com parceiro não relacionado quando há concorrente de valor próximo', () => {
+  it('34. "Vindi *LojaNetlab" e "mercado livre - LOJA SHOPCLIC" são tratados como transações DISTINTAS (regressão obrigatória)', () => {
     const sys: SystemRecord[] = [
       {
-        id: 's-outro',
+        id: 's-shopclic',
         data: '15/06/2026',
-        parceiro: 'CONSTRUTORA E REFORMAS LTDA',
-        credito: 450.0,
-        total: 450.0,
-        debito: null,
-      },
-      {
-        id: 's-outro2',
-        data: '15/06/2026',
-        parceiro: 'CONSULTORIA FINANCEIRA',
-        credito: 452.0, // Concorrente com valor próximo (R$ 452 vs R$ 450)
-        total: 452.0,
+        parceiro: 'mercado livre - LOJA SHOPCLIC COMERCIO E SERVICOS LTDA',
+        credito: 350.0,
+        total: 350.0,
         debito: null,
       },
     ]
 
     const card: CardRecord[] = [
       {
-        id: 'c-vindi',
+        id: 'c-vindi-netlab',
         data: '15/06/2026',
         estabelecimento: 'Vindi *LojaNetlab',
-        valor: 450.0,
+        valor: 350.0,
       },
     ]
 
     const results = reconcileData(sys, card, 'itau')
-    // Não deve casar como verde direto por valor sem afinidade de nome com concorrente de valor próximo
-    const vindiMatch = results.find((r) => r.estabelecimento === 'Vindi *LojaNetlab')
-    expect(vindiMatch).toBeDefined()
-    // Como há concorrência de valor próximo e os nomes não compartilham token, deve ir para cinza (revisão) ou não casar com verde
-    expect(vindiMatch?.status).toBe('GRAY')
-    expect(vindiMatch?.classificacao).toBe('POSSIVEL_CORRESPONDENCIA')
+    // Devem ser tratados como transações DISTINTAS (exclusivos de cada fonte)
+    expect(results).toHaveLength(2)
+    expect(results.every((r) => r.status === 'RED')).toBe(true)
+
+    const sysResult = results.find((r) => r.id === 'RED-SYS-s-shopclic')
+    expect(sysResult).toBeDefined()
+    expect(sysResult?.origem).toBe('SISTEMA')
+    expect(sysResult?.classificacao).toBe('SOMENTE_SISTEMA')
+    expect(sysResult?.parceiro).toBe('mercado livre - LOJA SHOPCLIC COMERCIO E SERVICOS LTDA')
+    expect(sysResult?.estabelecimento).toBe('-')
+
+    const cardResult = results.find((r) => r.id === 'RED-CARD-c-vindi-netlab')
+    expect(cardResult).toBeDefined()
+    expect(cardResult?.origem).toBe('FATURA')
+    expect(cardResult?.classificacao).toBe('SOMENTE_FATURA')
+    expect(cardResult?.estabelecimento).toBe('Vindi *LojaNetlab')
+    expect(cardResult?.parceiro).toBe('-')
+  })
+
+  // Testes complementares exigidos pela instrução:
+  it('36. Estabelecimentos diferentes com o mesmo valor permanecem separados como exclusivos (RED)', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-auto',
+        data: '10/06/2026',
+        parceiro: 'AUTO POSTO IPIRANGA',
+        credito: 150.0,
+        debito: null,
+      },
+    ]
+    const card: CardRecord[] = [
+      { id: 'c-livraria', data: '10/06/2026', estabelecimento: 'LIVRARIA CULTURA', valor: 150.0 },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(2)
+    expect(results.filter((r) => r.status === 'RED')).toHaveLength(2)
+    expect(results.some((r) => r.classificacao === 'CONCILIADO')).toBe(false)
+  })
+
+  it('37. Mesmo estabelecimento com valores diferentes vira AMARELO / DIVERGENTE quando não há melhor exata', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-aws',
+        data: '10/06/2026',
+        parceiro: 'AMAZON WEB SERVICES DO BRASIL',
+        credito: 500.0,
+        debito: null,
+      },
+    ]
+    const card: CardRecord[] = [
+      { id: 'c-aws', data: '10/06/2026', estabelecimento: 'AWS CLOUD SERVICES', valor: 540.25 },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(1)
+    expect(results[0].status).toBe('YELLOW')
+    expect(results[0].classificacao).toBe('DIVERGENTE')
+    expect(results[0].diferenca).toBe(40.25)
+    expect(results[0].valorFatura).toBe(540.25)
+    expect(results[0].credito).toBe(500.0)
+  })
+
+  it('38. Nomes comerciais com abreviações legítimas conciliam como VERDE com valor exato', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-sjx',
+        data: '12/06/2026',
+        parceiro: 'SJX COMERCIAL ATACADISTA LTDA',
+        credito: 890.5,
+        debito: null,
+      },
+    ]
+    const card: CardRecord[] = [
+      { id: 'c-sjx', data: '12/06/2026', estabelecimento: 'SJX - ATACAD', valor: 890.5 },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(1)
+    expect(results[0].status).toBe('GREEN')
+    expect(results[0].classificacao).toBe('CONCILIADO')
+  })
+
+  it('39. Compras repetidas do mesmo estabelecimento com valores iguais usam cada registro no máximo uma vez', () => {
+    const sys: SystemRecord[] = [
+      { id: 's-ub1', data: '01/06/2026', parceiro: 'UBER DO BRASIL', credito: 30.0, debito: null },
+      { id: 's-ub2', data: '02/06/2026', parceiro: 'UBER DO BRASIL', credito: 30.0, debito: null },
+      { id: 's-ub3', data: '03/06/2026', parceiro: 'UBER DO BRASIL', credito: 30.0, debito: null },
+    ]
+    const card: CardRecord[] = [
+      { id: 'c-ub1', data: '01/06/2026', estabelecimento: 'UBER *TRIP', valor: 30.0 },
+      { id: 'c-ub2', data: '02/06/2026', estabelecimento: 'UBER *TRIP', valor: 30.0 },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(3) // 2 pares casados + 1 excedente exclusivo do sistema
+    const greens = results.filter((r) => r.status === 'GREEN')
+    const reds = results.filter((r) => r.status === 'RED')
+    expect(greens).toHaveLength(2)
+    expect(reds).toHaveLength(1)
+    expect(reds[0].origem).toBe('SISTEMA')
+    expect(reds[0].classificacao).toBe('SOMENTE_SISTEMA')
+  })
+
+  it('40. Valores iguais em linhas diferentes de estabelecimentos distintos não causam pareamento cruzado', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-e1',
+        data: '10/06/2026',
+        parceiro: 'DROGARIA SAO PAULO',
+        credito: 200.0,
+        debito: null,
+      },
+      { id: 's-e2', data: '10/06/2026', parceiro: 'LOJAS KALUNGA', credito: 200.0, debito: null },
+    ]
+    const card: CardRecord[] = [
+      { id: 'c-e1', data: '10/06/2026', estabelecimento: 'KALUNGA COMERCIO', valor: 200.0 },
+      { id: 'c-e2', data: '10/06/2026', estabelecimento: 'DROGARIA SAO PAULO', valor: 200.0 },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(2)
+    expect(results.every((r) => r.status === 'GREEN')).toBe(true)
+
+    // O par de Kalunga deve casar com Kalunga, e Drogária com Drogaria
+    const kalunga = results.find((r) => r.estabelecimento.includes('KALUNGA'))
+    expect(kalunga?.parceiro).toBe('LOJAS KALUNGA')
+
+    const drogaria = results.find((r) => r.estabelecimento.includes('DROGARIA'))
+    expect(drogaria?.parceiro).toBe('DROGARIA SAO PAULO')
+  })
+
+  it('41. Valores negativos, créditos e estornos quando aplicável são preservados com precisão', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-estorno',
+        data: '05/06/2026',
+        parceiro: 'LOJA VAREJO ESTORNO',
+        credito: -75.5,
+        debito: null,
+      },
+    ]
+    const card: CardRecord[] = [
+      { id: 'c-estorno', data: '05/06/2026', estabelecimento: 'LOJA VAREJO', valor: -75.5 },
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    expect(results).toHaveLength(1)
+    expect(results[0].status).toBe('GREEN')
+    expect(results[0].credito).toBe(-75.5)
+    expect(results[0].valorFatura).toBe(-75.5)
+    expect(results[0].diferenca).toBe(0)
+  })
+
+  it('42. Arquivos novos com nomes e quantidades diferentes funcionam de forma genérica sem regras fixas', () => {
+    const sys: SystemRecord[] = [
+      {
+        id: 's-novo-1',
+        data: '01/08/2026',
+        parceiro: 'DELTA TECNOLOGIA LTDA',
+        credito: 1250.0,
+        debito: null,
+      },
+      {
+        id: 's-novo-2',
+        data: '02/08/2026',
+        parceiro: 'ZETA COMUNICACAO ME',
+        credito: 430.0,
+        debito: null,
+      },
+      {
+        id: 's-novo-3',
+        data: '03/08/2026',
+        parceiro: 'OMEGA LOGISTICA S/A',
+        credito: 780.0,
+        debito: null,
+      },
+    ]
+    const card: CardRecord[] = [
+      { id: 'c-novo-1', data: '01/08/2026', estabelecimento: 'DELTA TECNOLOGIA', valor: 1250.0 },
+      { id: 'c-novo-2', data: '02/08/2026', estabelecimento: 'ZETA COMUNICACAO', valor: 450.0 }, // Divergente
+      { id: 'c-novo-ext', data: '04/08/2026', estabelecimento: 'SIGMA IMPORTADORA', valor: 900.0 }, // Exclusivo fatura
+    ]
+
+    const results = reconcileData(sys, card, 'itau')
+    // Esperado: 1 verde (Delta), 1 amarelo (Zeta), 1 vermelho Odoo (Omega), 1 vermelho fatura (Sigma) = 4 resultados
+    expect(results).toHaveLength(4)
+
+    const green = results.filter((r) => r.status === 'GREEN')
+    expect(green).toHaveLength(1)
+    expect(green[0].parceiro).toBe('DELTA TECNOLOGIA LTDA')
+
+    const yellow = results.filter((r) => r.status === 'YELLOW')
+    expect(yellow).toHaveLength(1)
+    expect(yellow[0].parceiro).toBe('ZETA COMUNICACAO ME')
+    expect(yellow[0].diferenca).toBe(20.0)
+
+    const reds = results.filter((r) => r.status === 'RED')
+    expect(reds).toHaveLength(2)
+    expect(reds.some((r) => r.origem === 'SISTEMA' && r.parceiro.includes('OMEGA'))).toBe(true)
+    expect(reds.some((r) => r.origem === 'FATURA' && r.estabelecimento.includes('SIGMA'))).toBe(
+      true,
+    )
   })
 
   it('35. Intermediadores conhecidos (Cielo, PagSeguro, Stone, Getnet, Rede, Mercado Pago) extraem o vendedor real', () => {

@@ -103,11 +103,11 @@ export function SummaryCards({
       bg: 'bg-rose-50 dark:bg-rose-500/15',
     },
     {
-      label: '8. Casos em Revisão',
-      value: metrics.casosEmRevisao.toString(),
-      icon: Scale,
-      color: 'text-blue-700 dark:text-blue-400',
-      bg: 'bg-blue-50 dark:bg-blue-500/15',
+      label: '8. Qtd Exclusivos',
+      value: (metrics.somenteFatura + metrics.somenteSistema).toString(),
+      icon: AlertTriangle,
+      color: 'text-rose-700 dark:text-rose-400',
+      bg: 'bg-rose-50 dark:bg-rose-500/15',
     },
   ]
 
@@ -216,8 +216,8 @@ export function SummaryCards({
         </Card>
       </div>
 
-      {/* Grade com os 10 indicadores complementares */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+      {/* Grade com os 9 indicadores complementares */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-3">
         {secondaryMetrics.map((m) => {
           const Icon = m.icon
           return (

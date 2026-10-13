@@ -133,7 +133,7 @@ export function AdherenceReportView({ report }: AdherenceReportViewProps) {
               {report.totalRevisaoSugerida}
             </div>
             <p className="text-[10px] text-[#647875] dark:text-[#A7C4C0]">
-              Sem anotação ou ambíguos
+              Sem anotação na conferência
             </p>
           </CardContent>
         </Card>
@@ -289,9 +289,7 @@ export function AdherenceReportView({ report }: AdherenceReportViewProps) {
                           ? 'bg-emerald-100 text-emerald-800'
                           : item.statusAlgoritmo === 'YELLOW'
                             ? 'bg-amber-100 text-amber-800'
-                            : item.statusAlgoritmo === 'RED'
-                              ? 'bg-rose-100 text-rose-800'
-                              : 'bg-slate-200 text-slate-800'
+                            : 'bg-rose-100 text-rose-800'
                       }`}
                     >
                       {item.statusAlgoritmo} • {item.classificacaoAlgoritmo}

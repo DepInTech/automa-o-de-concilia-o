@@ -97,8 +97,6 @@ export function ResultsTable({
         return 'bg-amber-50/70 hover:bg-amber-100/70 text-amber-950 border-amber-200 dark:bg-amber-950/20 dark:hover:bg-amber-900/30 dark:text-amber-200 dark:border-amber-900/40'
       case 'RED':
         return 'bg-rose-50/70 hover:bg-rose-100/70 text-rose-950 border-rose-200 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 dark:text-rose-200 dark:border-rose-900/40'
-      case 'GRAY':
-        return 'bg-slate-100/80 hover:bg-slate-200/80 text-slate-900 border-slate-300 dark:bg-slate-900/40 dark:hover:bg-slate-800/50 dark:text-slate-200 dark:border-slate-700'
       default:
         return ''
     }
@@ -112,25 +110,12 @@ export function ResultsTable({
         return 'bg-amber-50/70 hover:bg-amber-100/70 text-amber-950 border-amber-200 dark:bg-amber-950/20 dark:hover:bg-amber-900/30 dark:text-amber-200 dark:border-amber-900/40'
       case 'RED':
         return 'bg-rose-50/70 hover:bg-rose-100/70 text-rose-950 border-rose-200 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 dark:text-rose-200 dark:border-rose-900/40'
-      case 'GRAY':
-        return 'bg-slate-100/80 hover:bg-slate-200/80 text-slate-900 border-slate-300 dark:bg-slate-900/40 dark:hover:bg-slate-800/50 dark:text-slate-200 dark:border-slate-700'
       default:
         return ''
     }
   }
 
   const renderBadge = (r: ReconciliationResult) => {
-    if (r.status === 'GRAY' || r.classificacao === 'POSSIVEL_CORRESPONDENCIA') {
-      return (
-        <Badge
-          variant="outline"
-          className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-none bg-slate-200/80 text-slate-800 border-slate-400 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600"
-        >
-          ⚪ Ambíguo / Revisão
-        </Badge>
-      )
-    }
-
     if (r.status === 'GREEN') {
       return (
         <Badge
@@ -175,13 +160,7 @@ export function ResultsTable({
   }
 
   const statusLabel = (s: string) =>
-    s === 'GREEN'
-      ? 'Conciliado'
-      : s === 'YELLOW'
-        ? 'Divergente'
-        : s === 'GRAY'
-          ? 'Ambíguo / Revisão'
-          : 'Exclusivo'
+    s === 'GREEN' ? 'Conciliado' : s === 'YELLOW' ? 'Divergente' : 'Exclusivo'
 
   const handleDownloadCSV = () => {
     const validation = validateExport(data, systemRecords, cardRecords)
@@ -355,12 +334,6 @@ export function ResultsTable({
                     <span className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-rose-500" />
                       Exclusivos (Vermelho)
-                    </span>
-                  </SelectItem>
-                  <SelectItem value="GRAY">
-                    <span className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-slate-400" />
-                      Ambíguos / Revisão (Cinza)
                     </span>
                   </SelectItem>
                 </SelectContent>

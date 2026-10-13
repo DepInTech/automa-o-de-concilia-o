@@ -256,10 +256,6 @@ export function StageAudit({
                 <span className="text-[#647875] dark:text-[#A7C4C0]">Exclusivos Fatura:</span>
                 <span className="font-mono font-bold text-rose-600">{metrics.somenteFatura}</span>
               </div>
-              <div className="flex justify-between items-center py-0.5">
-                <span className="text-[#647875] dark:text-[#A7C4C0]">Casos Ambíguos:</span>
-                <span className="font-mono font-bold text-blue-600">{metrics.casosEmRevisao}</span>
-              </div>
               <div className="flex justify-between items-center py-0.5 border-t border-emerald-100 dark:border-emerald-950/40 pt-1">
                 <span className="text-[#647875] dark:text-[#A7C4C0]">Registros Descartados:</span>
                 <span className="font-mono font-bold text-slate-500">

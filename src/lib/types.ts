@@ -38,12 +38,7 @@ export interface CardRecord {
   confianca?: number
 }
 
-export type MatchClassification =
-  | 'CONCILIADO'
-  | 'DIVERGENTE'
-  | 'SOMENTE_SISTEMA'
-  | 'SOMENTE_FATURA'
-  | 'POSSIVEL_CORRESPONDENCIA'
+export type MatchClassification = 'CONCILIADO' | 'DIVERGENTE' | 'SOMENTE_SISTEMA' | 'SOMENTE_FATURA'
 
 export interface ReconciliationResult {
   id: string
@@ -63,8 +58,8 @@ export interface ReconciliationResult {
   credito: number | null
   valorFatura: number | null
   diferenca: number | null
-  /** GREEN = Conciliado | YELLOW = Divergente | RED = Somente Sistema / Somente Fatura | GRAY = Ambíguo / Revisão */
-  status: 'GREEN' | 'YELLOW' | 'RED' | 'GRAY'
+  /** GREEN = Conciliado | YELLOW = Divergente | RED = Somente Sistema / Somente Fatura */
+  status: 'GREEN' | 'YELLOW' | 'RED'
   origem: 'SISTEMA' | 'FATURA' | 'AMBOS'
   classificacao: MatchClassification
   motivo: string
@@ -96,7 +91,7 @@ export interface AdherenceItem {
   anotacaoFatura?: string
   anotacaoOdoo?: string
   classificacaoAlgoritmo: MatchClassification
-  statusAlgoritmo: 'GREEN' | 'YELLOW' | 'RED' | 'GRAY'
+  statusAlgoritmo: 'GREEN' | 'YELLOW' | 'RED'
   statusConferencia: ManualAnnotationCategory
   aderente: boolean
   tipoAderencia: 'CONCORDA' | 'DISCORDA' | 'REVISAO_SUGERIDA'
@@ -122,7 +117,7 @@ export interface ReconciliationMetrics {
   paresDivergentes: number
   somenteSistema: number
   somenteFatura: number
-  casosEmRevisao: number
+  casosEmRevisao?: number
   registrosDescartados: number
   justificativaDescartes?: string
   totalValorSistema: number

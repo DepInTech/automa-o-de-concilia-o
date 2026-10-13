@@ -21,9 +21,7 @@ export function ResultRowMobile({ r, bank, getRowClass, statusLabel }: ResultRow
                 ? 'bg-emerald-100/90 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
                 : r.status === 'YELLOW'
                   ? 'bg-amber-100/90 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
-                  : r.status === 'GRAY'
-                    ? 'bg-slate-200/90 text-slate-800 border-slate-400 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600'
-                    : 'bg-rose-100/90 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800'
+                  : 'bg-rose-100/90 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800'
             }`}
           >
             {statusLabel(r.status)}

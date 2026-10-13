@@ -28,11 +28,10 @@ const GATEWAY_PREFIXES = [
   /^(sumup\s*\*+|sumup\s+)/i,
 ]
 
-// Sufixos empresariais e termos societários a remover na comparação
+// Sufixos empresariais, termos societários e palavras genéricas de razão social a remover na comparação
 const CORPORATE_SUFFIXES = [
-  /\b(ltda|eireli|s\.?a\.?|s\/?a|me|epp|mei|sociedade\s+anonima|sociedade\s+limitada|comercio|comercial|distribuidora|servicos|serv\b|solucoes|artigos|utilidades|brasil|brazil)\b/gi,
+  /\b(ltda|eireli|s\.?a\.?|s\/?a|me|epp|mei|sociedade\s+anonima|sociedade\s+limitada|comercio|comercial|distribuidora|servicos|serv\b|solucoes|artigos|utilidades|brasil|brazil|loja|lojas)\b/gi,
 ]
-
 // Palavras genéricas ou conectivos a ignorar na pontuação
 const STOP_WORDS = new Set([
   'de',
@@ -272,11 +271,23 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
   const joinedA = tokensA.join('')
   const joinedB = tokensB.join('')
   let subTokenMatch = false
+  const isGenericToken = (w: string) =>
+    /^(mercadolivre|mercado|livre|brasil|brazil|comercio|comercial|servicos|servico|artigos|distribuidora|loja|lojas)$/i.test(
+      w,
+    )
+
   for (const tA of tokensA) {
-    if (tA.length >= 4 && !/^(mercadolivre|brasil|brazil|comercio|servicos)$/i.test(tA)) {
+    if (tA.length >= 4 && !isGenericToken(tA)) {
       if (
-        joinedB.includes(tA) ||
-        tokensB.some((tB) => tB.includes(tA) || (tB.length >= 4 && tA.startsWith(tB)))
+        tokensB.some((tB) => {
+          if (isGenericToken(tB)) return false
+          if (tA === tB) return true
+          // Apenas se o prefixo for relevante e não coincidente com radicais genéricos
+          if (tA.length >= 4 && tB.length >= 4) {
+            if (tA.startsWith(tB) || tB.startsWith(tA)) return true
+          }
+          return false
+        })
       ) {
         subTokenMatch = true
         break
@@ -284,28 +295,36 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
     }
   }
   for (const tB of tokensB) {
-    if (tB.length >= 4 && !/^(mercadolivre|brasil|brazil|comercio|servicos)$/i.test(tB)) {
+    if (tB.length >= 4 && !isGenericToken(tB)) {
       if (
-        joinedA.includes(tB) ||
-        tokensA.some((tA) => tA.includes(tB) || (tA.length >= 4 && tB.startsWith(tA)))
+        tokensA.some((tA) => {
+          if (isGenericToken(tA)) return false
+          if (tA === tB) return true
+          if (tA.length >= 4 && tB.length >= 4) {
+            if (tA.startsWith(tB) || tB.startsWith(tA)) return true
+          }
+          return false
+        })
       ) {
         subTokenMatch = true
         break
       }
     }
   }
-
   if (subTokenMatch && overlapScore < 0.6) {
     overlapScore = Math.max(overlapScore, 0.65)
   }
 
   // Bônus proporcional se a primeira palavra (marca central) coincidir, ponderada pelo tamanho do nome
-  // NUNCA pontuar se a primeira palavra for termo de intermediador/marketplace como "mercadolivre"
+  // NUNCA pontuar se a primeira palavra for termo genérico ou de intermediador/marketplace
   const firstA = tokensA[0]
   const firstB = tokensB[0]
   let brandBonus = 0
   const isGenericBrand = (w?: string) =>
-    !w || /^(mercadolivre|mercado|brasil|brazil|comercio|servicos|servico)$/i.test(w)
+    !w ||
+    /^(mercadolivre|mercado|livre|brasil|brazil|comercio|comercial|servicos|servico|loja|lojas|artigos|distribuidora)$/i.test(
+      w,
+    )
 
   if (firstA && firstB && !isGenericBrand(firstA) && !isGenericBrand(firstB)) {
     if (firstA === firstB && firstA.length >= 3) {
@@ -313,7 +332,7 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
       brandBonus = 0.25 * brevityFactor
     } else if (
       (firstA.startsWith(firstB) || firstB.startsWith(firstA)) &&
-      Math.min(firstA.length, firstB.length) >= 3
+      Math.min(firstA.length, firstB.length) >= 4
     ) {
       const brevityFactor = Math.min(1.0, 2 / Math.min(tokensA.length, tokensB.length))
       brandBonus = 0.18 * brevityFactor
@@ -321,22 +340,17 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
   }
 
   // Bônus se qualquer token distintivo com 5+ caracteres for idêntico (ex: "biocentrix", "starlink", "autentique"),
-  // apenas se houver alguma sobreposição mínima global
+  // apenas se houver alguma sobreposição mínima global e o token não for genérico
   const anyDistinctiveTokenMatch = tokensA.some((tA) =>
-    tokensB.some(
-      (tB) =>
-        tA === tB &&
-        tA.length >= 5 &&
-        !/^(mercadolivre|brasil|brazil|servico|servicos|comercio|comercial|produtos)$/i.test(tA),
-    ),
+    tokensB.some((tB) => tA === tB && tA.length >= 5 && !isGenericToken(tA) && !isGenericToken(tB)),
   )
   if (anyDistinctiveTokenMatch && brandBonus === 0 && (coveredOfMin >= 0.2 || subTokenMatch)) {
     brandBonus = 0.2
   }
 
-  // Se ambos pertencem à família do marketplace, adiciona um leve ajuste de coerência (0.05),
-  // mas o resultado geral só é alto se houver token do vendedor correspondente
-  const marketplaceFamilyBonus = bothMarketplaceFamily ? 0.05 : 0
+  // Se ambos pertencem à família do marketplace e há pelo menos um token coincidente do vendedor
+  const marketplaceFamilyBonus =
+    bothMarketplaceFamily && (coveredOfMin > 0 || subTokenMatch) ? 0.05 : 0
 
   return Math.min(1.0, overlapScore * 0.8 + brandBonus + marketplaceFamilyBonus)
 }
