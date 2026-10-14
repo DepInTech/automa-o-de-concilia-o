@@ -73,7 +73,7 @@ export function AppSidebar() {
       <SidebarFooter className="p-4 border-t border-white/10 text-xs text-[#A7C4C0] flex items-center justify-between">
         <span className="font-semibold text-white/90">GRUPO EPA</span>
         <span className="text-[11px] bg-white/10 px-2 py-0.5 rounded text-[#20BFA9] font-medium">
-          v1.0.0
+          v1.0.0 (v0.0.116)
         </span>
       </SidebarFooter>
     </Sidebar>

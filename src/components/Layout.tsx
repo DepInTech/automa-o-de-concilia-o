@@ -89,7 +89,9 @@ export default function Layout() {
             </span>
             <span className="hidden sm:inline text-slate-400">• Sistema Integrado Odoo</span>
           </div>
-          <span className="font-semibold text-[#00796F] dark:text-[#20BFA9]">GRUPO EPA v1.0.0</span>
+          <span className="font-semibold text-[#00796F] dark:text-[#20BFA9]">
+            GRUPO EPA v1.0.0 (v0.0.116)
+          </span>
         </footer>
       </SidebarInset>
     </SidebarProvider>

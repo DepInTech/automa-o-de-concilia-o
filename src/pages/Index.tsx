@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { BankSelector } from '@/components/bank-selector'
 import { UploadZone } from '@/components/upload-zone'
 import { SummaryCards } from '@/components/summary-cards'
@@ -16,6 +16,8 @@ import {
   AlertTriangle,
   FileSpreadsheet,
   Download,
+  BarChart3,
+  CheckCircle2,
 } from 'lucide-react'
 import { bankLabels } from '@/lib/bank-config'
 import {
@@ -29,27 +31,48 @@ import { downloadXlsxFile } from '@/lib/xlsx-generator'
 import { generateSystemCSV, downloadCSV } from '@/lib/sample-csv'
 import { createMockInvoicePdfFile } from '@/lib/sample-pdf'
 import { MOCK_SYSTEM_RECORDS, MOCK_CARD_RECORDS } from '@/lib/mock-data'
+import { useReconciliationSession } from '@/contexts/reconciliation-context'
 import type { BankType, SystemRecord, CardRecord, ReconciliationResult } from '@/lib/types'
 
 type Step = 'upload' | 'validation' | 'results'
 
 export default function Index() {
-  const [bank, setBank] = useState<BankType>('itau')
+  const { lastSession, saveSession, clearSession } = useReconciliationSession()
+
+  const [bank, setBank] = useState<BankType>(lastSession?.bank ?? 'itau')
   const [step, setStep] = useState<Step>('upload')
   const [systemFile, setSystemFile] = useState<File | null>(null)
   const [cardFile, setCardFile] = useState<File | null>(null)
 
   // Resultados dos módulos estruturados
-  const [invoiceConversion, setInvoiceConversion] = useState<InvoiceConversionResult | null>(null)
-  const [odooImport, setOdooImport] = useState<OdooImportResult | null>(null)
+  const [invoiceConversion, setInvoiceConversion] = useState<InvoiceConversionResult | null>(
+    lastSession?.invoiceConversion ?? null,
+  )
+  const [odooImport, setOdooImport] = useState<OdooImportResult | null>(
+    lastSession?.odooImport ?? null,
+  )
 
   // Registros mapeados para o motor de conciliação
-  const [systemRecords, setSystemRecords] = useState<SystemRecord[]>([])
-  const [cardRecords, setCardRecords] = useState<CardRecord[]>([])
-  const [results, setResults] = useState<ReconciliationResult[]>([])
+  const [systemRecords, setSystemRecords] = useState<SystemRecord[]>(
+    lastSession?.systemRecords ?? [],
+  )
+  const [cardRecords, setCardRecords] = useState<CardRecord[]>(lastSession?.cardRecords ?? [])
+  const [results, setResults] = useState<ReconciliationResult[]>(lastSession?.results ?? [])
 
   const [isProcessing, setIsProcessing] = useState(false)
   const [parseError, setParseError] = useState<string | null>(null)
+
+  // Se o contexto possuir uma sessão anterior e o estado local estiver zerado, sincroniza
+  useEffect(() => {
+    if (lastSession && results.length === 0 && lastSession.results.length > 0) {
+      setBank(lastSession.bank)
+      setResults(lastSession.results)
+      setSystemRecords(lastSession.systemRecords)
+      setCardRecords(lastSession.cardRecords)
+      setInvoiceConversion(lastSession.invoiceConversion)
+      setOdooImport(lastSession.odooImport)
+    }
+  }, [lastSession])
 
   const handleBankChange = (b: BankType) => {
     setBank(b)
@@ -62,6 +85,7 @@ export default function Index() {
     setResults([])
     setParseError(null)
     setStep('upload')
+    clearSession()
   }
 
   /**
@@ -213,6 +237,15 @@ export default function Index() {
     // Camada 3: Processamento da conciliação a partir de clones profundos e congelados das fontes
     const reconciled = reconcileData(systemRecords, cardRecords, bank)
     setResults(reconciled)
+    // Persiste no store de sessão para que o dashboard da home e qualquer navegação reflitam o resultado
+    saveSession({
+      bank,
+      results: reconciled,
+      systemRecords,
+      cardRecords,
+      invoiceConversion,
+      odooImport,
+    })
     setStep('results')
   }
 
@@ -232,6 +265,7 @@ export default function Index() {
     setCardRecords([])
     setResults([])
     setParseError(null)
+    clearSession()
   }
 
   const handleDemoData = async () => {
@@ -512,77 +546,119 @@ export default function Index() {
         </Button>
       </div>
 
-      {/* Painel Informativo / Estado Vazio do Dashboard */}
-      <div className="rounded-2xl border border-[#00796F]/20 bg-gradient-to-br from-white to-[#F4F8F7] dark:from-[#0D3834] dark:to-[#071F1D] p-6 sm:p-7 shadow-sm">
-        <div className="flex items-center justify-between flex-wrap gap-2 mb-4 border-b border-[#00796F]/10 pb-3">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#00796F] dark:bg-[#20BFA9]" />
-            <h3 className="text-sm font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
-              Visão Geral do Painel • Como os Lançamentos São Classificados
-            </h3>
+      {/* SEÇÃO DO DASHBOARD NA HOME:
+          - Se há conciliação executada na sessão, exibe os SummaryCards completos com os contadores reais por status.
+          - Se nenhuma conciliação foi executada ainda, exibe o painel explicativo vazio com os 4 status.
+      */}
+      {results.length > 0 ? (
+        <div className="space-y-4 pt-2">
+          <div className="flex items-center justify-between flex-wrap gap-2 px-1">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <h2 className="text-sm font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9] flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-[#00796F] dark:text-[#20BFA9]" />
+                Dashboard da Sessão • Última Conciliação Executada
+              </h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" /> {bankLabels[bank]} • Concluída
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStep('results')}
+                className="text-xs font-bold rounded-xl border-[#00796F]/30 hover:border-[#00796F] text-[#004A46] dark:text-[#20BFA9] bg-white dark:bg-[#0D3834]"
+              >
+                Ver Tela de Resultados <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+              </Button>
+            </div>
           </div>
-          <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#00796F]/10 text-[#00796F] dark:text-[#20BFA9]">
-            Aguardando Execução da Conciliação
-          </span>
+
+          <SummaryCards
+            results={results}
+            systemRecords={systemRecords}
+            cardRecords={cardRecords}
+            systemRecordsCount={systemRecords.length}
+            cardRecordsCount={cardRecords.length}
+            bank={bank}
+          />
         </div>
-
-        <p className="text-xs sm:text-sm text-[#647875] dark:text-[#A7C4C0] mb-5">
-          Assim que a fatura e o relatório do Odoo forem enviados (ou ao clicar em{' '}
-          <strong className="text-[#004A46] dark:text-[#20BFA9]">Usar Dados de Demonstração</strong>
-          ), os indicadores em tempo real serão calculados com a contagem exata e a soma em R$ dos
-          lançamentos por status:
-        </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-          {/* Guia Verde: Conciliados */}
-          <div className="rounded-xl border border-emerald-300/60 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 p-4">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" /> 🟢 Conciliados
-              </span>
-              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
-                VERDE
-              </span>
+      ) : (
+        /* Painel Informativo / Estado Vazio do Dashboard */
+        <div className="rounded-2xl border border-[#00796F]/20 bg-gradient-to-br from-white to-[#F4F8F7] dark:from-[#0D3834] dark:to-[#071F1D] p-6 sm:p-7 shadow-sm">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-4 border-b border-[#00796F]/10 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#00796F] dark:bg-[#20BFA9]" />
+              <h3 className="text-sm font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                Visão Geral do Painel • Como os Lançamentos São Classificados
+              </h3>
             </div>
-            <p className="text-xs text-[#647875] dark:text-[#A7C4C0] leading-relaxed">
-              Lançamentos encontrados em ambas as fontes com valor idêntico e
-              estabelecimento/parceiro correspondente.
-            </p>
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#00796F]/10 text-[#00796F] dark:text-[#20BFA9]">
+              Aguardando Execução da Conciliação
+            </span>
           </div>
 
-          {/* Guia Amarelo: Divergentes */}
-          <div className="rounded-xl border border-amber-300/60 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-4">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-amber-500" /> 🟡 Divergentes
-              </span>
-              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
-                AMARELO
-              </span>
-            </div>
-            <p className="text-xs text-[#647875] dark:text-[#A7C4C0] leading-relaxed">
-              Lançamentos pareados com mesmo estabelecimento/parceiro, mas com diferença entre o
-              valor da fatura e o Odoo.
-            </p>
-          </div>
+          <p className="text-xs sm:text-sm text-[#647875] dark:text-[#A7C4C0] mb-5">
+            Assim que a fatura e o relatório do Odoo forem enviados (ou ao clicar em{' '}
+            <strong className="text-[#004A46] dark:text-[#20BFA9]">
+              Usar Dados de Demonstração
+            </strong>
+            ), os indicadores em tempo real serão calculados com a contagem exata e a soma em R$ dos
+            lançamentos por status:
+          </p>
 
-          {/* Guia Vermelho: Não Conciliados */}
-          <div className="rounded-xl border border-rose-300/60 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/20 p-4">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs font-bold text-rose-800 dark:text-rose-300 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-rose-500" /> 🔴 Não Conciliados
-              </span>
-              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300">
-                VERMELHO
-              </span>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            {/* Guia Verde: Conciliados */}
+            <div className="rounded-xl border border-emerald-300/60 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 p-4">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" /> 🟢 Conciliados
+                </span>
+                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+                  VERDE
+                </span>
+              </div>
+              <p className="text-xs text-[#647875] dark:text-[#A7C4C0] leading-relaxed">
+                Lançamentos encontrados em ambas as fontes com valor idêntico e
+                estabelecimento/parceiro correspondente.
+              </p>
             </div>
-            <p className="text-xs text-[#647875] dark:text-[#A7C4C0] leading-relaxed">
-              Contagem desdobrada em <strong>Somente Sistema</strong> (existe no Odoo) e{' '}
-              <strong>Somente Fatura</strong> (existe no cartão).
-            </p>
+
+            {/* Guia Amarelo: Divergentes */}
+            <div className="rounded-xl border border-amber-300/60 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-4">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" /> 🟡 Divergentes
+                </span>
+                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+                  AMARELO
+                </span>
+              </div>
+              <p className="text-xs text-[#647875] dark:text-[#A7C4C0] leading-relaxed">
+                Lançamentos pareados com mesmo estabelecimento/parceiro, mas com diferença entre o
+                valor da fatura e o Odoo.
+              </p>
+            </div>
+
+            {/* Guia Vermelho: Não Conciliados */}
+            <div className="rounded-xl border border-rose-300/60 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/20 p-4">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-bold text-rose-800 dark:text-rose-300 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-rose-500" /> 🔴 Não Conciliados
+                </span>
+                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300">
+                  VERMELHO
+                </span>
+              </div>
+              <p className="text-xs text-[#647875] dark:text-[#A7C4C0] leading-relaxed">
+                Contagem desdobrada em <strong>Somente Sistema</strong> (existe no Odoo) e{' '}
+                <strong>Somente Fatura</strong> (existe no cartão).
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
