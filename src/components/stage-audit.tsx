@@ -14,7 +14,12 @@ import {
 import { formatCurrency } from '@/lib/format'
 import type { InvoiceConversionResult } from '@/lib/pdf-to-excel-converter'
 import type { OdooImportResult } from '@/lib/odoo-importer'
-import type { ReconciliationResult, ReconciliationMetrics } from '@/lib/types'
+import type {
+  ReconciliationResult,
+  ReconciliationMetrics,
+  SystemRecord,
+  CardRecord,
+} from '@/lib/types'
 import { calculateReconciliationMetrics } from '@/lib/reconciliation'
 
 interface StageAuditProps {
@@ -32,10 +37,40 @@ export function StageAudit({
   onDownloadConvertedInvoice,
   hasConvertedInvoice = false,
 }: StageAuditProps) {
+  const systemRecords: SystemRecord[] | undefined = odooImport?.registros?.map((r) => ({
+    id: r.id,
+    data: r.data,
+    parceiro: r.parceiro,
+    lancamentoDiario: r.lancamentoDiario,
+    numero: r.numero,
+    referencia: r.referencia,
+    categoria: r.categoria,
+    debito: r.debito,
+    credito: r.credito,
+    total: r.total,
+    linhaOrigem: r.linhaOrigem,
+    observacaoManual: r.observacaoManual,
+  }))
+
+  const cardRecords: CardRecord[] | undefined = invoiceConversion?.registros?.map((r) => ({
+    id: r.id,
+    data: r.data,
+    estabelecimento: r.descricaoOriginal,
+    valor: r.valorReais,
+    categoria: r.tipo,
+    isInternacional: r.tipo === 'Internacional',
+    moedaGlobal: r.moedaOriginal,
+    parcela: r.parcela,
+    cartaoTitular: r.portador,
+    observacaoManual: r.observacaoManual,
+    paginaOrigem: r.paginaOrigem,
+    confianca: r.confianca,
+  }))
+
   const metrics: ReconciliationMetrics = calculateReconciliationMetrics(
     results,
-    odooImport?.registros,
-    invoiceConversion?.registros,
+    systemRecords ?? (odooImport?.registros ? odooImport.registros.length : undefined),
+    cardRecords ?? (invoiceConversion?.registros ? invoiceConversion.registros.length : undefined),
   )
   const invoiceSummary = invoiceConversion?.resumo
   const totalFaturaCalculado = invoiceSummary?.totalValorReais ?? metrics.totalValorFatura

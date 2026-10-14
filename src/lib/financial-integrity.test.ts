@@ -544,4 +544,114 @@ describe('Integridade Financeira e Imutabilidade das Fontes de Origem', () => {
     expect(metricsFromReversed.totalValorFatura).toBe(metricsFromFull.totalValorFatura)
     expect(metricsFromReversed.totalValorSistema).toBe(metricsFromFull.totalValorSistema)
   })
+
+  it('16. Regressão Plataforma/Marketplace: Vindi *LojaNetlab NÃO casa com mercado livre - LOJA SHOPCLIC (dois vermelhos exclusivos)', () => {
+    const sysList: SystemRecord[] = [
+      {
+        id: 's-shopclic',
+        data: '09/06/2026',
+        parceiro: 'mercado livre - LOJA SHOPCLIC COMERCIO E SERVICOS LTDA',
+        credito: 39.78,
+        debito: null,
+      },
+    ]
+    const cardList: CardRecord[] = [
+      {
+        id: 'c-lojanetlab',
+        data: '22/06/2026',
+        estabelecimento: 'Vindi *LojaNetlab',
+        valor: 1249.84,
+      },
+    ]
+
+    const results = reconcileData(sysList, cardList, 'itau')
+    expect(results).toHaveLength(2)
+
+    const sysResult = results.find((r) => r.origem === 'SISTEMA')
+    const cardResult = results.find((r) => r.origem === 'FATURA')
+
+    expect(sysResult?.status).toBe('RED')
+    expect(sysResult?.classificacao).toBe('SOMENTE_SISTEMA')
+    expect(cardResult?.status).toBe('RED')
+    expect(cardResult?.classificacao).toBe('SOMENTE_FATURA')
+  })
+
+  it('17. Regressão Fase de Plataforma: MERCADOLIVRE*TGFIMPOR casa com MERCADO LIVRE - Z4 COMERCIO e MERCADOLIVRE*MERCADOL casa com Mercado livre - SPW COMERCIO', () => {
+    const sysList: SystemRecord[] = [
+      {
+        id: 's-spw',
+        data: '09/06/2026',
+        parceiro: 'Mercado livre - SPW COMERCIO LTDA',
+        credito: 19.0,
+        debito: null,
+      },
+      {
+        id: 's-z4',
+        data: '15/06/2026',
+        parceiro: 'MERCADO LIVRE - Z4 COMERCIO DE SUPRIMENTOS PARA',
+        credito: 20.99,
+        debito: null,
+      },
+    ]
+    const cardList: CardRecord[] = [
+      {
+        id: 'c-mercadol',
+        data: '09/06/2026',
+        estabelecimento: 'MERCADOLIVRE*MERCADOL',
+        valor: 19.0,
+      },
+      {
+        id: 'c-tgfimpor',
+        data: '15/06/2026',
+        estabelecimento: 'MERCADOLIVRE*TGFIMPOR',
+        valor: 20.99,
+      },
+    ]
+
+    const results = reconcileData(sysList, cardList, 'itau')
+
+    // Ambos devem ser pareados como GREEN / CONCILIADO na fase de plataforma
+    expect(results).toHaveLength(2)
+    for (const r of results) {
+      expect(r.status).toBe('GREEN')
+      expect(r.classificacao).toBe('CONCILIADO')
+      expect(r.diferenca).toBe(0)
+    }
+
+    const pair1 = results.find((r) => r.valorFatura === 19.0)
+    expect(pair1?.estabelecimento).toBe('MERCADOLIVRE*MERCADOL')
+    expect(pair1?.parceiro).toBe('Mercado livre - SPW COMERCIO LTDA')
+
+    const pair2 = results.find((r) => r.valorFatura === 20.99)
+    expect(pair2?.estabelecimento).toBe('MERCADOLIVRE*TGFIMPOR')
+    expect(pair2?.parceiro).toBe('MERCADO LIVRE - Z4 COMERCIO DE SUPRIMENTOS PARA')
+  })
+
+  it('18. Ausência estrita de status Ambíguo ou Cinza: apenas GREEN, YELLOW, RED (SOMENTE_SISTEMA) ou RED (SOMENTE_FATURA)', () => {
+    const sysList: SystemRecord[] = [
+      { id: 's1', data: '01/06/2026', parceiro: 'COMPRADOR X', credito: 50.0, debito: null },
+      { id: 's2', data: '02/06/2026', parceiro: 'COMPRADOR Y', credito: 150.0, debito: null },
+    ]
+    const cardList: CardRecord[] = [
+      { id: 'c1', data: '01/06/2026', estabelecimento: 'OUTRO Z', valor: 70.0 },
+      { id: 'c2', data: '02/06/2026', estabelecimento: 'COMPRADOR Y', valor: 150.0 },
+    ]
+
+    const results = reconcileData(sysList, cardList, 'itau')
+    const validStatuses = new Set(['GREEN', 'YELLOW', 'RED'])
+    const validClassifications = new Set([
+      'CONCILIADO',
+      'DIVERGENTE',
+      'SOMENTE_SISTEMA',
+      'SOMENTE_FATURA',
+    ])
+
+    for (const r of results) {
+      expect(validStatuses.has(r.status)).toBe(true)
+      expect(validClassifications.has(r.classificacao)).toBe(true)
+      expect((r as any).status).not.toBe('GRAY')
+      expect((r as any).status).not.toBe('AMBIGUOUS')
+      expect((r as any).classificacao).not.toBe('AMBIGUO')
+    }
+  })
 })
