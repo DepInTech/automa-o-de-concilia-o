@@ -603,6 +603,7 @@ export default function Index() {
             </div>
           </div>
 
+          {/* SummaryCards no dashboard da home com showFinancialSummarySection={false} garantido */}
           <SummaryCards
             results={results}
             systemRecords={systemRecords}
