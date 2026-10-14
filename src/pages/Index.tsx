@@ -603,7 +603,7 @@ export default function Index() {
             </div>
           </div>
 
-          {/* SummaryCards no dashboard da home com showFinancialSummarySection={false} garantido */}
+          {/* SummaryCards no dashboard da home com os 4 cartões de indicadores e o resumo financeiro desativados */}
           <SummaryCards
             results={results}
             systemRecords={systemRecords}
@@ -612,6 +612,7 @@ export default function Index() {
             cardRecordsCount={cardRecords.length}
             bank={bank}
             activeFilter={activeFilter}
+            showIndicatorCards={false}
             showFinancialSummarySection={false}
             onSelectFilter={(newFilter) => {
               setActiveFilter(newFilter)

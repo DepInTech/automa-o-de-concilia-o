@@ -47,6 +47,7 @@ export interface SummaryCardsProps {
   bank?: BankType
   activeFilter?: string
   showFinancialSummarySection?: boolean
+  showIndicatorCards?: boolean
   onSelectFilter?: (
     status: 'ALL' | 'GREEN' | 'YELLOW' | 'RED' | 'SOMENTE_SISTEMA' | 'SOMENTE_FATURA',
   ) => void
@@ -62,6 +63,7 @@ export function SummaryCards({
   bank = 'itau',
   activeFilter = 'ALL',
   showFinancialSummarySection = true,
+  showIndicatorCards = true,
   onSelectFilter,
   onNavigateToResults,
 }: SummaryCardsProps) {
@@ -154,250 +156,252 @@ export function SummaryCards({
   return (
     <div className="space-y-6 animate-fade-in">
       {/* 1. SEÇÃO PRINCIPAL: 4 CARTÕES DE INDICADORES (CONTAGEM DE REGISTROS) */}
-      <div>
-        <div className="flex items-center justify-between mb-3 px-1">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#00796F] dark:bg-[#20BFA9]" />
-            <h2 className="text-sm font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
-              Indicadores Principais de Conciliação
-            </h2>
-            <span className="text-xs text-[#647875] dark:text-[#A7C4C0]">
-              (Clique em um cartão para auditar os registros correspondentes)
-            </span>
+      {showIndicatorCards && (
+        <div>
+          <div className="flex items-center justify-between mb-3 px-1">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#00796F] dark:bg-[#20BFA9]" />
+              <h2 className="text-sm font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                Indicadores Principais de Conciliação
+              </h2>
+              <span className="text-xs text-[#647875] dark:text-[#A7C4C0]">
+                (Clique em um cartão para auditar os registros correspondentes)
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-[#647875] dark:text-[#A7C4C0]">
+                Total Classificado:{' '}
+                <strong className="text-[#163A38] dark:text-[#F1F5F4] font-bold">
+                  {totalClassificados} registros
+                </strong>
+              </span>
+              {activeFilter !== 'ALL' && onSelectFilter && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onSelectFilter('ALL')}
+                  className="h-6 px-2 text-[11px] text-[#00796F] dark:text-[#20BFA9] hover:bg-[#00796F]/10 rounded-lg"
+                >
+                  Limpar filtro
+                </Button>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-[#647875] dark:text-[#A7C4C0]">
-              Total Classificado:{' '}
-              <strong className="text-[#163A38] dark:text-[#F1F5F4] font-bold">
-                {totalClassificados} registros
-              </strong>
-            </span>
-            {activeFilter !== 'ALL' && onSelectFilter && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onSelectFilter('ALL')}
-                className="h-6 px-2 text-[11px] text-[#00796F] dark:text-[#20BFA9] hover:bg-[#00796F]/10 rounded-lg"
-              >
-                Limpar filtro
-              </Button>
-            )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* CARD 1: CONCILIADOS (VERDE) */}
+            <Card
+              onClick={() => handleCardClick('GREEN')}
+              className={`group cursor-pointer relative overflow-hidden rounded-2xl border-2 transition-all duration-200 ${
+                activeFilter === 'GREEN'
+                  ? 'border-emerald-500 shadow-lg ring-2 ring-emerald-500/30'
+                  : 'border-emerald-500/35 hover:border-emerald-500 hover:shadow-md'
+              } bg-gradient-to-br from-emerald-50/70 via-white to-white dark:from-emerald-950/30 dark:via-[#0D3834] dark:to-[#071F1D]`}
+            >
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-500" />
+              <CardContent className="p-5 flex flex-col justify-between h-full">
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300/60 dark:border-emerald-700/60">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      1. Conciliados
+                    </div>
+                    <div className="w-9 h-9 rounded-xl bg-emerald-100/70 dark:bg-emerald-900/40 border border-emerald-300/50 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                  </div>
+
+                  <div className="mt-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#647875] dark:text-[#A7C4C0]">
+                      Pares Conciliados
+                    </span>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <p className="text-3xl sm:text-4xl font-black text-emerald-700 dark:text-emerald-400 tracking-tight">
+                        {metrics.paresConciliados}
+                      </p>
+                      <span className="text-xs text-[#647875] dark:text-[#A7C4C0] font-semibold">
+                        {metrics.paresConciliados === 1 ? 'registro' : 'registros'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-emerald-200/50 dark:border-emerald-900/50 space-y-1">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-[#647875] dark:text-[#A7C4C0]">Total Conciliado:</span>
+                    <span className="font-bold text-emerald-700 dark:text-emerald-400 font-mono">
+                      {formatCurrency(metrics.totalValorConciliadoFatura)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-[#647875] dark:text-[#A7C4C0] pt-1">
+                    <span>
+                      {metrics.correspondenciasExatas} exatos •{' '}
+                      {metrics.correspondenciasNomeSemelhante} semelhantes
+                    </span>
+                    <ArrowRight className="w-3 h-3 text-emerald-600 dark:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* CARD 2: SOMENTE ODOO (VERMELHO) */}
+            <Card
+              onClick={() => handleCardClick('SOMENTE_SISTEMA')}
+              className={`group cursor-pointer relative overflow-hidden rounded-2xl border-2 transition-all duration-200 ${
+                activeFilter === 'SOMENTE_SISTEMA' || activeFilter === 'RED'
+                  ? 'border-rose-500 shadow-lg ring-2 ring-rose-500/30'
+                  : 'border-rose-500/35 hover:border-rose-500 hover:shadow-md'
+              } bg-gradient-to-br from-rose-50/70 via-white to-white dark:from-rose-950/30 dark:via-[#0D3834] dark:to-[#071F1D]`}
+            >
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-rose-500" />
+              <CardContent className="p-5 flex flex-col justify-between h-full">
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 border border-rose-300/60 dark:border-rose-700/60">
+                      <span className="w-2 h-2 rounded-full bg-rose-500" />
+                      2. Somente Odoo
+                    </div>
+                    <div className="w-9 h-9 rounded-xl bg-rose-100/70 dark:bg-rose-900/40 border border-rose-300/50 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <Building2 className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+                    </div>
+                  </div>
+
+                  <div className="mt-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#647875] dark:text-[#A7C4C0]">
+                      Não Conciliados no Odoo
+                    </span>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <p className="text-3xl sm:text-4xl font-black text-rose-700 dark:text-rose-400 tracking-tight">
+                        {metrics.somenteSistema}
+                      </p>
+                      <span className="text-xs text-[#647875] dark:text-[#A7C4C0] font-semibold">
+                        {metrics.somenteSistema === 1 ? 'registro' : 'registros'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-rose-200/50 dark:border-rose-900/50 space-y-1">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-[#647875] dark:text-[#A7C4C0]">Valor Pendente:</span>
+                    <span className="font-bold text-rose-700 dark:text-rose-400 font-mono">
+                      {formatCurrency(metrics.totalValorExclusivoSistema)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-[#647875] dark:text-[#A7C4C0] pt-1">
+                    <span>Existe no Odoo, ausente na fatura</span>
+                    <ArrowRight className="w-3 h-3 text-rose-600 dark:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* CARD 3: SOMENTE FATURA (VERMELHO) */}
+            <Card
+              onClick={() => handleCardClick('SOMENTE_FATURA')}
+              className={`group cursor-pointer relative overflow-hidden rounded-2xl border-2 transition-all duration-200 ${
+                activeFilter === 'SOMENTE_FATURA' || activeFilter === 'RED'
+                  ? 'border-rose-600 shadow-lg ring-2 ring-rose-600/30'
+                  : 'border-rose-500/35 hover:border-rose-600 hover:shadow-md'
+              } bg-gradient-to-br from-rose-50/70 via-white to-white dark:from-rose-950/30 dark:via-[#0D3834] dark:to-[#071F1D]`}
+            >
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-rose-600" />
+              <CardContent className="p-5 flex flex-col justify-between h-full">
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 border border-rose-300/60 dark:border-rose-700/60">
+                      <span className="w-2 h-2 rounded-full bg-rose-600" />
+                      3. Somente Fatura
+                    </div>
+                    <div className="w-9 h-9 rounded-xl bg-rose-100/70 dark:bg-rose-900/40 border border-rose-300/50 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <XCircle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+                    </div>
+                  </div>
+
+                  <div className="mt-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#647875] dark:text-[#A7C4C0]">
+                      Não Conciliados na Fatura
+                    </span>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <p className="text-3xl sm:text-4xl font-black text-rose-700 dark:text-rose-400 tracking-tight">
+                        {metrics.somenteFatura}
+                      </p>
+                      <span className="text-xs text-[#647875] dark:text-[#A7C4C0] font-semibold">
+                        {metrics.somenteFatura === 1 ? 'registro' : 'registros'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-rose-200/50 dark:border-rose-900/50 space-y-1">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-[#647875] dark:text-[#A7C4C0]">Valor Pendente:</span>
+                    <span className="font-bold text-rose-700 dark:text-rose-400 font-mono">
+                      {formatCurrency(metrics.totalValorExclusivoFatura)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-[#647875] dark:text-[#A7C4C0] pt-1">
+                    <span>Existe na fatura, ausente no Odoo</span>
+                    <ArrowRight className="w-3 h-3 text-rose-600 dark:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* CARD 4: DIVERGENTES (AMARELO/ÂMBAR) */}
+            <Card
+              onClick={() => handleCardClick('YELLOW')}
+              className={`group cursor-pointer relative overflow-hidden rounded-2xl border-2 transition-all duration-200 ${
+                activeFilter === 'YELLOW'
+                  ? 'border-amber-500 shadow-lg ring-2 ring-amber-500/30'
+                  : 'border-amber-500/35 hover:border-amber-500 hover:shadow-md'
+              } bg-gradient-to-br from-amber-50/70 via-white to-white dark:from-amber-950/30 dark:via-[#0D3834] dark:to-[#071F1D]`}
+            >
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-amber-500" />
+              <CardContent className="p-5 flex flex-col justify-between h-full">
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60">
+                      <span className="w-2 h-2 rounded-full bg-amber-500" />
+                      4. Divergentes
+                    </div>
+                    <div className="w-9 h-9 rounded-xl bg-amber-100/70 dark:bg-amber-900/40 border border-amber-300/50 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                    </div>
+                  </div>
+
+                  <div className="mt-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#647875] dark:text-[#A7C4C0]">
+                      Pares Divergentes
+                    </span>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <p className="text-3xl sm:text-4xl font-black text-amber-700 dark:text-amber-400 tracking-tight">
+                        {metrics.paresDivergentes}
+                      </p>
+                      <span className="text-xs text-[#647875] dark:text-[#A7C4C0] font-semibold">
+                        {metrics.paresDivergentes === 1 ? 'registro' : 'registros'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-amber-200/50 dark:border-amber-900/50 space-y-1">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-[#647875] dark:text-[#A7C4C0]">Diferença Apurada:</span>
+                    <span className="font-bold text-amber-700 dark:text-amber-400 font-mono">
+                      {formatCurrency(metrics.totalDiferencaDivergentes)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-[#647875] dark:text-[#A7C4C0] pt-1">
+                    <span>Mesmo fornecedor com valor divergente</span>
+                    <ArrowRight className="w-3 h-3 text-amber-600 dark:text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* CARD 1: CONCILIADOS (VERDE) */}
-          <Card
-            onClick={() => handleCardClick('GREEN')}
-            className={`group cursor-pointer relative overflow-hidden rounded-2xl border-2 transition-all duration-200 ${
-              activeFilter === 'GREEN'
-                ? 'border-emerald-500 shadow-lg ring-2 ring-emerald-500/30'
-                : 'border-emerald-500/35 hover:border-emerald-500 hover:shadow-md'
-            } bg-gradient-to-br from-emerald-50/70 via-white to-white dark:from-emerald-950/30 dark:via-[#0D3834] dark:to-[#071F1D]`}
-          >
-            <div className="absolute top-0 left-0 right-0 h-1.5 bg-emerald-500" />
-            <CardContent className="p-5 flex flex-col justify-between h-full">
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300/60 dark:border-emerald-700/60">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                    1. Conciliados
-                  </div>
-                  <div className="w-9 h-9 rounded-xl bg-emerald-100/70 dark:bg-emerald-900/40 border border-emerald-300/50 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                  </div>
-                </div>
-
-                <div className="mt-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-[#647875] dark:text-[#A7C4C0]">
-                    Pares Conciliados
-                  </span>
-                  <div className="flex items-baseline gap-2 mt-0.5">
-                    <p className="text-3xl sm:text-4xl font-black text-emerald-700 dark:text-emerald-400 tracking-tight">
-                      {metrics.paresConciliados}
-                    </p>
-                    <span className="text-xs text-[#647875] dark:text-[#A7C4C0] font-semibold">
-                      {metrics.paresConciliados === 1 ? 'registro' : 'registros'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 pt-3 border-t border-emerald-200/50 dark:border-emerald-900/50 space-y-1">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-[#647875] dark:text-[#A7C4C0]">Total Conciliado:</span>
-                  <span className="font-bold text-emerald-700 dark:text-emerald-400 font-mono">
-                    {formatCurrency(metrics.totalValorConciliadoFatura)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-[#647875] dark:text-[#A7C4C0] pt-1">
-                  <span>
-                    {metrics.correspondenciasExatas} exatos •{' '}
-                    {metrics.correspondenciasNomeSemelhante} semelhantes
-                  </span>
-                  <ArrowRight className="w-3 h-3 text-emerald-600 dark:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* CARD 2: SOMENTE ODOO (VERMELHO) */}
-          <Card
-            onClick={() => handleCardClick('SOMENTE_SISTEMA')}
-            className={`group cursor-pointer relative overflow-hidden rounded-2xl border-2 transition-all duration-200 ${
-              activeFilter === 'SOMENTE_SISTEMA' || activeFilter === 'RED'
-                ? 'border-rose-500 shadow-lg ring-2 ring-rose-500/30'
-                : 'border-rose-500/35 hover:border-rose-500 hover:shadow-md'
-            } bg-gradient-to-br from-rose-50/70 via-white to-white dark:from-rose-950/30 dark:via-[#0D3834] dark:to-[#071F1D]`}
-          >
-            <div className="absolute top-0 left-0 right-0 h-1.5 bg-rose-500" />
-            <CardContent className="p-5 flex flex-col justify-between h-full">
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 border border-rose-300/60 dark:border-rose-700/60">
-                    <span className="w-2 h-2 rounded-full bg-rose-500" />
-                    2. Somente Odoo
-                  </div>
-                  <div className="w-9 h-9 rounded-xl bg-rose-100/70 dark:bg-rose-900/40 border border-rose-300/50 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <Building2 className="w-5 h-5 text-rose-600 dark:text-rose-400" />
-                  </div>
-                </div>
-
-                <div className="mt-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-[#647875] dark:text-[#A7C4C0]">
-                    Não Conciliados no Odoo
-                  </span>
-                  <div className="flex items-baseline gap-2 mt-0.5">
-                    <p className="text-3xl sm:text-4xl font-black text-rose-700 dark:text-rose-400 tracking-tight">
-                      {metrics.somenteSistema}
-                    </p>
-                    <span className="text-xs text-[#647875] dark:text-[#A7C4C0] font-semibold">
-                      {metrics.somenteSistema === 1 ? 'registro' : 'registros'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 pt-3 border-t border-rose-200/50 dark:border-rose-900/50 space-y-1">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-[#647875] dark:text-[#A7C4C0]">Valor Pendente:</span>
-                  <span className="font-bold text-rose-700 dark:text-rose-400 font-mono">
-                    {formatCurrency(metrics.totalValorExclusivoSistema)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-[#647875] dark:text-[#A7C4C0] pt-1">
-                  <span>Existe no Odoo, ausente na fatura</span>
-                  <ArrowRight className="w-3 h-3 text-rose-600 dark:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* CARD 3: SOMENTE FATURA (VERMELHO) */}
-          <Card
-            onClick={() => handleCardClick('SOMENTE_FATURA')}
-            className={`group cursor-pointer relative overflow-hidden rounded-2xl border-2 transition-all duration-200 ${
-              activeFilter === 'SOMENTE_FATURA' || activeFilter === 'RED'
-                ? 'border-rose-600 shadow-lg ring-2 ring-rose-600/30'
-                : 'border-rose-500/35 hover:border-rose-600 hover:shadow-md'
-            } bg-gradient-to-br from-rose-50/70 via-white to-white dark:from-rose-950/30 dark:via-[#0D3834] dark:to-[#071F1D]`}
-          >
-            <div className="absolute top-0 left-0 right-0 h-1.5 bg-rose-600" />
-            <CardContent className="p-5 flex flex-col justify-between h-full">
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 border border-rose-300/60 dark:border-rose-700/60">
-                    <span className="w-2 h-2 rounded-full bg-rose-600" />
-                    3. Somente Fatura
-                  </div>
-                  <div className="w-9 h-9 rounded-xl bg-rose-100/70 dark:bg-rose-900/40 border border-rose-300/50 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <XCircle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
-                  </div>
-                </div>
-
-                <div className="mt-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-[#647875] dark:text-[#A7C4C0]">
-                    Não Conciliados na Fatura
-                  </span>
-                  <div className="flex items-baseline gap-2 mt-0.5">
-                    <p className="text-3xl sm:text-4xl font-black text-rose-700 dark:text-rose-400 tracking-tight">
-                      {metrics.somenteFatura}
-                    </p>
-                    <span className="text-xs text-[#647875] dark:text-[#A7C4C0] font-semibold">
-                      {metrics.somenteFatura === 1 ? 'registro' : 'registros'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 pt-3 border-t border-rose-200/50 dark:border-rose-900/50 space-y-1">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-[#647875] dark:text-[#A7C4C0]">Valor Pendente:</span>
-                  <span className="font-bold text-rose-700 dark:text-rose-400 font-mono">
-                    {formatCurrency(metrics.totalValorExclusivoFatura)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-[#647875] dark:text-[#A7C4C0] pt-1">
-                  <span>Existe na fatura, ausente no Odoo</span>
-                  <ArrowRight className="w-3 h-3 text-rose-600 dark:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* CARD 4: DIVERGENTES (AMARELO/ÂMBAR) */}
-          <Card
-            onClick={() => handleCardClick('YELLOW')}
-            className={`group cursor-pointer relative overflow-hidden rounded-2xl border-2 transition-all duration-200 ${
-              activeFilter === 'YELLOW'
-                ? 'border-amber-500 shadow-lg ring-2 ring-amber-500/30'
-                : 'border-amber-500/35 hover:border-amber-500 hover:shadow-md'
-            } bg-gradient-to-br from-amber-50/70 via-white to-white dark:from-amber-950/30 dark:via-[#0D3834] dark:to-[#071F1D]`}
-          >
-            <div className="absolute top-0 left-0 right-0 h-1.5 bg-amber-500" />
-            <CardContent className="p-5 flex flex-col justify-between h-full">
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60">
-                    <span className="w-2 h-2 rounded-full bg-amber-500" />
-                    4. Divergentes
-                  </div>
-                  <div className="w-9 h-9 rounded-xl bg-amber-100/70 dark:bg-amber-900/40 border border-amber-300/50 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-                  </div>
-                </div>
-
-                <div className="mt-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-[#647875] dark:text-[#A7C4C0]">
-                    Pares Divergentes
-                  </span>
-                  <div className="flex items-baseline gap-2 mt-0.5">
-                    <p className="text-3xl sm:text-4xl font-black text-amber-700 dark:text-amber-400 tracking-tight">
-                      {metrics.paresDivergentes}
-                    </p>
-                    <span className="text-xs text-[#647875] dark:text-[#A7C4C0] font-semibold">
-                      {metrics.paresDivergentes === 1 ? 'registro' : 'registros'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 pt-3 border-t border-amber-200/50 dark:border-amber-900/50 space-y-1">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-[#647875] dark:text-[#A7C4C0]">Diferença Apurada:</span>
-                  <span className="font-bold text-amber-700 dark:text-amber-400 font-mono">
-                    {formatCurrency(metrics.totalDiferencaDivergentes)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-[#647875] dark:text-[#A7C4C0] pt-1">
-                  <span>Mesmo fornecedor com valor divergente</span>
-                  <ArrowRight className="w-3 h-3 text-amber-600 dark:text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      )}
 
       {/* 2. SEÇÃO SEPARADA: RESUMO FINANCEIRO (VALORES MONETÁRIOS ORIGINAIS E DIFERENÇAS) */}
       {showFinancialSummarySection && (
