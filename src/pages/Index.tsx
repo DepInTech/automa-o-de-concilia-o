@@ -611,6 +611,7 @@ export default function Index() {
             cardRecordsCount={cardRecords.length}
             bank={bank}
             activeFilter={activeFilter}
+            showFinancialSummarySection={false}
             onSelectFilter={(newFilter) => {
               setActiveFilter(newFilter)
               setStep('results')

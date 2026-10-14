@@ -46,6 +46,7 @@ export interface SummaryCardsProps {
   cardRecordsCount?: number
   bank?: BankType
   activeFilter?: string
+  showFinancialSummarySection?: boolean
   onSelectFilter?: (
     status: 'ALL' | 'GREEN' | 'YELLOW' | 'RED' | 'SOMENTE_SISTEMA' | 'SOMENTE_FATURA',
   ) => void
@@ -60,6 +61,7 @@ export function SummaryCards({
   cardRecordsCount,
   bank = 'itau',
   activeFilter = 'ALL',
+  showFinancialSummarySection = true,
   onSelectFilter,
   onNavigateToResults,
 }: SummaryCardsProps) {
@@ -398,165 +400,167 @@ export function SummaryCards({
       </div>
 
       {/* 2. SEÇÃO SEPARADA: RESUMO FINANCEIRO (VALORES MONETÁRIOS ORIGINAIS E DIFERENÇAS) */}
-      <div className="rounded-2xl border border-[#00796F]/20 bg-white dark:bg-[#0D3834] p-5 sm:p-6 shadow-sm">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-4 mb-4 border-b border-[#00796F]/15">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#00796F] dark:bg-[#20BFA9]" />
-            <h3 className="text-sm font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
-              Resumo Financeiro • Valores Monetários e Fórmulas de Cálculo
-            </h3>
+      {showFinancialSummarySection && (
+        <div className="rounded-2xl border border-[#00796F]/20 bg-white dark:bg-[#0D3834] p-5 sm:p-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-4 mb-4 border-b border-[#00796F]/15">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#00796F] dark:bg-[#20BFA9]" />
+              <h3 className="text-sm font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                Resumo Financeiro • Valores Monetários e Fórmulas de Cálculo
+              </h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowFormulaHelp(!showFormulaHelp)}
+              className="h-7 text-xs text-[#647875] dark:text-[#A7C4C0] hover:text-[#00796F] dark:hover:text-[#20BFA9]"
+            >
+              <HelpCircle className="w-3.5 h-3.5 mr-1" />
+              {showFormulaHelp ? 'Ocultar fórmulas' : 'Ver fórmulas de cálculo'}
+            </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowFormulaHelp(!showFormulaHelp)}
-            className="h-7 text-xs text-[#647875] dark:text-[#A7C4C0] hover:text-[#00796F] dark:hover:text-[#20BFA9]"
-          >
-            <HelpCircle className="w-3.5 h-3.5 mr-1" />
-            {showFormulaHelp ? 'Ocultar fórmulas' : 'Ver fórmulas de cálculo'}
-          </Button>
-        </div>
 
-        {/* Painel Explicativo das Fórmulas (quando aberto) */}
-        {showFormulaHelp && (
-          <div className="mb-4 p-4 rounded-xl bg-[#F4F8F7] dark:bg-[#071F1D] border border-[#00796F]/15 text-xs text-[#647875] dark:text-[#A7C4C0] space-y-2">
-            <p className="font-semibold text-[#004A46] dark:text-[#20BFA9]">
-              Fórmulas Oficiais Utilizadas pelo Sistema de Conciliação EPA:
-            </p>
-            <ul className="list-disc list-inside space-y-1">
-              <li>
-                <strong>Diferença Bruta entre Fontes:</strong>{' '}
-                <code className="px-1.5 py-0.5 rounded bg-white dark:bg-[#0D3834] font-mono text-[11px] text-[#163A38] dark:text-[#F1F5F4]">
-                  Total Fatura − Total Odoo = R$ {metrics.totalValorFatura.toFixed(2)} − R${' '}
-                  {metrics.totalValorSistema.toFixed(2)} ={' '}
+          {/* Painel Explicativo das Fórmulas (quando aberto) */}
+          {showFormulaHelp && (
+            <div className="mb-4 p-4 rounded-xl bg-[#F4F8F7] dark:bg-[#071F1D] border border-[#00796F]/15 text-xs text-[#647875] dark:text-[#A7C4C0] space-y-2">
+              <p className="font-semibold text-[#004A46] dark:text-[#20BFA9]">
+                Fórmulas Oficiais Utilizadas pelo Sistema de Conciliação EPA:
+              </p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>
+                  <strong>Diferença Bruta entre Fontes:</strong>{' '}
+                  <code className="px-1.5 py-0.5 rounded bg-white dark:bg-[#0D3834] font-mono text-[11px] text-[#163A38] dark:text-[#F1F5F4]">
+                    Total Fatura − Total Odoo = R$ {metrics.totalValorFatura.toFixed(2)} − R${' '}
+                    {metrics.totalValorSistema.toFixed(2)} ={' '}
+                    {formatDifferenceValue(metrics.diferencaTotal)}
+                  </code>
+                </li>
+                <li>
+                  <strong>Diferença de Registro Divergente:</strong>{' '}
+                  <code className="px-1.5 py-0.5 rounded bg-white dark:bg-[#0D3834] font-mono text-[11px] text-[#163A38] dark:text-[#F1F5F4]">
+                    Valor Fatura − Valor Odoo (calculado individualmente por par)
+                  </code>
+                </li>
+                <li>
+                  <strong>Integridade das Fontes:</strong> Os valores de cada lançamento original
+                  permanecem imutáveis (congelados). Valores conciliados, não conciliados e
+                  divergentes são agregados a partir dos dados originais extraídos.
+                </li>
+                <li>
+                  <strong>Taxa de Conciliação:</strong>{' '}
+                  <code className="px-1.5 py-0.5 rounded bg-white dark:bg-[#0D3834] font-mono text-[11px] text-[#163A38] dark:text-[#F1F5F4]">
+                    (Pares Conciliados / Total de Registros Classificados) × 100 ={' '}
+                    {metrics.percentualConciliacao}%
+                  </code>
+                </li>
+              </ul>
+            </div>
+          )}
+
+          {/* Grade de 5 Cartões Financeiros */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+            {/* 1. Total Original da Fatura */}
+            <div className="p-4 rounded-xl bg-[#F4F8F7] dark:bg-[#071F1D] border border-[#00796F]/15 flex flex-col justify-between">
+              <div className="flex items-center justify-between text-xs text-[#647875] dark:text-[#A7C4C0] mb-1.5">
+                <span className="font-semibold">Total Original da Fatura</span>
+                <CreditCard className="w-4 h-4 text-[#00796F] dark:text-[#20BFA9]" />
+              </div>
+              <div>
+                <p className="text-xl font-black text-[#163A38] dark:text-[#F1F5F4] font-mono tracking-tight">
+                  {formatCurrency(metrics.totalValorFatura)}
+                </p>
+                <p className="text-[11px] text-[#647875] dark:text-[#A7C4C0] mt-0.5">
+                  {metrics.totalRegistrosFatura} lançamentos válidos
+                </p>
+              </div>
+              <div className="mt-3 pt-2 border-t border-[#00796F]/10 text-[10px] text-[#647875] dark:text-[#A7C4C0]">
+                Fonte: Documento da Fatura (Itaú)
+              </div>
+            </div>
+
+            {/* 2. Total Original do Odoo */}
+            <div className="p-4 rounded-xl bg-[#F4F8F7] dark:bg-[#071F1D] border border-[#00796F]/15 flex flex-col justify-between">
+              <div className="flex items-center justify-between text-xs text-[#647875] dark:text-[#A7C4C0] mb-1.5">
+                <span className="font-semibold">Total Original do Odoo</span>
+                <Database className="w-4 h-4 text-[#00796F] dark:text-[#20BFA9]" />
+              </div>
+              <div>
+                <p className="text-xl font-black text-[#163A38] dark:text-[#F1F5F4] font-mono tracking-tight">
+                  {formatCurrency(metrics.totalValorSistema)}
+                </p>
+                <p className="text-[11px] text-[#647875] dark:text-[#A7C4C0] mt-0.5">
+                  {metrics.totalRegistrosSistema} lançamentos contábeis
+                </p>
+              </div>
+              <div className="mt-3 pt-2 border-t border-[#00796F]/10 text-[10px] text-[#647875] dark:text-[#A7C4C0]">
+                Fonte: Lançamento de Diário Odoo
+              </div>
+            </div>
+
+            {/* 3. Diferença Bruta entre as Fontes */}
+            <div className="p-4 rounded-xl bg-[#F4F8F7] dark:bg-[#071F1D] border border-[#00796F]/15 flex flex-col justify-between">
+              <div className="flex items-center justify-between text-xs text-[#647875] dark:text-[#A7C4C0] mb-1.5">
+                <span className="font-semibold">Diferença Bruta Fontes</span>
+                <Scale className={`w-4 h-4 ${isZeroDiff ? 'text-emerald-600' : 'text-rose-600'}`} />
+              </div>
+              <div>
+                <p
+                  className={`text-xl font-black font-mono tracking-tight ${isZeroDiff ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}
+                >
                   {formatDifferenceValue(metrics.diferencaTotal)}
-                </code>
-              </li>
-              <li>
-                <strong>Diferença de Registro Divergente:</strong>{' '}
-                <code className="px-1.5 py-0.5 rounded bg-white dark:bg-[#0D3834] font-mono text-[11px] text-[#163A38] dark:text-[#F1F5F4]">
-                  Valor Fatura − Valor Odoo (calculado individualmente por par)
-                </code>
-              </li>
-              <li>
-                <strong>Integridade das Fontes:</strong> Os valores de cada lançamento original
-                permanecem imutáveis (congelados). Valores conciliados, não conciliados e
-                divergentes são agregados a partir dos dados originais extraídos.
-              </li>
-              <li>
-                <strong>Taxa de Conciliação:</strong>{' '}
-                <code className="px-1.5 py-0.5 rounded bg-white dark:bg-[#0D3834] font-mono text-[11px] text-[#163A38] dark:text-[#F1F5F4]">
-                  (Pares Conciliados / Total de Registros Classificados) × 100 ={' '}
-                  {metrics.percentualConciliacao}%
-                </code>
-              </li>
-            </ul>
-          </div>
-        )}
+                </p>
+                <p className="text-[11px] text-[#647875] dark:text-[#A7C4C0] mt-0.5">
+                  Fórmula: Total Fatura − Total Odoo
+                </p>
+              </div>
+              <div className="mt-3 pt-2 border-t border-[#00796F]/10 text-[10px] text-[#647875] dark:text-[#A7C4C0]">
+                {isZeroDiff ? 'Zero de resíduo contábil' : 'Diferença líquida a justificar'}
+              </div>
+            </div>
 
-        {/* Grade de 5 Cartões Financeiros */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-          {/* 1. Total Original da Fatura */}
-          <div className="p-4 rounded-xl bg-[#F4F8F7] dark:bg-[#071F1D] border border-[#00796F]/15 flex flex-col justify-between">
-            <div className="flex items-center justify-between text-xs text-[#647875] dark:text-[#A7C4C0] mb-1.5">
-              <span className="font-semibold">Total Original da Fatura</span>
-              <CreditCard className="w-4 h-4 text-[#00796F] dark:text-[#20BFA9]" />
+            {/* 4. Valor Total Conciliado */}
+            <div className="p-4 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-300/50 dark:border-emerald-800/50 flex flex-col justify-between">
+              <div className="flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300 mb-1.5">
+                <span className="font-semibold">Valor Total Conciliado</span>
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-xl font-black text-emerald-700 dark:text-emerald-400 font-mono tracking-tight">
+                  {formatCurrency(metrics.totalValorConciliadoFatura)}
+                </p>
+                <p className="text-[11px] text-[#647875] dark:text-[#A7C4C0] mt-0.5">
+                  {metrics.paresConciliados} transações 100% casadas
+                </p>
+              </div>
+              <div className="mt-3 pt-2 border-t border-emerald-200/50 dark:border-emerald-800/50 text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">
+                Taxa de Sucesso: {metrics.percentualConciliacao}%
+              </div>
             </div>
-            <div>
-              <p className="text-xl font-black text-[#163A38] dark:text-[#F1F5F4] font-mono tracking-tight">
-                {formatCurrency(metrics.totalValorFatura)}
-              </p>
-              <p className="text-[11px] text-[#647875] dark:text-[#A7C4C0] mt-0.5">
-                {metrics.totalRegistrosFatura} lançamentos válidos
-              </p>
-            </div>
-            <div className="mt-3 pt-2 border-t border-[#00796F]/10 text-[10px] text-[#647875] dark:text-[#A7C4C0]">
-              Fonte: Documento da Fatura (Itaú)
-            </div>
-          </div>
 
-          {/* 2. Total Original do Odoo */}
-          <div className="p-4 rounded-xl bg-[#F4F8F7] dark:bg-[#071F1D] border border-[#00796F]/15 flex flex-col justify-between">
-            <div className="flex items-center justify-between text-xs text-[#647875] dark:text-[#A7C4C0] mb-1.5">
-              <span className="font-semibold">Total Original do Odoo</span>
-              <Database className="w-4 h-4 text-[#00796F] dark:text-[#20BFA9]" />
-            </div>
-            <div>
-              <p className="text-xl font-black text-[#163A38] dark:text-[#F1F5F4] font-mono tracking-tight">
-                {formatCurrency(metrics.totalValorSistema)}
-              </p>
-              <p className="text-[11px] text-[#647875] dark:text-[#A7C4C0] mt-0.5">
-                {metrics.totalRegistrosSistema} lançamentos contábeis
-              </p>
-            </div>
-            <div className="mt-3 pt-2 border-t border-[#00796F]/10 text-[10px] text-[#647875] dark:text-[#A7C4C0]">
-              Fonte: Lançamento de Diário Odoo
-            </div>
-          </div>
-
-          {/* 3. Diferença Bruta entre as Fontes */}
-          <div className="p-4 rounded-xl bg-[#F4F8F7] dark:bg-[#071F1D] border border-[#00796F]/15 flex flex-col justify-between">
-            <div className="flex items-center justify-between text-xs text-[#647875] dark:text-[#A7C4C0] mb-1.5">
-              <span className="font-semibold">Diferença Bruta Fontes</span>
-              <Scale className={`w-4 h-4 ${isZeroDiff ? 'text-emerald-600' : 'text-rose-600'}`} />
-            </div>
-            <div>
-              <p
-                className={`text-xl font-black font-mono tracking-tight ${isZeroDiff ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}
-              >
-                {formatDifferenceValue(metrics.diferencaTotal)}
-              </p>
-              <p className="text-[11px] text-[#647875] dark:text-[#A7C4C0] mt-0.5">
-                Fórmula: Total Fatura − Total Odoo
-              </p>
-            </div>
-            <div className="mt-3 pt-2 border-t border-[#00796F]/10 text-[10px] text-[#647875] dark:text-[#A7C4C0]">
-              {isZeroDiff ? 'Zero de resíduo contábil' : 'Diferença líquida a justificar'}
-            </div>
-          </div>
-
-          {/* 4. Valor Total Conciliado */}
-          <div className="p-4 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-300/50 dark:border-emerald-800/50 flex flex-col justify-between">
-            <div className="flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300 mb-1.5">
-              <span className="font-semibold">Valor Total Conciliado</span>
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <div>
-              <p className="text-xl font-black text-emerald-700 dark:text-emerald-400 font-mono tracking-tight">
-                {formatCurrency(metrics.totalValorConciliadoFatura)}
-              </p>
-              <p className="text-[11px] text-[#647875] dark:text-[#A7C4C0] mt-0.5">
-                {metrics.paresConciliados} transações 100% casadas
-              </p>
-            </div>
-            <div className="mt-3 pt-2 border-t border-emerald-200/50 dark:border-emerald-800/50 text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">
-              Taxa de Sucesso: {metrics.percentualConciliacao}%
-            </div>
-          </div>
-
-          {/* 5. Valores Pendentes de Análise */}
-          <div className="p-4 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-300/50 dark:border-rose-800/50 flex flex-col justify-between">
-            <div className="flex items-center justify-between text-xs text-rose-800 dark:text-rose-300 mb-1.5">
-              <span className="font-semibold">Pendentes de Análise</span>
-              <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-            </div>
-            <div>
-              <p className="text-xl font-black text-rose-700 dark:text-rose-400 font-mono tracking-tight">
-                {formatCurrency(
-                  metrics.totalValorExclusivoFatura + metrics.totalValorExclusivoSistema,
-                )}
-              </p>
-              <p className="text-[11px] text-[#647875] dark:text-[#A7C4C0] mt-0.5">
-                {metrics.somenteFatura + metrics.somenteSistema} registros exclusivos
-              </p>
-            </div>
-            <div className="mt-3 pt-2 border-t border-rose-200/50 dark:border-rose-800/50 text-[10px] text-rose-700 dark:text-rose-400 font-medium">
-              Fat: {formatCurrency(metrics.totalValorExclusivoFatura)} • Od:{' '}
-              {formatCurrency(metrics.totalValorExclusivoSistema)}
+            {/* 5. Valores Pendentes de Análise */}
+            <div className="p-4 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-300/50 dark:border-rose-800/50 flex flex-col justify-between">
+              <div className="flex items-center justify-between text-xs text-rose-800 dark:text-rose-300 mb-1.5">
+                <span className="font-semibold">Pendentes de Análise</span>
+                <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+              </div>
+              <div>
+                <p className="text-xl font-black text-rose-700 dark:text-rose-400 font-mono tracking-tight">
+                  {formatCurrency(
+                    metrics.totalValorExclusivoFatura + metrics.totalValorExclusivoSistema,
+                  )}
+                </p>
+                <p className="text-[11px] text-[#647875] dark:text-[#A7C4C0] mt-0.5">
+                  {metrics.somenteFatura + metrics.somenteSistema} registros exclusivos
+                </p>
+              </div>
+              <div className="mt-3 pt-2 border-t border-rose-200/50 dark:border-rose-800/50 text-[10px] text-rose-700 dark:text-rose-400 font-medium">
+                Fat: {formatCurrency(metrics.totalValorExclusivoFatura)} • Od:{' '}
+                {formatCurrency(metrics.totalValorExclusivoSistema)}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* 3. SEÇÃO DE GRÁFICOS VISUAIS: DISTRIBUIÇÃO E COMPARAÇÃO FINANCEIRA */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
