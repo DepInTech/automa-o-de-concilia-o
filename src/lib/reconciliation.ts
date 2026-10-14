@@ -367,12 +367,13 @@ export function reconcileData(
   // 6. FASE 2: Prioridade 2 — Nomes Abreviados / Semelhantes + Valor Exato
   // Requer valor rigorosamente exato E evidência confiável de correspondência de estabelecimento:
   // (nameSim >= 0.32 OU refMatch confirmado)
-  // PADRÃO 1 e 3: pareamento par a par usando token distintivo do vendedor
+  // Tolerância de data: até 35 dias para acomodar competência adjacente do Odoo (ex: compras 12/06–23/06 lançadas em 01/07)
   const abreviatedCandidates = candidates
     .filter(
       (cand) =>
         cand.absDiff < 0.01 &&
         (cand.nameSim >= 0.32 || cand.refMatch) &&
+        (cand.dateDiffDays === null || cand.dateDiffDays <= 35) &&
         !matchedSystemIds.has(cand.sys.id) &&
         !matchedCardIds.has(cand.card.id),
     )
@@ -426,26 +427,28 @@ export function reconcileData(
     })
   }
 
-  // 7. FASE 2b: Pareamento por Família de Plataforma (Mercado Livre, Vindi, etc.)
+  // 7. FASE 2b: Pareamento por Família de Plataforma (Mercado Livre, Starlink, Uber, OpenAI, Vindi)
   // Regra geral solicitada:
   // - Mesma família de plataforma
   // - Valor EXATO em centavos (toIntegerCents idêntico, diff = 0)
-  // - Data compatível (janela aceitável de liquidação bancária / cartão <= 7 dias)
-  // - Se existe exatamente 1 candidato na outra fonte com aquele valor exato e data compatível,
-  //   pareia como VERDE (CONCILIADO), sem exigir igualdade textual entre nome comercial e razão social.
-  // - Se há MAIS de um candidato com o mesmo valor na família, usa desempates pelas outras evidências
-  //   (data mais próxima, token do vendedor se existir, referência documental). Só pareia se inequívoco.
-  // - Regressão protegida: plataformas diferentes (ex: Vindi vs ML) JAMAIS casam.
+  // - Janela de datas: até 35 dias para acomodar competência contábil adjacente do Odoo
+  //   (ex: compras de 12/06–23/06 lançadas no Odoo em 01/07/2026).
+  // - Quando houver candidato ÚNICO na mesma família de plataforma com valor exato em centavos,
+  //   datas até ~35 dias de diferença NÃO bloqueiam.
+  // - Casar quando plataforma + valor + data compatível tiver candidato único (ex: MERCADOLIVRE*TGFIMPOR
+  //   vs MERCADO LIVRE - Z4 COMERCIO DE SUPRIMENTOS PARA R$ 20,99).
+  // - REGRESSÃO OBRIGATÓRIA: plataformas DIFERENTES (ex: Vindi*LojaNetlab vs Shopclic ou Mercado Livre)
+  //   JAMAIS casam (permanecem SOMENTE_FATURA / SOMENTE_ODOO).
   const remainingSysPlatform = eligibleSys.filter((s) => !matchedSystemIds.has(s.sys.id))
   const remainingCardPlatform = eligibleCard.filter((c) => !matchedCardIds.has(c.card.id))
 
   // Agrupa os não casados por família conhecida
   const supportedFamilies: PlatformFamily[] = [
     'mercadolivre',
-    'vindi',
     'starlink',
     'uber',
     'openai',
+    'vindi',
   ]
 
   for (const fam of supportedFamilies) {
@@ -458,7 +461,7 @@ export function reconcileData(
 
     if (sysInFam.length === 0 || cardInFam.length === 0) continue
 
-    // Candidatos dentro da mesma família com valor exato (centavos) e data compatível (<= 7 dias)
+    // Candidatos dentro da mesma família com valor exato (centavos) e data compatível (<= 35 dias)
     interface PlatformMatchCandidate {
       s: (typeof sysInFam)[0]
       c: (typeof cardInFam)[0]
@@ -481,8 +484,8 @@ export function reconcileData(
         if (sCents !== cCents) continue
 
         const dDiff = calculateDateDifferenceInDays(s.sys.data, c.card.data) ?? 999
-        // Janela de compatibilidade de liquidação bancária para cartão de crédito: até 7 dias
-        if (dDiff > 7) continue
+        // Janela de compatibilidade de competência contábil adjacente: até 35 dias
+        if (dDiff > 35) continue
 
         const nameSim = calculateNameSimilarity(s.sys.parceiro, c.card.estabelecimento)
         const tokensS = extractSignificantTokens(s.sys.parceiro)
@@ -490,7 +493,7 @@ export function reconcileData(
         const tokenMatch = tokensS.some((ts) => tokensC.includes(ts) && ts.length >= 4)
 
         // Pontuação de evidência
-        let priorityScore = 100 - dDiff * 5
+        let priorityScore = 100 - Math.min(35, dDiff)
         if (tokenMatch) priorityScore += 40
         if (nameSim > 0.3) priorityScore += 20
 
@@ -516,7 +519,7 @@ export function reconcileData(
 
     // Processa os pares garantindo decisão inequívoca:
     // Se para um 's' ou 'c' houver múltiplos candidatos com mesma pontuação/data sem critério de desempate,
-    // não força e deixa exclusivo.
+    // não força e deixa exclusivo (ambiguidade protegida).
     for (const pair of platformPairs) {
       if (matchedSystemIds.has(pair.s.sys.id) || matchedCardIds.has(pair.c.card.id)) {
         continue
@@ -545,7 +548,7 @@ export function reconcileData(
       )
 
       if (ambiguousS || ambiguousC) {
-        // Ambiguidade estrita: não inventar associação
+        // Ambiguidade estrita protegida: não inventar associação
         continue
       }
 
@@ -574,7 +577,7 @@ export function reconcileData(
         classificacao: 'CONCILIADO',
         motivo: pair.tokenMatch
           ? 'Plataforma e vendedor identificados com valor exato'
-          : 'Plataforma coincidente com valor rigorosamente exato e data compatível',
+          : 'Plataforma coincidente com valor rigorosamente exato e candidato único',
         scoreConfianca: Math.min(95, Math.max(70, pair.priorityScore)),
         linhaOdooOrigem: pair.s.sys.linhaOrigem,
         paginaFaturaOrigem: pair.c.card.paginaOrigem,
@@ -587,6 +590,8 @@ export function reconcileData(
   }
 
   // 7b. Fallback por valor estritamente único geral (para transações fora de famílias conhecidas)
+  // Janela até 35 dias para acomodar competência contábil adjacente do Odoo
+  // (ex: SWIFT PIRACUAMA R$ 1.954,12 em 23/06 vs 01/07, SJX ATACADISTA R$ 1.114,06 em 23/06 vs 01/07)
   const remainingSysExact = eligibleSys.filter((s) => !matchedSystemIds.has(s.sys.id))
   const remainingCardExact = eligibleCard.filter((c) => !matchedCardIds.has(c.card.id))
 
@@ -604,9 +609,13 @@ export function reconcileData(
       (other) => toIntegerCents(other.val) === sCents,
     ).length
 
-    // Apenas se for estritamente único em ambas as fontes e houver alguma afinidade de nome (> 0)
+    // Apenas se for estritamente único em ambas as fontes e houver afinidade de nome (> 0)
+    // e diferença temporal não superior a 35 dias
     if (cardSameValCandidates.length === 1 && sysSameValCount === 1 && cardAllSameValCount === 1) {
       const c = cardSameValCandidates[0]
+      const dDiff = calculateDateDifferenceInDays(s.sys.data, c.card.data) ?? 999
+      if (dDiff > 35) continue
+
       const nameSim = calculateNameSimilarity(s.sys.parceiro, c.card.estabelecimento)
 
       if (nameSim >= 0.2) {
@@ -651,17 +660,36 @@ export function reconcileData(
   // FORA da família de marketplace) com valores DIFERENTES, APÓS esgotadas as exatas.
   // A conferência manual pode marcar "divergente" explicitamente.
   // Diferença calculada estritamente: valorFatura - valorOdoo.
+  // Exemplo oficial de referência: Fatura DONA COMERCI*Edona R$ 367,91 (19/06) vs
+  // Odoo E.DONA COMERCIO ELETRONICO R$ 339,51 (CIT12/2026/0618) -> diferença +R$ 28,40 (YELLOW).
+  // Nota: registros pré-marcados como "Apenas Odoo" (como CIT12/2026/0619 de R$ 28,40)
+  // foram isolados na etapa de pré-processamento e não concorrem aqui.
   const divergentCandidates = candidates
     .filter(
       (cand) =>
         cand.absDiff >= 0.01 &&
         !isMarketplaceFamily(cand.sys.parceiro) &&
         !isMarketplaceFamily(cand.card.estabelecimento) &&
-        (cand.nameSim >= 0.5 || cand.refMatch) &&
+        (cand.nameSim >= 0.4 ||
+          cand.refMatch ||
+          (cand.sys.observacaoManual?.toLowerCase().includes('divergente') &&
+            cand.card.observacaoManual?.toLowerCase().includes('divergente'))) &&
         !matchedSystemIds.has(cand.sys.id) &&
         !matchedCardIds.has(cand.card.id),
     )
     .sort((a, b) => {
+      // Prioriza pares expressamente anotados como divergente na conferência
+      const aIsAnnotated =
+        a.sys.observacaoManual?.toLowerCase().includes('divergente') ||
+        a.card.observacaoManual?.toLowerCase().includes('divergente')
+          ? 1
+          : 0
+      const bIsAnnotated =
+        b.sys.observacaoManual?.toLowerCase().includes('divergente') ||
+        b.card.observacaoManual?.toLowerCase().includes('divergente')
+          ? 1
+          : 0
+      if (bIsAnnotated !== aIsAnnotated) return bIsAnnotated - aIsAnnotated
       if (b.nameSim !== a.nameSim) return b.nameSim - a.nameSim
       return a.absDiff - b.absDiff
     })
@@ -768,6 +796,18 @@ export function reconcileData(
     if (matchedSystemIds.has(s.sys.id)) continue
     matchedSystemIds.add(s.sys.id)
 
+    // Analisa motivo detalhado para fins de auditoria
+    const sCents = toIntegerCents(s.val)
+    const cardSameVal = eligibleCard.filter((c) => toIntegerCents(c.val) === sCents)
+    let motivoDetalhado = 'Existe no Odoo sem correspondência comprovada na fatura'
+    if (cardSameVal.length === 0) {
+      motivoDetalhado = 'Sem candidato de mesmo valor na fatura'
+    } else if (cardSameVal.length > 1) {
+      motivoDetalhado = `Múltiplos candidatos de mesmo valor na fatura (${cardSameVal.length} ocorrências) - ambiguidade protegida`
+    } else {
+      motivoDetalhado = `Candidato de mesmo valor na fatura (${cardSameVal[0].card.estabelecimento}) sem relação comprovada de fornecedor`
+    }
+
     results.push({
       id: `RED-SYS-${s.sys.id}`,
       systemRecordId: s.sys.id,
@@ -786,7 +826,7 @@ export function reconcileData(
       status: 'RED',
       origem: 'SISTEMA',
       classificacao: 'SOMENTE_SISTEMA',
-      motivo: 'Existe no Odoo sem correspondência comprovada na fatura',
+      motivo: motivoDetalhado,
       scoreConfianca: 0,
       linhaOdooOrigem: s.sys.linhaOrigem,
       observacaoManualOdoo: s.sys.observacaoManual,
@@ -797,6 +837,18 @@ export function reconcileData(
   for (const c of normalizedCard) {
     if (matchedCardIds.has(c.card.id)) continue
     matchedCardIds.add(c.card.id)
+
+    // Analisa motivo detalhado para fins de auditoria
+    const cCents = toIntegerCents(c.val)
+    const sysSameVal = eligibleSys.filter((s) => toIntegerCents(s.val) === cCents)
+    let motivoDetalhado = 'Existe na fatura sem correspondência no lançamento contábil do Odoo'
+    if (sysSameVal.length === 0) {
+      motivoDetalhado = 'Sem candidato de mesmo valor no Odoo'
+    } else if (sysSameVal.length > 1) {
+      motivoDetalhado = `Múltiplos candidatos de mesmo valor no Odoo (${sysSameVal.length} ocorrências) - ambiguidade protegida`
+    } else {
+      motivoDetalhado = `Candidato de mesmo valor no Odoo (${sysSameVal[0].sys.parceiro}) sem relação comprovada de fornecedor`
+    }
 
     results.push({
       id: `RED-CARD-${c.card.id}`,
@@ -813,7 +865,7 @@ export function reconcileData(
       status: 'RED',
       origem: 'FATURA',
       classificacao: 'SOMENTE_FATURA',
-      motivo: 'Existe na fatura sem correspondência no lançamento contábil do Odoo',
+      motivo: motivoDetalhado,
       scoreConfianca: 0,
       paginaFaturaOrigem: c.card.paginaOrigem,
       isInternacional: c.card.isInternacional,

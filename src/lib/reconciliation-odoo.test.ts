@@ -2130,9 +2130,9 @@ trailer << /Root 1 0 R >>
     it('51. Pipeline Real: Validação com planilhas de referência do usuário (efêmera em memória)', async () => {
       // Importa fatura XLSX via pipeline real
       const faturaUrl =
-        'https://dagtlwojkqyivnjgveda.supabase.co/storage/v1/object/public/message-attachments/b5409554-bdb8-4cc9-877a-6a630627ae10/faturaitau-1-38bd7.xlsx'
+        'https://dagtlwojkqyivnjgveda.supabase.co/storage/v1/object/public/message-attachments/b5409554-bdb8-4cc9-877a-6a630627ae10/faturaitau-1-76fba.xlsx'
       const odooUrl =
-        'https://dagtlwojkqyivnjgveda.supabase.co/storage/v1/object/public/message-attachments/b5409554-bdb8-4cc9-877a-6a630627ae10/lancamento-de-diario-1-89aaa.xlsx'
+        'https://dagtlwojkqyivnjgveda.supabase.co/storage/v1/object/public/message-attachments/b5409554-bdb8-4cc9-877a-6a630627ae10/lancamento-de-diario-1-3ac0a.xlsx'
 
       try {
         const [fatRes, odooRes] = await Promise.all([fetch(faturaUrl), fetch(odooUrl)])
@@ -2151,8 +2151,10 @@ trailer << /Root 1 0 R >>
         expect(fatConversion.sucesso).toBe(true)
         expect(odooImport.sucesso).toBe(true)
 
-        // Validação de contagem esperada
-        expect(fatConversion.registros.length).toBe(104)
+        // Validação da meta oficial do usuário:
+        // Fatura: 103 lançamentos válidos, total R$ 38.706,94
+        // Odoo: 85 lançamentos válidos, total R$ 27.055,72
+        expect(fatConversion.registros.length).toBe(103)
         expect(odooImport.registros.length).toBe(85)
 
         // Validação de totais extraídos
@@ -2203,8 +2205,41 @@ trailer << /Root 1 0 R >>
         // Totais preservados
         expect(metrics.totalValorFatura).toBe(38706.94)
         expect(metrics.totalValorSistema).toBe(27055.72)
-        expect(metrics.totalRegistrosFatura).toBe(104)
+        expect(metrics.totalRegistrosFatura).toBe(103)
         expect(metrics.totalRegistrosSistema).toBe(85)
+
+        // META OFICIAL DE CONFERÊNCIA DO USUÁRIO:
+        // 🟢 66 conciliados | 🟡 1 divergente | 🔴 36 somente fatura | 🔴 18 somente Odoo
+        // 66 + 1 + 36 = 103 (fatura)
+        // 66 + 1 + 18 = 85 (Odoo)
+        expect(metrics.paresConciliados).toBe(66)
+        expect(metrics.paresDivergentes).toBe(1)
+        expect(metrics.somenteFatura).toBe(36)
+        expect(metrics.somenteSistema).toBe(18)
+
+        // Verifica o único divergente oficial: DONA COMERCI*Edona R$ 367,91 vs E.DONA R$ 339,51
+        const divergente = results.find((r) => r.status === 'YELLOW')
+        expect(divergente).toBeDefined()
+        expect(divergente?.estabelecimento).toContain('Edona')
+        expect(divergente?.parceiro).toContain('E.DONA')
+        expect(divergente?.valorFatura).toBe(367.91)
+        expect(divergente?.credito).toBe(339.51)
+        expect(divergente?.diferenca).toBe(28.4)
+
+        // Casos reais de competência adjacente conciliados
+        const starlink1199 = results.find((r) => r.credito === 1199.0 && r.valorFatura === 1199.0)
+        expect(starlink1199?.status).toBe('GREEN')
+
+        const swift1954 = results.find((r) => r.credito === 1954.12 && r.valorFatura === 1954.12)
+        expect(swift1954?.status).toBe('GREEN')
+
+        const sjx1114 = results.find((r) => r.credito === 1114.06 && r.valorFatura === 1114.06)
+        expect(sjx1114?.status).toBe('GREEN')
+
+        // Regressão obrigatória: Vindi*LojaNetlab continua NÃO casando com Shopclic
+        const vindiCard = results.find((r) => r.estabelecimento.includes('LojaNetlab'))
+        expect(vindiCard?.status).toBe('RED')
+        expect(vindiCard?.classificacao).toBe('SOMENTE_FATURA')
 
         // Apenas os 4 status válidos
         for (const r of results) {

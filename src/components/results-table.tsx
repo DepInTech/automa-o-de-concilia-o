@@ -58,9 +58,10 @@ export function ResultsTable({
   >('VALOR_ASC')
   const [validationErrors, setValidationErrors] = useState<string[] | null>(null)
   const [selectedRecord, setSelectedRecord] = useState<ReconciliationResult | null>(null)
-  const [viewTab, setViewTab] = useState<'table' | 'adherence'>('table')
+  const [viewTab, setViewTab] = useState<'table' | 'adherence' | 'unmatched'>('table')
 
   const adherenceReport = generateAdherenceReport(data)
+  const unmatchedAndDivergent = data.filter((r) => r.status === 'RED' || r.status === 'YELLOW')
 
   // Mapa de registros originais indexados por seus IDs únicos estáveis
   // para consulta e garantia inegociável de que nenhum valor exibido/exportado
@@ -332,6 +333,18 @@ export function ResultsTable({
           >
             Tabela de Resultados ({data.length})
           </Button>
+          <Button
+            size="sm"
+            variant={viewTab === 'unmatched' ? 'default' : 'outline'}
+            onClick={() => setViewTab('unmatched')}
+            className={
+              viewTab === 'unmatched'
+                ? 'bg-rose-700 text-white rounded-xl font-bold'
+                : 'rounded-xl border-rose-300 text-rose-800 dark:text-rose-300 font-semibold'
+            }
+          >
+            Por Que Não Conciliou? ({unmatchedAndDivergent.length})
+          </Button>
           {adherenceReport.hasAnnotations && (
             <Button
               size="sm"
@@ -348,6 +361,116 @@ export function ResultsTable({
           )}
         </div>
       </div>
+
+      {viewTab === 'unmatched' && (
+        <div className="space-y-4">
+          <div className="p-4 rounded-2xl border border-rose-200 bg-rose-50/40 dark:bg-rose-950/20 text-rose-950 dark:text-rose-200">
+            <h3 className="font-bold text-sm sm:text-base flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+              Auditoria Estruturada: Lista de Lançamentos Não Conciliados ou Divergentes
+            </h3>
+            <p className="text-xs text-[#647875] dark:text-[#A7C4C0] mt-1">
+              Rastreabilidade detalhada de cada item vermelho (somente fatura / somente Odoo) e
+              amarelo (divergente), com página/linha de origem e motivo objetivo da árvore de
+              decisão.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-[#00796F]/15 bg-white dark:bg-[#0D3834] shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader className="bg-[#F4F8F7] dark:bg-[#00796F]/10 border-b border-[#00796F]/15">
+                  <TableRow>
+                    <TableHead className="text-xs font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                      Status
+                    </TableHead>
+                    <TableHead className="text-xs font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                      Origem
+                    </TableHead>
+                    <TableHead className="text-xs font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                      Estabelecimento / Parceiro
+                    </TableHead>
+                    <TableHead className="text-xs font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                      Data
+                    </TableHead>
+                    <TableHead className="text-right text-xs font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                      Valor
+                    </TableHead>
+                    <TableHead className="text-xs font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                      Rastreabilidade
+                    </TableHead>
+                    <TableHead className="text-xs font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                      Razão da Não Conciliação
+                    </TableHead>
+                    <TableHead className="text-center text-xs font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+                      Auditar
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {unmatchedAndDivergent.map((r) => {
+                    const valorExibido =
+                      r.valorFatura !== null && r.valorFatura !== undefined
+                        ? r.valorFatura
+                        : (r.credito ?? 0)
+                    const estabParc =
+                      r.estabelecimento && r.estabelecimento !== '-'
+                        ? r.estabelecimento
+                        : r.parceiro || '-'
+                    const rastreio =
+                      [
+                        r.paginaFaturaOrigem ? `Fatura Pág. ${r.paginaFaturaOrigem}` : null,
+                        r.linhaOdooOrigem ? `Odoo Linha ${r.linhaOdooOrigem}` : null,
+                        r.numero ? `Nº ${r.numero}` : null,
+                        r.lancamentoDiario ? `${r.lancamentoDiario}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' • ') || '—'
+
+                    return (
+                      <TableRow key={r.id} className={`${getRowClass(r)} transition-colors`}>
+                        <TableCell className="whitespace-nowrap">{renderBadge(r)}</TableCell>
+                        <TableCell className="font-semibold text-xs whitespace-nowrap">
+                          {r.origem === 'FATURA'
+                            ? 'Fatura Cartão'
+                            : r.origem === 'SISTEMA'
+                              ? 'Odoo (Diário)'
+                              : 'Ambos'}
+                        </TableCell>
+                        <TableCell className="font-medium text-xs sm:text-sm">
+                          {estabParc}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs whitespace-nowrap">
+                          {r.dataFatura || r.dataOdoo || r.data}
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-xs sm:text-sm whitespace-nowrap">
+                          {formatCurrency(valorExibido)}
+                        </TableCell>
+                        <TableCell className="text-xs font-mono text-[#647875] dark:text-[#A7C4C0] whitespace-nowrap">
+                          {rastreio}
+                        </TableCell>
+                        <TableCell className="text-xs text-[#163A38] dark:text-[#F1F5F4] max-w-md">
+                          {r.motivo || '—'}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setSelectedRecord(r)}
+                            className="h-8 w-8 text-[#00796F] dark:text-[#20BFA9] hover:bg-[#00796F]/10 rounded-lg"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {viewTab === 'adherence' && <AdherenceReportView report={adherenceReport} />}
 
@@ -702,7 +825,9 @@ export function ResultsTable({
                     {selectedRecord.numero && (
                       <div className="flex justify-between">
                         <span className="text-[#647875] dark:text-[#A7C4C0]">Número / NF:</span>
-                        <span className="font-mono">{selectedRecord.numero}</span>
+                        <span className="font-mono font-semibold text-[#00796F] dark:text-[#20BFA9]">
+                          {selectedRecord.numero}
+                        </span>
                       </div>
                     )}
                     {selectedRecord.referencia && (
@@ -720,6 +845,39 @@ export function ResultsTable({
                       </div>
                     )}
                   </div>
+
+                  {/* Rastreabilidade e Diagnóstico "Por que não conciliou" */}
+                  {(selectedRecord.status === 'RED' || selectedRecord.status === 'YELLOW') && (
+                    <div className="p-3 rounded-xl border border-amber-300/60 bg-amber-50/50 dark:bg-amber-950/20 space-y-1.5 text-xs">
+                      <span className="font-bold text-amber-800 dark:text-amber-300 block uppercase tracking-wide">
+                        Diagnóstico: Por Que Não Conciliou
+                      </span>
+                      <p className="text-amber-900 dark:text-amber-200 font-medium">
+                        {selectedRecord.motivo}
+                      </p>
+                      <div className="text-[11px] text-[#647875] dark:text-[#A7C4C0] pt-1 border-t border-amber-200/50 space-y-0.5">
+                        {selectedRecord.paginaFaturaOrigem && (
+                          <div>• Fatura Itaú: Página {selectedRecord.paginaFaturaOrigem}</div>
+                        )}
+                        {selectedRecord.linhaOdooOrigem && (
+                          <div>
+                            • Odoo: Linha {selectedRecord.linhaOdooOrigem}{' '}
+                            {selectedRecord.numero ? `(Lançamento ${selectedRecord.numero})` : ''}
+                          </div>
+                        )}
+                        {selectedRecord.observacaoManualFatura && (
+                          <div>
+                            • Observação Fatura: &quot;{selectedRecord.observacaoManualFatura}&quot;
+                          </div>
+                        )}
+                        {selectedRecord.observacaoManualOdoo && (
+                          <div>
+                            • Observação Odoo: &quot;{selectedRecord.observacaoManualOdoo}&quot;
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </DialogContent>

@@ -309,6 +309,77 @@ export function StageAudit({
           </div>
         </Card>
       </div>
+
+      {/* PAINEL DE AUDITORIA: "Por que não conciliou" */}
+      {results.some((r) => r.status === 'RED' || r.status === 'YELLOW') && (
+        <Card className="rounded-2xl border border-rose-200 dark:border-rose-950/40 bg-white dark:bg-[#0D3834] shadow-sm overflow-hidden">
+          <CardHeader className="pb-3 border-b border-rose-100 dark:border-rose-950/40 bg-rose-50/40 dark:bg-rose-950/20">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle className="text-sm font-bold text-rose-800 dark:text-rose-300 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600" />
+                Painel de Diagnóstico: Motivos de Não Conciliação e Divergências
+              </CardTitle>
+              <Badge
+                variant="outline"
+                className="text-xs bg-rose-100 text-rose-800 border-rose-300"
+              >
+                {results.filter((r) => r.status === 'RED' || r.status === 'YELLOW').length}{' '}
+                pendências auditadas
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs mb-3">
+              <div className="p-2.5 rounded-xl bg-[#F4F8F7] dark:bg-[#071F1D] border border-[#00796F]/15">
+                <span className="text-[#647875] dark:text-[#A7C4C0] block text-[11px]">
+                  Exclusivo por Pré-marcação
+                </span>
+                <span className="font-bold text-rose-700 dark:text-rose-400 text-sm">
+                  {
+                    results.filter(
+                      (r) =>
+                        r.motivo?.toLowerCase().includes('conferência manual') ||
+                        r.motivo?.toLowerCase().includes('apenas'),
+                    ).length
+                  }{' '}
+                  itens
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#F4F8F7] dark:bg-[#071F1D] border border-[#00796F]/15">
+                <span className="text-[#647875] dark:text-[#A7C4C0] block text-[11px]">
+                  Sem Candidato Mesmo Valor
+                </span>
+                <span className="font-bold text-rose-700 dark:text-rose-400 text-sm">
+                  {results.filter((r) => r.motivo?.toLowerCase().includes('sem candidato')).length}{' '}
+                  itens
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#F4F8F7] dark:bg-[#071F1D] border border-[#00796F]/15">
+                <span className="text-[#647875] dark:text-[#A7C4C0] block text-[11px]">
+                  Ambiguidade Protegida
+                </span>
+                <span className="font-bold text-amber-700 dark:text-amber-400 text-sm">
+                  {results.filter((r) => r.motivo?.toLowerCase().includes('ambiguidade')).length}{' '}
+                  itens
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#F4F8F7] dark:bg-[#071F1D] border border-[#00796F]/15">
+                <span className="text-[#647875] dark:text-[#A7C4C0] block text-[11px]">
+                  Divergência de Fornecedor
+                </span>
+                <span className="font-bold text-amber-700 dark:text-amber-400 text-sm">
+                  {results.filter((r) => r.status === 'YELLOW').length} item
+                </span>
+              </div>
+            </div>
+            <p className="text-[11px] text-[#647875] dark:text-[#A7C4C0]">
+              Consulte a aba <strong>&quot;Por Que Não Conciliou?&quot;</strong> na tabela de
+              resultados para a lista completa com número de lançamento (CIT12/2026/XXXX) e
+              página/linha de origem.
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

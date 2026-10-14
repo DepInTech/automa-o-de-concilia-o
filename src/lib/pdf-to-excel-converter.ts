@@ -616,17 +616,24 @@ export async function convertInvoiceSpreadsheetToExcel(
     const rawObs = colObservacao ? r[colObservacao]?.trim() || '' : ''
     const rawParcela = colParcela ? r[colParcela]?.trim() || '' : ''
 
-    // Detecta linha de total no rodapé (ex.: "Parcela: total", ou descrição vazia com valor igual à soma)
+    const rawParcelaLower = rawParcela.toLowerCase().trim()
+    const rawDescLower = rawDesc.toLowerCase().trim()
+
+    // 1. Descarte estrito de linha totalizadora ou resumo:
+    // Qualquer linha cuja descrição ou parcela contenha "total", "total geral", "resumo"
+    // ou cujo estabelecimento esteja vazio — a linha de totalização jamais deve entrar como transação.
     if (
-      rawParcela.toLowerCase() === 'total' ||
+      !rawDesc ||
+      rawParcelaLower === 'total' ||
+      rawParcelaLower.includes('total') ||
+      rawDescLower.includes('total geral') ||
+      rawDescLower.includes('resumo') ||
       /^(total|total\s+geral|saldo\s+atual|total\s+desta\s+fatura|total\s+da\s+fatura)$/i.test(
-        rawDesc,
+        rawDescLower,
       )
     ) {
       continue
     }
-
-    if (!rawDesc && (!rawVal || rawVal === '')) continue
 
     // Verifica se a descrição é cabeçalho ou rodapé cadastral
     // Nota: um estabelecimento legítimo que contenha termos corporativos não deve ser descartado
