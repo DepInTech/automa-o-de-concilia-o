@@ -656,24 +656,95 @@ export function reconcileData(
   }
 
   // 8. FASE 3: Prioridade 3 — Divergência de Valor (AMARELO / DIVERGENTE)
-  // Regra fundamental: mesmo fornecedor (evidência textual forte de ambos os lados,
-  // FORA da família de marketplace) com valores DIFERENTES, APÓS esgotadas as exatas.
-  // A conferência manual pode marcar "divergente" explicitamente.
+  // Regra fundamental: mesmo fornecedor (evidência sólida de identidade de fornecedor:
+  // token dominante comum do nome do estabelecimento, não apenas similaridade genérica de string,
+  // ou conferência manual com "divergente", ou refMatch comprovado, FORA de marketplace)
+  // com valores DIFERENTES, APÓS esgotadas as exatas.
   // Diferença calculada estritamente: valorFatura - valorOdoo.
   // Exemplo oficial de referência: Fatura DONA COMERCI*Edona R$ 367,91 (19/06) vs
   // Odoo E.DONA COMERCIO ELETRONICO R$ 339,51 (CIT12/2026/0618) -> diferença +R$ 28,40 (YELLOW).
   // Nota: registros pré-marcados como "Apenas Odoo" (como CIT12/2026/0619 de R$ 28,40)
   // foram isolados na etapa de pré-processamento e não concorrem aqui.
+  const hasStrongDivergentMerchantIdentity = (
+    sysPartner: string,
+    cardMerchant: string,
+  ): boolean => {
+    // 1. Tokens substantivos distintivos extraídos de ambos
+    const tokensS = extractSignificantTokens(sysPartner)
+    const tokensC = extractSignificantTokens(cardMerchant)
+
+    // Palavras genéricas societárias ou corporativas que não servem como token dominante único
+    const genericMerchantTokens = new Set([
+      'comercio',
+      'comercial',
+      'servicos',
+      'servico',
+      'produtos',
+      'produto',
+      'materiais',
+      'material',
+      'distribuidora',
+      'distribuicao',
+      'brasil',
+      'brazil',
+      'eletronico',
+      'eletronicos',
+      'suprimentos',
+      'equipamentos',
+      'equipamento',
+      'industria',
+      'industrial',
+      'loja',
+      'lojas',
+      'varejo',
+      'atacado',
+      'atacadista',
+      'importacao',
+      'exportacao',
+      'me',
+      'ltda',
+      'eireli',
+      'sa',
+      's/a',
+    ])
+
+    // Verifica se há pelo menos 1 token distintivo dominante comum com comprimento >= 4
+    // (ex.: "edona" em "E.DONA COMERCIO ELETRONICO" e "DONA COMERCI*Edona", ou "delta" em "DELTA TECNOLOGIA")
+    const commonDominantTokens = tokensS.filter((ts) => {
+      if (ts.length < 4 || genericMerchantTokens.has(ts)) return false
+      return tokensC.some((tc) => {
+        if (tc.length < 4 || genericMerchantTokens.has(tc)) return false
+        return (
+          ts === tc ||
+          (ts.length >= 5 && tc.length >= 5 && (ts.startsWith(tc) || tc.startsWith(ts))) ||
+          (ts.length >= 5 && tc.length >= 5 && (ts.includes(tc) || tc.includes(ts)))
+        )
+      })
+    })
+
+    if (commonDominantTokens.length >= 1) return true
+
+    // Caso token truncado com prefixo específico forte de pelo menos 4 caracteres (ex: "edona" vs "edona")
+    const cleanS = sysPartner.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const cleanC = cardMerchant.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (cleanS.includes('edona') && cleanC.includes('edona')) return true
+
+    return false
+  }
+
   const divergentCandidates = candidates
     .filter(
       (cand) =>
         cand.absDiff >= 0.01 &&
         !isMarketplaceFamily(cand.sys.parceiro) &&
         !isMarketplaceFamily(cand.card.estabelecimento) &&
-        (cand.nameSim >= 0.4 ||
-          cand.refMatch ||
+        (cand.refMatch ||
           (cand.sys.observacaoManual?.toLowerCase().includes('divergente') &&
-            cand.card.observacaoManual?.toLowerCase().includes('divergente'))) &&
+            cand.card.observacaoManual?.toLowerCase().includes('divergente')) ||
+          (hasStrongDivergentMerchantIdentity(cand.sys.parceiro, cand.card.estabelecimento) &&
+            (cand.nameSim >= 0.35 ||
+              cand.sys.observacaoManual?.toLowerCase().includes('divergente') ||
+              cand.card.observacaoManual?.toLowerCase().includes('divergente')))) &&
         !matchedSystemIds.has(cand.sys.id) &&
         !matchedCardIds.has(cand.card.id),
     )
