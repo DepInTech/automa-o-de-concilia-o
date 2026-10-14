@@ -32,7 +32,11 @@ export function StageAudit({
   onDownloadConvertedInvoice,
   hasConvertedInvoice = false,
 }: StageAuditProps) {
-  const metrics: ReconciliationMetrics = calculateReconciliationMetrics(results)
+  const metrics: ReconciliationMetrics = calculateReconciliationMetrics(
+    results,
+    odooImport?.registros,
+    invoiceConversion?.registros,
+  )
   const invoiceSummary = invoiceConversion?.resumo
   const totalFaturaCalculado = invoiceSummary?.totalValorReais ?? metrics.totalValorFatura
   const totalOdooCalculado = odooImport?.totalMonetario ?? metrics.totalValorSistema

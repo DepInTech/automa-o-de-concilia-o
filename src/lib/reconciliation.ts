@@ -42,6 +42,9 @@ import {
   normalizeMoneyValue,
   calculateDateDifferenceInDays,
   parseFlexibleDate,
+  getPlatformFamily,
+  PlatformFamily,
+  extractSignificantTokens,
 } from './normalization'
 import {
   cloneAndFreezeArray,
@@ -423,58 +426,190 @@ export function reconcileData(
     })
   }
 
-  // 7. FASE 2b: Fallback por valor estritamente único (PADRÃO 2 e 3)
-  // Lançamentos onde não há vendedor identificável OU afinidade de nome baixa,
-  // SÓ PODEM casar via fallback por valor se o valor for estritamente único em AMBAS as fontes
-  // E NÃO existir NENHUM outro candidato concorrente (mesmo valor ou valor próximo dentro de R$ 0,50)
-  // na mesma família de plataforma em qualquer uma das fontes.
-  // Casos genéricos repetidos ou com concorrentes NUNCA casam entre si.
+  // 7. FASE 2b: Pareamento por Família de Plataforma (Mercado Livre, Vindi, etc.)
+  // Regra geral solicitada:
+  // - Mesma família de plataforma
+  // - Valor EXATO em centavos (toIntegerCents idêntico, diff = 0)
+  // - Data compatível (janela aceitável de liquidação bancária / cartão <= 7 dias)
+  // - Se existe exatamente 1 candidato na outra fonte com aquele valor exato e data compatível,
+  //   pareia como VERDE (CONCILIADO), sem exigir igualdade textual entre nome comercial e razão social.
+  // - Se há MAIS de um candidato com o mesmo valor na família, usa desempates pelas outras evidências
+  //   (data mais próxima, token do vendedor se existir, referência documental). Só pareia se inequívoco.
+  // - Regressão protegida: plataformas diferentes (ex: Vindi vs ML) JAMAIS casam.
+  const remainingSysPlatform = eligibleSys.filter((s) => !matchedSystemIds.has(s.sys.id))
+  const remainingCardPlatform = eligibleCard.filter((c) => !matchedCardIds.has(c.card.id))
+
+  // Agrupa os não casados por família conhecida
+  const supportedFamilies: PlatformFamily[] = [
+    'mercadolivre',
+    'vindi',
+    'starlink',
+    'uber',
+    'openai',
+  ]
+
+  for (const fam of supportedFamilies) {
+    const sysInFam = remainingSysPlatform.filter(
+      (s) => !matchedSystemIds.has(s.sys.id) && getPlatformFamily(s.sys.parceiro) === fam,
+    )
+    const cardInFam = remainingCardPlatform.filter(
+      (c) => !matchedCardIds.has(c.card.id) && getPlatformFamily(c.card.estabelecimento) === fam,
+    )
+
+    if (sysInFam.length === 0 || cardInFam.length === 0) continue
+
+    // Candidatos dentro da mesma família com valor exato (centavos) e data compatível (<= 7 dias)
+    interface PlatformMatchCandidate {
+      s: (typeof sysInFam)[0]
+      c: (typeof cardInFam)[0]
+      valCents: number
+      dateDiff: number
+      tokenMatch: boolean
+      nameSim: number
+      priorityScore: number
+    }
+
+    const platformPairs: PlatformMatchCandidate[] = []
+
+    for (const s of sysInFam) {
+      if (matchedSystemIds.has(s.sys.id)) continue
+      const sCents = toIntegerCents(s.val)
+
+      for (const c of cardInFam) {
+        if (matchedCardIds.has(c.card.id)) continue
+        const cCents = toIntegerCents(c.val)
+        if (sCents !== cCents) continue
+
+        const dDiff = calculateDateDifferenceInDays(s.sys.data, c.card.data) ?? 999
+        // Janela de compatibilidade de liquidação bancária para cartão de crédito: até 7 dias
+        if (dDiff > 7) continue
+
+        const nameSim = calculateNameSimilarity(s.sys.parceiro, c.card.estabelecimento)
+        const tokensS = extractSignificantTokens(s.sys.parceiro)
+        const tokensC = extractSignificantTokens(c.card.estabelecimento)
+        const tokenMatch = tokensS.some((ts) => tokensC.includes(ts) && ts.length >= 4)
+
+        // Pontuação de evidência
+        let priorityScore = 100 - dDiff * 5
+        if (tokenMatch) priorityScore += 40
+        if (nameSim > 0.3) priorityScore += 20
+
+        platformPairs.push({
+          s,
+          c,
+          valCents: sCents,
+          dateDiff: dDiff,
+          tokenMatch,
+          nameSim,
+          priorityScore,
+        })
+      }
+    }
+
+    // Ordena pares por prioridade de evidência
+    platformPairs.sort((a, b) => {
+      if (b.priorityScore !== a.priorityScore) return b.priorityScore - a.priorityScore
+      if (a.dateDiff !== b.dateDiff) return a.dateDiff - b.dateDiff
+      if (b.nameSim !== a.nameSim) return b.nameSim - a.nameSim
+      return (a.s.sys.id || '').localeCompare(b.s.sys.id || '')
+    })
+
+    // Processa os pares garantindo decisão inequívoca:
+    // Se para um 's' ou 'c' houver múltiplos candidatos com mesma pontuação/data sem critério de desempate,
+    // não força e deixa exclusivo.
+    for (const pair of platformPairs) {
+      if (matchedSystemIds.has(pair.s.sys.id) || matchedCardIds.has(pair.c.card.id)) {
+        continue
+      }
+
+      // Verifica concorrentes para o mesmo 's' e mesmo 'c'
+      const competingForS = platformPairs.filter(
+        (p) =>
+          p.s.sys.id === pair.s.sys.id &&
+          !matchedCardIds.has(p.c.card.id) &&
+          p.c.card.id !== pair.c.card.id,
+      )
+      const competingForC = platformPairs.filter(
+        (p) =>
+          p.c.card.id === pair.c.card.id &&
+          !matchedSystemIds.has(p.s.sys.id) &&
+          p.s.sys.id !== pair.s.sys.id,
+      )
+
+      // Se há concorrente de mesmo valor e mesma data exata sem desempate claro por token, ambiguidade -> não casa
+      const ambiguousS = competingForS.some(
+        (p) => p.dateDiff === pair.dateDiff && p.tokenMatch === pair.tokenMatch,
+      )
+      const ambiguousC = competingForC.some(
+        (p) => p.dateDiff === pair.dateDiff && p.tokenMatch === pair.tokenMatch,
+      )
+
+      if (ambiguousS || ambiguousC) {
+        // Ambiguidade estrita: não inventar associação
+        continue
+      }
+
+      matchedSystemIds.add(pair.s.sys.id)
+      matchedCardIds.add(pair.c.card.id)
+
+      results.push({
+        id: `GREEN-${pair.s.sys.id}-${pair.c.card.id}`,
+        systemRecordId: pair.s.sys.id,
+        cardRecordId: pair.c.card.id,
+        dataFatura: pair.c.card.data,
+        dataOdoo: pair.s.sys.data,
+        data: pair.s.sys.data || pair.c.card.data,
+        numero: pair.s.sys.numero,
+        referencia: pair.s.sys.referencia,
+        lancamentoDiario: pair.s.sys.lancamentoDiario,
+        parceiro: pair.s.sys.parceiro,
+        estabelecimento: pair.c.card.estabelecimento,
+        categoria: pair.c.card.categoria || pair.s.sys.categoria || '',
+        debito: pair.s.sys.debito,
+        credito: pair.s.sys.credito ?? pair.s.val,
+        valorFatura: pair.c.card.valor ?? pair.c.val,
+        diferenca: 0,
+        status: 'GREEN',
+        origem: 'AMBOS',
+        classificacao: 'CONCILIADO',
+        motivo: pair.tokenMatch
+          ? 'Plataforma e vendedor identificados com valor exato'
+          : 'Plataforma coincidente com valor rigorosamente exato e data compatível',
+        scoreConfianca: Math.min(95, Math.max(70, pair.priorityScore)),
+        linhaOdooOrigem: pair.s.sys.linhaOrigem,
+        paginaFaturaOrigem: pair.c.card.paginaOrigem,
+        isInternacional: pair.c.card.isInternacional,
+        moedaOriginal: pair.c.card.moedaGlobal || 'BRL',
+        observacaoManualFatura: pair.c.card.observacaoManual,
+        observacaoManualOdoo: pair.s.sys.observacaoManual,
+      })
+    }
+  }
+
+  // 7b. Fallback por valor estritamente único geral (para transações fora de famílias conhecidas)
   const remainingSysExact = eligibleSys.filter((s) => !matchedSystemIds.has(s.sys.id))
   const remainingCardExact = eligibleCard.filter((c) => !matchedCardIds.has(c.card.id))
 
   for (const s of remainingSysExact) {
     if (matchedSystemIds.has(s.sys.id)) continue
 
-    // Conta quantos registros no Odoo têm esse exato valor (ou próximo dentro de R$ 0,50)
-    const sysSameValCount = eligibleSys.filter((other) => Math.abs(other.val - s.val) < 0.01).length
-    const sysNearValCount = eligibleSys.filter((other) => Math.abs(other.val - s.val) <= 0.5).length
-
-    // Candidatos na fatura com mesmo valor
+    const sCents = toIntegerCents(s.val)
+    const sysSameValCount = eligibleSys.filter(
+      (other) => toIntegerCents(other.val) === sCents,
+    ).length
     const cardSameValCandidates = remainingCardExact.filter(
-      (c) => !matchedCardIds.has(c.card.id) && Math.abs(c.val - s.val) < 0.01,
+      (c) => !matchedCardIds.has(c.card.id) && toIntegerCents(c.val) === sCents,
     )
     const cardAllSameValCount = eligibleCard.filter(
-      (other) => Math.abs(other.val - s.val) < 0.01,
-    ).length
-    const cardNearValCount = eligibleCard.filter(
-      (other) => Math.abs(other.val - s.val) <= 0.5,
+      (other) => toIntegerCents(other.val) === sCents,
     ).length
 
-    // Condição de unicidade estrita absoluta:
-    // Exatamente 1 em cada fonte com esse valor
+    // Apenas se for estritamente único em ambas as fontes e houver alguma afinidade de nome (> 0)
     if (cardSameValCandidates.length === 1 && sysSameValCount === 1 && cardAllSameValCount === 1) {
       const c = cardSameValCandidates[0]
+      const nameSim = calculateNameSimilarity(s.sys.parceiro, c.card.estabelecimento)
 
-      const isMlS = isMarketplaceFamily(s.sys.parceiro)
-      const isMlC = isMarketplaceFamily(c.card.estabelecimento)
-
-      // Se ambos pertencem à família de marketplace:
-      if (isMlS && isMlC) {
-        // Checagem rigorosa de concorrentes na família:
-        // Não pode haver outro lançamento com valor próximo (<= R$ 0.50) na família em qualquer fonte
-        const mlSysNear = eligibleSys.filter(
-          (other) => isMarketplaceFamily(other.sys.parceiro) && Math.abs(other.val - s.val) <= 0.5,
-        ).length
-        const mlCardNear = eligibleCard.filter(
-          (other) =>
-            isMarketplaceFamily(other.card.estabelecimento) && Math.abs(other.val - s.val) <= 0.5,
-        ).length
-
-        // Se houver qualquer outro candidato próximo na família, NÃO casa por fallback (fica exclusivo)
-        if (mlSysNear > 1 || mlCardNear > 1 || sysNearValCount > 1 || cardNearValCount > 1) {
-          continue
-        }
-
+      if (nameSim >= 0.2) {
         matchedSystemIds.add(s.sys.id)
         matchedCardIds.add(c.card.id)
 
@@ -498,7 +633,7 @@ export function reconcileData(
           status: 'GREEN',
           origem: 'AMBOS',
           classificacao: 'CONCILIADO',
-          motivo: 'Valor rigorosamente único nas duas fontes e plataforma coincidente',
+          motivo: 'Valor rigorosamente único nas duas fontes e afinidade textual confirmada',
           scoreConfianca: 70,
           linhaOdooOrigem: s.sys.linhaOrigem,
           paginaFaturaOrigem: c.card.paginaOrigem,

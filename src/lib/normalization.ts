@@ -280,9 +280,13 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
   const isGenericMlA = distinctiveA.length === 0
   const isGenericMlB = distinctiveB.length === 0
 
+  // Se ambos são marketplace e UM ou AMBOS os lados só contêm o nome da plataforma,
+  // atribuímos similaridade baixa/neutra (0.25) para não zerar sumariamente a relação de plataforma,
+  // mas sem atingir o limiar de fases por similaridade alta (nameSim >= 0.32/0.45).
+  // A fase específica por família de plataforma (Fase de Plataforma) tratará o pareamento
+  // se houver valor exato e candidato inequívoco.
   if (bothMarketplaceFamily && (isGenericMlA || isGenericMlB)) {
-    // Regra: nome da plataforma = zero evidência distintiva
-    return 0.0
+    return 0.25
   }
 
   // Overlap assimétrico: se um nome curto da fatura ("SJX ATACAD") ou token truncado ("DONEMBALAGENS")
@@ -444,10 +448,11 @@ export function calculateNameSimilarity(rawA: string, rawB: string): number {
   const marketplaceFamilyBonus =
     bothMarketplaceFamily && (coveredOfMin > 0 || subTokenMatch) ? 0.05 : 0
 
-  // Se ambos são do marketplace mas NENHUM token distintivo do vendedor coincidiu,
-  // o overlap deve ser zerado (a família da plataforma não pode casar nomes diferentes)
+  // Se ambos são do marketplace mas NENHUM token distintivo do vendedor coincidiu:
+  // Se eram dois vendedores distintos identificados (ex: Vendedor Alfa vs Vendedor Beta), overlap é 0.
+  // Se um dos lados era genérico (sem vendedor distintivo), mantém afinidade neutra (0.25).
   if (bothMarketplaceFamily && coveredOfMin === 0 && !subTokenMatch && brandBonus === 0) {
-    return 0.0
+    return isGenericMlA || isGenericMlB ? 0.25 : 0.0
   }
 
   return Math.min(1.0, overlapScore * 0.8 + brandBonus + marketplaceFamilyBonus)
@@ -668,4 +673,35 @@ export function calculateDateDifferenceInDays(
 
   const diffMs = Math.abs(dateA.getTime() - dateB.getTime())
   return Math.round(diffMs / (1000 * 60 * 60 * 24))
+}
+
+export type PlatformFamily = 'mercadolivre' | 'vindi' | 'starlink' | 'uber' | 'openai' | 'none'
+
+/**
+ * Identifica a família de plataforma/marketplace de um nome
+ */
+export function getPlatformFamily(name?: string): PlatformFamily {
+  if (!name) return 'none'
+  const norm = name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+
+  if (/mercado\s*livre|mercadolivre|mercado\*|mp\s*\*|meli/i.test(norm)) {
+    return 'mercadolivre'
+  }
+  if (/vindi/i.test(norm)) {
+    return 'vindi'
+  }
+  if (/starlink/i.test(norm)) {
+    return 'starlink'
+  }
+  if (/uber/i.test(norm)) {
+    return 'uber'
+  }
+  if (/openai|chatgpt/i.test(norm)) {
+    return 'openai'
+  }
+  return 'none'
 }
