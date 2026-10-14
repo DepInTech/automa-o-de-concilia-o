@@ -132,6 +132,8 @@ export interface ReconciliationMetrics {
   totalValorExclusivoSistema: number
   totalValorExclusivoFatura: number
   totalDiferencaDivergentes: number
+  totalValorDivergentesFatura?: number
+  totalValorDivergentesSistema?: number
   diferencaTotal: number
   percentualConciliacao: number
 }

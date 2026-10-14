@@ -1086,6 +1086,21 @@ export function calculateReconciliationMetrics(
   )
   const totalDiferencaDivergentes = roundToCents(totalDiferencaDivergentesCents / 100)
 
+  const totalValorDivergentesFaturaCents = divergent.reduce(
+    (sum, r) =>
+      sum +
+      (r.valorFatura !== null && r.valorFatura !== undefined ? toIntegerCents(r.valorFatura) : 0),
+    0,
+  )
+  const totalValorDivergentesFatura = roundToCents(totalValorDivergentesFaturaCents / 100)
+
+  const totalValorDivergentesSistemaCents = divergent.reduce(
+    (sum, r) =>
+      sum + (r.credito !== null && r.credito !== undefined ? toIntegerCents(r.credito) : 0),
+    0,
+  )
+  const totalValorDivergentesSistema = roundToCents(totalValorDivergentesSistemaCents / 100)
+
   const diferencaTotal = computeStrictDifference(totalValorFatura, totalValorSistema)
 
   const percentualConciliacao =
@@ -1111,6 +1126,8 @@ export function calculateReconciliationMetrics(
     totalValorExclusivoSistema,
     totalValorExclusivoFatura,
     totalDiferencaDivergentes,
+    totalValorDivergentesFatura,
+    totalValorDivergentesSistema,
     diferencaTotal,
     percentualConciliacao,
   }

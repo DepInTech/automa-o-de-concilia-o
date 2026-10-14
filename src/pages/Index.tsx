@@ -511,6 +511,78 @@ export default function Index() {
           )}
         </Button>
       </div>
+
+      {/* Painel Informativo / Estado Vazio do Dashboard */}
+      <div className="rounded-2xl border border-[#00796F]/20 bg-gradient-to-br from-white to-[#F4F8F7] dark:from-[#0D3834] dark:to-[#071F1D] p-6 sm:p-7 shadow-sm">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-4 border-b border-[#00796F]/10 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#00796F] dark:bg-[#20BFA9]" />
+            <h3 className="text-sm font-bold uppercase tracking-wider text-[#004A46] dark:text-[#20BFA9]">
+              Visão Geral do Painel • Como os Lançamentos São Classificados
+            </h3>
+          </div>
+          <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#00796F]/10 text-[#00796F] dark:text-[#20BFA9]">
+            Aguardando Execução da Conciliação
+          </span>
+        </div>
+
+        <p className="text-xs sm:text-sm text-[#647875] dark:text-[#A7C4C0] mb-5">
+          Assim que a fatura e o relatório do Odoo forem enviados (ou ao clicar em{' '}
+          <strong className="text-[#004A46] dark:text-[#20BFA9]">Usar Dados de Demonstração</strong>
+          ), os indicadores em tempo real serão calculados com a contagem exata e a soma em R$ dos
+          lançamentos por status:
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          {/* Guia Verde: Conciliados */}
+          <div className="rounded-xl border border-emerald-300/60 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 p-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" /> 🟢 Conciliados
+              </span>
+              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+                VERDE
+              </span>
+            </div>
+            <p className="text-xs text-[#647875] dark:text-[#A7C4C0] leading-relaxed">
+              Lançamentos encontrados em ambas as fontes com valor idêntico e
+              estabelecimento/parceiro correspondente.
+            </p>
+          </div>
+
+          {/* Guia Amarelo: Divergentes */}
+          <div className="rounded-xl border border-amber-300/60 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-500" /> 🟡 Divergentes
+              </span>
+              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+                AMARELO
+              </span>
+            </div>
+            <p className="text-xs text-[#647875] dark:text-[#A7C4C0] leading-relaxed">
+              Lançamentos pareados com mesmo estabelecimento/parceiro, mas com diferença entre o
+              valor da fatura e o Odoo.
+            </p>
+          </div>
+
+          {/* Guia Vermelho: Não Conciliados */}
+          <div className="rounded-xl border border-rose-300/60 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/20 p-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-bold text-rose-800 dark:text-rose-300 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-rose-500" /> 🔴 Não Conciliados
+              </span>
+              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300">
+                VERMELHO
+              </span>
+            </div>
+            <p className="text-xs text-[#647875] dark:text-[#A7C4C0] leading-relaxed">
+              Contagem desdobrada em <strong>Somente Sistema</strong> (existe no Odoo) e{' '}
+              <strong>Somente Fatura</strong> (existe no cartão).
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
