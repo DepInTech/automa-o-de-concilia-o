@@ -61,6 +61,8 @@ export default function Index() {
 
   const [isProcessing, setIsProcessing] = useState(false)
   const [parseError, setParseError] = useState<string | null>(null)
+  const [activeFilter, setActiveFilter] = useState<string>('ALL')
+  const [lastUpdated, setLastUpdated] = useState<string>('')
 
   // Se o contexto possuir uma sessão anterior e o estado local estiver zerado, sincroniza
   useEffect(() => {
@@ -237,6 +239,7 @@ export default function Index() {
     // Camada 3: Processamento da conciliação a partir de clones profundos e congelados das fontes
     const reconciled = reconcileData(systemRecords, cardRecords, bank)
     setResults(reconciled)
+    setLastUpdated(new Date().toLocaleString('pt-BR'))
     // Persiste no store de sessão para que o dashboard da home e qualquer navegação reflitam o resultado
     saveSession({
       bank,
@@ -377,20 +380,39 @@ export default function Index() {
   if (step === 'results') {
     return (
       <div className="max-w-7xl mx-auto space-y-6 pb-12 animate-fade-in">
-        {/* Banner / Cabeçalho Corporativo Grupo EPA */}
-        <div className="relative overflow-hidden rounded-2xl border border-[#00796F]/20 bg-gradient-to-r from-[#004A46] via-[#00796F] to-[#042B28] p-6 sm:p-8 text-white shadow-md">
-          <div className="relative z-10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        {/* Cabeçalho Corporativo e Limpo */}
+        <div className="rounded-2xl border border-[#00796F]/20 bg-gradient-to-r from-[#004A46] via-[#00796F] to-[#042B28] p-6 sm:p-7 text-white shadow-md">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm text-xs font-semibold text-white/90 mb-2.5">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm text-xs font-semibold text-white/90 mb-2">
                 <span className="w-2 h-2 rounded-full bg-[#20BFA9] animate-pulse" />
-                Auditoria e Conciliação Concluída
+                Conciliação Bancária • {bankLabels[bank]}
               </div>
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
-                Resultado da Conciliação
+                Conciliação Bancária
               </h1>
-              <p className="text-sm text-white/80 mt-1 font-medium">
-                {bankLabels[bank]} • {results.length} registros analisados lado a lado
-              </p>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-white/80 mt-1.5 font-medium">
+                <span>
+                  <strong>Período:</strong> Ciclo Atual (
+                  {results[0]?.dataFatura || results[0]?.dataOdoo || 'Junho/2026'})
+                </span>
+                <span>•</span>
+                <span>
+                  <strong>Fatura:</strong> {cardFile?.name || 'Fatura Itaú Empresas (PDF)'}
+                </span>
+                <span>•</span>
+                <span>
+                  <strong>Odoo:</strong> {systemFile?.name || 'Lançamento de Diário (Excel)'}
+                </span>
+                {lastUpdated && (
+                  <>
+                    <span>•</span>
+                    <span className="text-[#20BFA9]">
+                      <strong>Atualizado em:</strong> {lastUpdated}
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {invoiceConversion?.excelBlob && (
@@ -413,7 +435,7 @@ export default function Index() {
           </div>
         </div>
 
-        {/* Indicadores e Totais Separados */}
+        {/* Indicadores Principais e Resumo Financeiro Separado */}
         <SummaryCards
           results={results}
           systemRecords={systemRecords}
@@ -421,17 +443,23 @@ export default function Index() {
           systemRecordsCount={systemRecords.length}
           cardRecordsCount={cardRecords.length}
           bank={bank}
+          activeFilter={activeFilter}
+          onSelectFilter={(newFilter) => setActiveFilter(newFilter)}
         />
 
-        {/* Tabela de Resultados Lado a Lado com Exportação */}
-        <ResultsTable
-          data={results}
-          systemRecords={systemRecords}
-          cardRecords={cardRecords}
-          bank={bank}
-          onDownloadConvertedInvoice={handleDownloadConvertedInvoice}
-          hasConvertedInvoice={!!invoiceConversion?.excelBlob}
-        />
+        {/* Tabela de Resultados com Filtros Dinâmicos */}
+        <div id="reconciliation-table-section">
+          <ResultsTable
+            data={results}
+            systemRecords={systemRecords}
+            cardRecords={cardRecords}
+            bank={bank}
+            onDownloadConvertedInvoice={handleDownloadConvertedInvoice}
+            hasConvertedInvoice={!!invoiceConversion?.excelBlob}
+            initialFilter={activeFilter}
+            onFilterChange={(newFilter) => setActiveFilter(newFilter)}
+          />
+        </div>
       </div>
     )
   }
@@ -582,6 +610,12 @@ export default function Index() {
             systemRecordsCount={systemRecords.length}
             cardRecordsCount={cardRecords.length}
             bank={bank}
+            activeFilter={activeFilter}
+            onSelectFilter={(newFilter) => {
+              setActiveFilter(newFilter)
+              setStep('results')
+            }}
+            onNavigateToResults={() => setStep('results')}
           />
         </div>
       ) : (

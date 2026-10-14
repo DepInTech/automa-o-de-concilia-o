@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Table,
   TableBody,
@@ -34,13 +34,15 @@ import { AdherenceReportView } from '@/components/adherence-report'
 import { generateAdherenceReport } from '@/lib/reconciliation'
 import type { ReconciliationResult, SystemRecord, CardRecord, BankType } from '@/lib/types'
 
-interface ResultsTableProps {
+export interface ResultsTableProps {
   data: ReconciliationResult[]
   systemRecords: SystemRecord[]
   cardRecords: CardRecord[]
   bank: BankType
   onDownloadConvertedInvoice?: () => void
   hasConvertedInvoice?: boolean
+  initialFilter?: string
+  onFilterChange?: (filter: string) => void
 }
 
 export function ResultsTable({
@@ -50,9 +52,24 @@ export function ResultsTable({
   bank,
   onDownloadConvertedInvoice,
   hasConvertedInvoice = false,
+  initialFilter,
+  onFilterChange,
 }: ResultsTableProps) {
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('ALL')
+  const [filter, setFilterState] = useState<string>(initialFilter || 'ALL')
+
+  useEffect(() => {
+    if (initialFilter !== undefined) {
+      setFilterState(initialFilter)
+    }
+  }, [initialFilter])
+
+  const setFilter = (newFilter: string) => {
+    setFilterState(newFilter)
+    if (onFilterChange) {
+      onFilterChange(newFilter)
+    }
+  }
   const [sortOrder, setSortOrder] = useState<
     'VALOR_ASC' | 'VALOR_DESC' | 'VALOR_ODOO' | 'VALOR_FATURA' | 'DATA' | 'ESTABELECIMENTO'
   >('VALOR_ASC')
@@ -79,7 +96,11 @@ export function ResultsTable({
         (r.numero ?? '').toLowerCase().includes(q) ||
         (r.referencia ?? '').toLowerCase().includes(q) ||
         (r.motivo ?? '').toLowerCase().includes(q)
-      return matchSearch && (filter === 'ALL' || r.status === filter)
+      if (!matchSearch) return false
+      if (filter === 'ALL') return true
+      if (filter === 'SOMENTE_SISTEMA') return r.status === 'RED' && r.origem === 'SISTEMA'
+      if (filter === 'SOMENTE_FATURA') return r.status === 'RED' && r.origem === 'FATURA'
+      return r.status === filter
     })
     .sort((a, b) => {
       const valA = a.credito !== null && a.credito !== undefined ? a.credito : a.valorFatura || 0
@@ -496,19 +517,33 @@ export function ResultsTable({
                   <SelectItem value="GREEN">
                     <span className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      Conciliados (Verde)
+                      Conciliados ({data.filter((d) => d.status === 'GREEN').length})
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="SOMENTE_SISTEMA">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-rose-500" />
+                      Somente Odoo (
+                      {data.filter((d) => d.status === 'RED' && d.origem === 'SISTEMA').length})
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="SOMENTE_FATURA">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-rose-600" />
+                      Somente Fatura (
+                      {data.filter((d) => d.status === 'RED' && d.origem === 'FATURA').length})
                     </span>
                   </SelectItem>
                   <SelectItem value="YELLOW">
                     <span className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-amber-500" />
-                      Divergentes (Amarelo)
+                      Divergentes ({data.filter((d) => d.status === 'YELLOW').length})
                     </span>
                   </SelectItem>
                   <SelectItem value="RED">
                     <span className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-rose-500" />
-                      Exclusivos (Vermelho)
+                      <span className="w-2 h-2 rounded-full bg-rose-700" />
+                      Todos Exclusivos ({data.filter((d) => d.status === 'RED').length})
                     </span>
                   </SelectItem>
                 </SelectContent>
