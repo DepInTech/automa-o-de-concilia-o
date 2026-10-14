@@ -17,11 +17,18 @@ import {
   normalizeEntityName,
   isFiscalIdentifierSequence,
 } from './normalization'
-import { generateXlsxBlob, type ExcelSheet } from './xlsx-generator'
+import { generateXlsxBlob, type ExcelSheet, type CellValue } from './xlsx-generator'
+import {
+  parseInvoiceByBank,
+  classifyExpense,
+  detectBankFromText,
+  type BankParsedInvoice,
+  type ParsedInvoiceTransaction,
+} from './invoice-bank-parser'
 
 export interface InvoiceExtractedRecord {
   id: string
-  /** Data no formato DD/MM/AAAA */
+  /** Data no formato DD/MM/AAAA ou DD/MM */
   data: string
   /** Descrição original exatamente como impressa na fatura */
   descricaoOriginal: string
@@ -33,10 +40,18 @@ export interface InvoiceExtractedRecord {
   moedaOriginal: string
   /** Valor em reais efetivamente cobrado na fatura (referência contábil) */
   valorReais: number
-  /** Portador do cartão, quando identificado */
+  /** Valor em USD quando internacional */
+  valorUSD?: number | null
+  /** Cotação do dólar quando internacional */
+  cotacao?: number | null
+  /** Categoria financeira da transação */
+  categoria?: string
+  /** Portador do cartão, quando identificado (ex: "A.S.E. Rameh (1234)") */
   portador?: string
   /** Parcela, se informada (ex: '01/03') */
   parcela?: string
+  /** Observação da transação */
+  observacao?: string
   /** Observação manual presente na conferência */
   observacaoManual?: string
   /** 'Nacional' | 'Internacional' | 'Tarifa' | 'Estorno' */
@@ -49,8 +64,19 @@ export interface InvoiceExtractedRecord {
   rawLine?: string
 }
 
+export interface InvoiceCategorySummary {
+  categoria: string
+  quantidade: number
+  totalReais: number
+  percentual: number
+}
+
 export interface InvoiceConversionSummary {
   nomeArquivo: string
+  bancoDetectado: 'Santander Empresas' | 'Itaú Empresas' | 'Genérico'
+  cartao?: string
+  vencimento?: string
+  totalFaturaOficial?: string
   quantidadePaginas: number
   quantidadeTransacoes: number
   quantidadeRevisao: number
@@ -61,6 +87,7 @@ export interface InvoiceConversionSummary {
   paginasComFalha: number[]
   avisos: string[]
   isDigitalizadoOuVazio: boolean
+  resumoCategorias?: InvoiceCategorySummary[]
 }
 
 export interface InvoiceConversionResult {
@@ -471,6 +498,7 @@ export async function convertInvoiceSpreadsheetToExcel(
       registros: [],
       resumo: {
         nomeArquivo: fileName,
+        bancoDetectado: 'Itaú Empresas',
         quantidadePaginas: 1,
         quantidadeTransacoes: 0,
         quantidadeRevisao: 0,
@@ -496,6 +524,7 @@ export async function convertInvoiceSpreadsheetToExcel(
       registros: [],
       resumo: {
         nomeArquivo: fileName,
+        bancoDetectado: 'Itaú Empresas',
         quantidadePaginas: 1,
         quantidadeTransacoes: 0,
         quantidadeRevisao: 0,
@@ -660,6 +689,7 @@ export async function convertInvoiceSpreadsheetToExcel(
       registros: [],
       resumo: {
         nomeArquivo: fileName,
+        bancoDetectado: 'Itaú Empresas',
         quantidadePaginas: 1,
         quantidadeTransacoes: 0,
         quantidadeRevisao: 0,
@@ -710,12 +740,16 @@ export async function convertInvoiceSpreadsheetToExcel(
     'Data da Transação',
     'Descrição Original',
     'Nome Normalizado',
+    'Portador',
+    'Parcela',
     'Valor Original',
     'Moeda Original',
     'Valor em Reais (R$)',
-    'Portador',
-    'Parcela',
+    'Valor (US$)',
+    'Cotação US$',
+    'Categoria',
     'Tipo de Lançamento',
+    'Observação',
     'Página de Origem',
     'Confiança (%)',
   ]
@@ -724,29 +758,87 @@ export async function convertInvoiceSpreadsheetToExcel(
     r.data,
     r.descricaoOriginal,
     r.nomeNormalizado,
+    r.portador || '',
+    r.parcela || '',
     r.valorOriginal ?? r.valorReais,
     r.moedaOriginal,
     r.valorReais,
-    r.portador || '',
-    r.parcela || '',
+    r.valorUSD ?? '',
+    r.cotacao ?? '',
+    r.categoria || classifyExpense(r.descricaoOriginal),
     r.tipo,
+    r.observacao || r.observacaoManual || '',
     r.paginaOrigem,
     r.confianca,
   ])
 
+  // Resumo por categoria
+  const catMap = new Map<string, { count: number; total: number }>()
+  for (const r of records) {
+    const c = r.categoria || classifyExpense(r.descricaoOriginal)
+    const existing = catMap.get(c) || { count: 0, total: 0 }
+    existing.count++
+    existing.total += r.valorReais
+    catMap.set(c, existing)
+  }
+
+  const categorySummaryList: InvoiceCategorySummary[] = Array.from(catMap.entries()).map(
+    ([categoria, data]) => ({
+      categoria,
+      quantidade: data.count,
+      totalReais: Math.round(data.total * 100) / 100,
+      percentual:
+        totalValorReais !== 0 ? Math.round((data.total / totalValorReais) * 10000) / 100 : 0,
+    }),
+  )
+
   const aba2Headers = ['Campo', 'Valor / Descrição']
   const aba2Rows: (string | number)[][] = [
     ['Nome do Arquivo Original', fileName],
+    ['Banco Detectado', 'Itaú Empresas'],
     ['Quantidade de Páginas/Abas', 1],
     ['Quantidade de Transações Extraídas', records.length],
     ['Transações que Necessitam de Revisão', 0],
     ['Total dos Lançamentos em Reais (R$)', totalValorReais],
-    ['Avisos Identificados', 'Importado a partir de planilha (.xlsx/.csv)'],
+    [
+      'Total Oficial Declarado na Fatura',
+      totalDeclaradoChecksum ? `R$ ${totalDeclaradoChecksum.toFixed(2)}` : 'Não informado',
+    ],
+    [
+      'Divergência entre Soma e Declarado',
+      divergenciaChecksum ? `R$ ${divergenciaChecksum.toFixed(2)}` : '0,00',
+    ],
+    [
+      'Avisos Identificados',
+      sheetAvisos.length > 0
+        ? sheetAvisos.join(' | ')
+        : 'Importado a partir de planilha (.xlsx/.csv)',
+    ],
+    ['', ''],
+    ['--- RESUMO POR CATEGORIA ---', ''],
+    ['Categoria', 'Quantidade | Total em Reais (R$) | % do Total'],
   ]
 
+  for (const cat of categorySummaryList) {
+    aba2Rows.push([
+      cat.categoria,
+      `${cat.quantidade} lançamentos | R$ ${cat.totalReais.toFixed(2)} (${cat.percentual}%)`,
+    ])
+  }
+
   const excelBlob = generateXlsxBlob([
-    { name: 'Transacoes', headers: aba1Headers, rows: aba1Rows },
-    { name: 'Resumo da Extração', headers: aba2Headers, rows: aba2Rows },
+    {
+      name: 'Transacoes',
+      headers: aba1Headers,
+      rows: aba1Rows,
+      colWidths: [14, 38, 28, 24, 10, 14, 12, 18, 14, 12, 24, 16, 20, 12, 14],
+    },
+    {
+      name: 'Resumo da Extração',
+      headers: aba2Headers,
+      rows: aba2Rows,
+      colWidths: [36, 48],
+    },
   ])
 
   return {
@@ -754,6 +846,7 @@ export async function convertInvoiceSpreadsheetToExcel(
     registros: records,
     resumo: {
       nomeArquivo: fileName,
+      bancoDetectado: 'Itaú Empresas',
       quantidadePaginas: 1,
       quantidadeTransacoes: records.length,
       quantidadeRevisao: 0,
@@ -764,6 +857,7 @@ export async function convertInvoiceSpreadsheetToExcel(
       paginasComFalha: [],
       avisos: sheetAvisos,
       isDigitalizadoOuVazio: false,
+      resumoCategorias: categorySummaryList,
     },
     excelBlob,
     nomeArquivoExcel,
@@ -791,6 +885,7 @@ export async function convertInvoicePdfToExcel(
       registros: [],
       resumo: {
         nomeArquivo: fileName,
+        bancoDetectado: 'Genérico',
         quantidadePaginas: extraction.numPages || 0,
         quantidadeTransacoes: 0,
         quantidadeRevisao: 0,
@@ -798,23 +893,26 @@ export async function convertInvoicePdfToExcel(
         totalValorReais: 0,
         paginasComFalha: [1],
         avisos: [
-          'O arquivo PDF não contém texto pesquisável ou é uma digitalização (imagem escaneada). É necessário um PDF legível com texto digital.',
+          'O arquivo PDF não contém texto pesquisável ou é uma imagem digitalizada que requer OCR. É necessário enviar um PDF legível com texto digital.',
         ],
         isDigitalizadoOuVazio: true,
       },
       nomeArquivoExcel: fileName.replace(/\.pdf$/i, '_convertido.xlsx'),
       erroCritico:
-        'Não foi possível extrair texto do PDF. O arquivo pode ser uma imagem digitalizada ou estar protegido por senha.',
+        'Não foi possível extrair texto do PDF. O arquivo pode ser uma imagem digitalizada (requer OCR) ou estar protegido por senha.',
     }
   }
+
+  // 1. Executa o parser do banco de referência isolado (Santander / Itaú / Genérico)
+  const bankInvoice = parseInvoiceByBank(extraction.fullText)
 
   const allRecords: InvoiceExtractedRecord[] = []
   const startIdx = { val: 1 }
 
+  // 2. Extrai registros página a página para manter rastreabilidade de número de página
   for (const page of extraction.pages) {
     const pageRecs = extractRecordsFromPage(page, startIdx)
     if (pageRecs.length === 0 && page.text.trim().length > 100) {
-      // Página com texto abundante mas nenhum lançamento encontrado pode ser resumo/encargos
       const isPureSummary = page.lines.some((l) =>
         /resumo\s+da\s+fatura|encargos\s+desta|fique\s+atento/i.test(l),
       )
@@ -828,11 +926,61 @@ export async function convertInvoicePdfToExcel(
     allRecords.push(...pageRecs)
   }
 
+  // Se o parser página a página obteve menos transações que o bankInvoice isolado,
+  // ou se o bankInvoice encontrou lançamentos de alta qualidade do Santander/Itaú:
+  let candidateRecords: InvoiceExtractedRecord[] = allRecords
+  if (bankInvoice.transactions.length > allRecords.length) {
+    candidateRecords = bankInvoice.transactions.map((t, idx) => {
+      const nomeNorm = normalizeEntityName(t.descricao)
+      const isEstorno = t.valorBRL < 0 || /estorno|reembolso/i.test(t.descricao)
+      const isIntl =
+        (t.valorUSD !== null && t.valorUSD !== undefined) || t.observacao === 'Internacional'
+
+      return {
+        id: `fat-bank-${idx + 1}`,
+        data: normalizeCardDateYear(t.data),
+        descricaoOriginal: t.descricao,
+        nomeNormalizado: nomeNorm,
+        valorOriginal: isIntl && t.valorUSD ? Math.abs(t.valorUSD) : Math.abs(t.valorBRL),
+        moedaOriginal: isIntl ? 'USD' : 'BRL',
+        valorReais: t.valorBRL,
+        valorUSD: t.valorUSD,
+        cotacao: t.cotacao,
+        categoria: t.categoria,
+        portador: t.portador,
+        parcela: t.parcela,
+        observacao: t.observacao,
+        tipo: isEstorno ? 'Estorno' : isIntl ? 'Internacional' : 'Nacional',
+        paginaOrigem: 1,
+        confianca: nomeNorm.length >= 3 ? 95 : 75,
+        rawLine: t.rawLine,
+      }
+    })
+  } else {
+    // Mescla atributos de categoria, portador e cotação do bankInvoice quando disponíveis
+    for (const r of candidateRecords) {
+      if (!r.categoria) {
+        r.categoria = classifyExpense(r.descricaoOriginal)
+      }
+      if (!r.portador && bankInvoice.cartao) {
+        // Encontra se algum portador bateu no bankInvoice
+        const match = bankInvoice.transactions.find(
+          (t) =>
+            Math.abs(t.valorBRL - r.valorReais) < 0.01 &&
+            t.descricao.includes(r.descricaoOriginal.slice(0, 8)),
+        )
+        if (match?.portador) r.portador = match.portador
+        if (match?.valorUSD && !r.valorUSD) r.valorUSD = match.valorUSD
+        if (match?.cotacao && !r.cotacao) r.cotacao = match.cotacao
+      }
+    }
+  }
+
   // Desduplicação cuidadosa mantendo compras legítimas repetidas
   const deduped: InvoiceExtractedRecord[] = []
   const seenMap = new Map<string, number>()
 
-  for (const r of allRecords) {
+  for (const r of candidateRecords) {
     if (isSummaryOrFooter(r.descricaoOriginal)) continue
 
     const key = `${r.data}|${r.nomeNormalizado}|${r.valorReais.toFixed(2)}`
@@ -844,12 +992,24 @@ export async function convertInvoicePdfToExcel(
     }
   }
 
-  // Ordenação crescente por valor para a conferência inicial
+  // Ordenação crescente por valor para conferência
   deduped.sort((a, b) => a.valorReais - b.valorReais)
 
   const totalValorReais = Math.round(deduped.reduce((sum, r) => sum + r.valorReais, 0) * 100) / 100
   const quantidadeRevisao = deduped.filter((r) => r.confianca < 85).length
   const registrosComFalha = paginasComFalha.length
+
+  // Compara total dos lançamentos com o total declarado na fatura
+  const totalDeclaradoChecksum = bankInvoice.totalFaturaValor
+  let divergenciaChecksum: number | undefined
+  if (totalDeclaradoChecksum !== undefined && totalDeclaradoChecksum > 0) {
+    divergenciaChecksum = Math.round((totalValorReais - totalDeclaradoChecksum) * 100) / 100
+    if (Math.abs(divergenciaChecksum) > 0.01) {
+      avisos.push(
+        `Total calculado (R$ ${totalValorReais.toFixed(2)}) difere do total oficial impresso na fatura (R$ ${totalDeclaradoChecksum.toFixed(2)}) em R$ ${divergenciaChecksum.toFixed(2)}.`,
+      )
+    }
+  }
 
   if (deduped.length === 0) {
     return {
@@ -857,6 +1017,10 @@ export async function convertInvoicePdfToExcel(
       registros: [],
       resumo: {
         nomeArquivo: fileName,
+        bancoDetectado: bankInvoice.banco,
+        cartao: bankInvoice.cartao,
+        vencimento: bankInvoice.vencimento,
+        totalFaturaOficial: bankInvoice.totalFaturaDeclarado,
         quantidadePaginas: extraction.numPages,
         quantidadeTransacoes: 0,
         quantidadeRevisao: 0,
@@ -873,17 +1037,40 @@ export async function convertInvoicePdfToExcel(
     }
   }
 
-  // Construção do Excel Real (.xlsx) com as 2 abas obrigatórias
+  // Resumo por categoria
+  const catMap = new Map<string, { count: number; total: number }>()
+  for (const r of deduped) {
+    const c = r.categoria || classifyExpense(r.descricaoOriginal)
+    const cur = catMap.get(c) || { count: 0, total: 0 }
+    cur.count++
+    cur.total += r.valorReais
+    catMap.set(c, cur)
+  }
+
+  const categorySummaryList: InvoiceCategorySummary[] = Array.from(catMap.entries()).map(
+    ([categoria, d]) => ({
+      categoria,
+      quantidade: d.count,
+      totalReais: Math.round(d.total * 100) / 100,
+      percentual: totalValorReais !== 0 ? Math.round((d.total / totalValorReais) * 10000) / 100 : 0,
+    }),
+  )
+
+  // Construção do Excel Real (.xlsx) com as 2 abas estruturadas
   const aba1Headers = [
     'Data da Transação',
     'Descrição Original',
     'Nome Normalizado',
+    'Portador',
+    'Parcela',
     'Valor Original',
     'Moeda Original',
     'Valor em Reais (R$)',
-    'Portador',
-    'Parcela',
+    'Valor (US$)',
+    'Cotação US$',
+    'Categoria',
     'Tipo de Lançamento',
+    'Observação',
     'Página de Origem',
     'Confiança (%)',
   ]
@@ -892,13 +1079,16 @@ export async function convertInvoicePdfToExcel(
     r.data,
     r.descricaoOriginal,
     r.nomeNormalizado,
-    r.valorOriginal ?? r.valorReais,
-    r.moedaOriginal,
-    // VALOR NUMÉRICO REAL NO EXCEL (não texto formatado)
-    r.valorReais,
     r.portador || '',
     r.parcela || '',
+    r.valorOriginal ?? r.valorReais,
+    r.moedaOriginal,
+    r.valorReais,
+    r.valorUSD ?? '',
+    r.cotacao ?? '',
+    r.categoria || classifyExpense(r.descricaoOriginal),
     r.tipo,
+    r.observacao || r.observacaoManual || '',
     r.paginaOrigem,
     r.confianca,
   ])
@@ -906,27 +1096,51 @@ export async function convertInvoicePdfToExcel(
   const aba2Headers = ['Campo', 'Valor / Descrição']
   const aba2Rows: (string | number)[][] = [
     ['Nome do Arquivo Original', fileName],
+    ['Banco Detectado', bankInvoice.banco],
+    ['Cartão', bankInvoice.cartao || '—'],
+    ['Vencimento', bankInvoice.vencimento || '—'],
+    [
+      'Total Oficial da Fatura',
+      bankInvoice.totalFaturaDeclarado ||
+        (totalDeclaradoChecksum ? `R$ ${totalDeclaradoChecksum.toFixed(2)}` : 'Não informado'),
+    ],
     ['Quantidade de Páginas no PDF', extraction.numPages],
     ['Quantidade de Transações Extraídas', deduped.length],
     ['Transações que Necessitam de Revisão', quantidadeRevisao],
     ['Total dos Lançamentos em Reais (R$)', totalValorReais],
     [
+      'Divergência entre Soma e Declarado',
+      divergenciaChecksum ? `R$ ${divergenciaChecksum.toFixed(2)}` : '0,00',
+    ],
+    [
       'Páginas com Aviso de Extração',
       paginasComFalha.length > 0 ? paginasComFalha.join(', ') : 'Nenhuma',
     ],
     ['Avisos Identificados', avisos.length > 0 ? avisos.join(' | ') : 'Nenhum problema detectado'],
+    ['', ''],
+    ['--- RESUMO POR CATEGORIA ---', ''],
+    ['Categoria', 'Quantidade | Total em Reais (R$) | % do Total'],
   ]
+
+  for (const cat of categorySummaryList) {
+    aba2Rows.push([
+      cat.categoria,
+      `${cat.quantidade} lançamentos | R$ ${cat.totalReais.toFixed(2)} (${cat.percentual}%)`,
+    ])
+  }
 
   const sheets: ExcelSheet[] = [
     {
       name: 'Transacoes',
       headers: aba1Headers,
       rows: aba1Rows,
+      colWidths: [14, 38, 28, 24, 10, 14, 12, 18, 14, 12, 24, 16, 20, 12, 14],
     },
     {
       name: 'Resumo da Extração',
       headers: aba2Headers,
       rows: aba2Rows,
+      colWidths: [36, 48],
     },
   ]
 
@@ -939,14 +1153,21 @@ export async function convertInvoicePdfToExcel(
     registros: deduped,
     resumo: {
       nomeArquivo: fileName,
+      bancoDetectado: bankInvoice.banco,
+      cartao: bankInvoice.cartao,
+      vencimento: bankInvoice.vencimento,
+      totalFaturaOficial: bankInvoice.totalFaturaDeclarado,
       quantidadePaginas: extraction.numPages,
       quantidadeTransacoes: deduped.length,
       quantidadeRevisao,
       registrosComFalha,
       totalValorReais,
+      totalDeclaradoChecksum,
+      divergenciaChecksum,
       paginasComFalha,
       avisos,
       isDigitalizadoOuVazio: false,
+      resumoCategorias: categorySummaryList,
     },
     excelBlob,
     nomeArquivoExcel,

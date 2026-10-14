@@ -76,6 +76,7 @@ export function StructuredValidation({
   const totalInvoice = invoiceSummary?.totalValorReais ?? 0
   const totalOdoo = odooResult?.totalMonetario ?? 0
   const diferencaPreliminar = Math.round((totalInvoice - totalOdoo) * 100) / 100
+  const categories = invoiceSummary?.resumoCategorias || []
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 animate-fade-in pb-12">
@@ -141,7 +142,8 @@ export function StructuredValidation({
         <Card className="rounded-2xl border-2 border-rose-300/40 bg-white dark:bg-[#0D3834] shadow-sm">
           <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-xs font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400 flex items-center gap-1.5">
-              <FileText className="w-4 h-4 text-rose-600" /> Fatura do Cartão (PDF)
+              <FileText className="w-4 h-4 text-rose-600" /> Fatura:{' '}
+              {invoiceSummary?.bancoDetectado || 'Cartão Corporativo'}
             </CardTitle>
             <Badge
               variant="outline"
@@ -158,13 +160,17 @@ export function StructuredValidation({
               <span>Arquivo: {invoiceSummary?.nomeArquivo || 'fatura.pdf'}</span>
               <span>{invoiceSummary?.quantidadePaginas || 1} pág(s)</span>
             </div>
-            <div className="text-[11px] text-[#647875] dark:text-[#A7C4C0] flex justify-between">
-              <span>Falhas de leitura: {invoiceSummary?.registrosComFalha ?? 0}</span>
-              {invoiceSummary?.quantidadeRevisao ? (
-                <span className="text-amber-700 dark:text-amber-400 font-medium">
-                  {invoiceSummary.quantidadeRevisao} p/ conferência
+            {invoiceSummary?.totalFaturaOficial && (
+              <div className="text-[11px] text-[#647875] dark:text-[#A7C4C0] flex justify-between bg-rose-50/50 dark:bg-rose-950/20 px-2 py-0.5 rounded">
+                <span>Total Oficial Impresso:</span>
+                <span className="font-semibold text-rose-800 dark:text-rose-300">
+                  {invoiceSummary.totalFaturaOficial}
                 </span>
-              ) : null}
+              </div>
+            )}
+            <div className="text-[11px] text-[#647875] dark:text-[#A7C4C0] flex justify-between">
+              <span>Cartão: {invoiceSummary?.cartao || '—'}</span>
+              <span>Venc: {invoiceSummary?.vencimento || '—'}</span>
             </div>
           </CardContent>
         </Card>
@@ -220,6 +226,42 @@ export function StructuredValidation({
         </Card>
       </div>
 
+      {/* Resumo por Categoria Extraída (Referência do Importador EPA) */}
+      {categories.length > 0 && (
+        <div className="rounded-2xl border border-[#00796F]/20 bg-white dark:bg-[#0D3834] p-5 shadow-sm space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[#00796F] dark:text-[#20BFA9]">
+              Resumo da Fatura por Categoria (EPA)
+            </h2>
+            <span className="text-[11px] text-[#647875] dark:text-[#A7C4C0]">
+              {categories.length} categorias identificadas
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {categories.map((c) => (
+              <div
+                key={c.categoria}
+                className="p-3 rounded-xl border border-[#00796F]/15 bg-[#F4F8F7]/60 dark:bg-[#071F1D]/60 space-y-1"
+              >
+                <div
+                  className="text-[11px] font-semibold text-[#647875] dark:text-[#A7C4C0] truncate"
+                  title={c.categoria}
+                >
+                  {c.categoria}
+                </div>
+                <div className="text-base font-bold font-mono text-[#163A38] dark:text-[#F1F5F4]">
+                  {formatCurrency(c.totalReais)}
+                </div>
+                <div className="text-[10px] text-[#8C9E9B] dark:text-[#7A9894] flex justify-between">
+                  <span>{c.quantidade} lançamentos</span>
+                  <span>{c.percentual}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Abas de Navegação e Visualização dos Dados Convertidos */}
       <div className="rounded-2xl border border-[#00796F]/20 bg-white dark:bg-[#0D3834] overflow-hidden shadow-sm">
         <div className="p-4 border-b border-[#00796F]/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[#F4F8F7]/50 dark:bg-[#071F1D]/50">
@@ -271,46 +313,62 @@ export function StructuredValidation({
             <table className="w-full text-left text-xs">
               <thead className="bg-[#F4F8F7] dark:bg-[#071F1D] text-[#004A46] dark:text-[#20BFA9] font-bold sticky top-0 border-b border-[#00796F]/10">
                 <tr>
-                  <th className="py-2.5 px-3">Pág.</th>
                   <th className="py-2.5 px-3">Data</th>
                   <th className="py-2.5 px-3">Descrição Original</th>
-                  <th className="py-2.5 px-3">Nome Normalizado</th>
-                  <th className="py-2.5 px-3">Tipo</th>
+                  <th className="py-2.5 px-3">Portador</th>
                   <th className="py-2.5 px-3">Parcela</th>
                   <th className="py-2.5 px-3 text-right">Valor em R$</th>
-                  <th className="py-2.5 px-3 text-center">Confiança</th>
+                  <th className="py-2.5 px-3">Categoria</th>
+                  <th className="py-2.5 px-3">Tipo</th>
+                  <th className="py-2.5 px-3 text-center">Pág.</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#00796F]/10">
                 {filteredInvoice.map((rec) => (
                   <tr key={rec.id} className="hover:bg-[#F4F8F7]/50 dark:hover:bg-[#071F1D]/50">
-                    <td className="py-2 px-3 font-mono text-[#647875]">{rec.paginaOrigem}</td>
                     <td className="py-2 px-3 font-mono">{rec.data}</td>
-                    <td className="py-2 px-3 font-medium">{rec.descricaoOriginal}</td>
+                    <td className="py-2 px-3 font-medium" title={rec.descricaoOriginal}>
+                      {rec.descricaoOriginal}
+                    </td>
                     <td className="py-2 px-3 text-[#647875] dark:text-[#A7C4C0]">
-                      {rec.nomeNormalizado}
+                      {rec.portador ? (
+                        <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                          {rec.portador}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="py-2 px-3 font-mono text-[#647875]">{rec.parcela || '—'}</td>
+                    <td
+                      className={`py-2 px-3 text-right font-mono font-bold ${
+                        rec.valorReais < 0
+                          ? 'text-emerald-700 dark:text-emerald-400'
+                          : 'text-[#163A38] dark:text-[#F1F5F4]'
+                      }`}
+                    >
+                      {formatCurrency(rec.valorReais)}
+                    </td>
+                    <td className="py-2 px-3">
+                      <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#F4F8F7] dark:bg-[#071F1D] text-[#00796F] dark:text-[#20BFA9] border border-[#00796F]/15">
+                        {rec.categoria || 'Outros'}
+                      </span>
                     </td>
                     <td className="py-2 px-3">
                       <span
                         className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${
                           rec.tipo === 'Internacional'
-                            ? 'bg-blue-100 text-blue-800'
+                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
                             : rec.tipo === 'Estorno'
-                              ? 'bg-purple-100 text-purple-800'
-                              : 'bg-emerald-100 text-emerald-800'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+                              : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200'
                         }`}
                       >
                         {rec.tipo}
                       </span>
                     </td>
-                    <td className="py-2 px-3 font-mono text-[#647875]">{rec.parcela || '-'}</td>
-                    <td className="py-2 px-3 text-right font-mono font-bold">
-                      {formatCurrency(rec.valorReais)}
-                    </td>
-                    <td className="py-2 px-3 text-center">
-                      <span className="font-mono text-[11px] font-bold text-emerald-600">
-                        {rec.confianca}%
-                      </span>
+                    <td className="py-2 px-3 text-center font-mono text-[#647875]">
+                      {rec.paginaOrigem}
                     </td>
                   </tr>
                 ))}

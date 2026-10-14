@@ -30,6 +30,7 @@ export interface CardRecord {
   cartaoTitular?: string
   parcela?: string
   observacao?: string
+  valorUSD?: number | null
   /** Observação manual presente no arquivo de conferência (ex.: "Apenas Fatura", "divergente") */
   observacaoManual?: string
   /** Página do PDF de onde foi extraído */

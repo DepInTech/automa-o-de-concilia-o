@@ -412,11 +412,11 @@ export default function Index() {
           Gestão Financeira • Grupo EPA
         </div>
         <h1 className="text-3xl sm:text-4xl font-black text-[#163A38] dark:text-[#F1F5F4] tracking-tight">
-          Conciliação Financeira
+          Conciliação Financeira & Conversor de Fatura
         </h1>
         <p className="text-[#647875] dark:text-[#A7C4C0] text-base sm:text-lg max-w-2xl mx-auto">
-          Envie a fatura do cartão em PDF e o Lançamento de Diário do Odoo em Excel para conversão e
-          conciliação automática.
+          Envie o PDF da fatura do cartão corporativo (Santander / Itaú) para conversão direta em
+          Excel (.xlsx) e conciliação com o Lançamento de Diário do Odoo.
         </p>
       </div>
 
@@ -435,7 +435,30 @@ export default function Index() {
 
       {/* Cards de Upload */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Campo 1: Sistema (Odoo) - Planilha */}
+        {/* Campo 1: Fatura do Cartão - PDF com Conversor */}
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="font-bold text-sm text-rose-700 dark:text-rose-400 flex items-center gap-2">
+              <FileText className="w-4 h-4 text-rose-600" />
+              Fatura em PDF (Santander / Itaú)
+            </h2>
+            <span className="text-[11px] font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 px-2.5 py-0.5 rounded-full border border-rose-200/50">
+              Conversor Integrado • Excel (.xlsx)
+            </span>
+          </div>
+          <UploadZone
+            title="Fatura do Cartão em PDF"
+            id="card-file"
+            file={cardFile}
+            onChange={setCardFile}
+            acceptType="card"
+            description="Selecione ou arraste o PDF da fatura. Detecta automaticamente Santander Empresas ou Itaú Empresas."
+            subDescription="Extrai data, estabelecimento original, portador, parcela, valor BRL/USD, cotação e gera planilha com abas 'Transações' e 'Resumo'."
+            badgeText="Fatura em PDF"
+          />
+        </div>
+
+        {/* Campo 2: Sistema (Odoo) - Planilha */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between px-1">
             <h2 className="font-bold text-sm text-[#004A46] dark:text-[#20BFA9] flex items-center gap-2">
@@ -452,32 +475,9 @@ export default function Index() {
             onChange={setSystemFile}
             onDownloadSample={handleDownloadSystemSample}
             acceptType="spreadsheet"
-            description="Envie a planilha original de Lançamento de Diário do Odoo."
+            description="Envie a planilha original de Lançamento de Diário do Odoo para conciliar com os dados da fatura."
             subDescription="Mapeia automaticamente Data, Número, Parceiro, Referência, Diário e Total sem posições fixas."
             badgeText="Planilha do Sistema"
-          />
-        </div>
-
-        {/* Campo 2: Fatura do Cartão - PDF */}
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between px-1">
-            <h2 className="font-bold text-sm text-rose-700 dark:text-rose-400 flex items-center gap-2">
-              <FileText className="w-4 h-4 text-rose-600" />
-              Fatura do Cartão ({bankLabels[bank]})
-            </h2>
-            <span className="text-[11px] font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 px-2.5 py-0.5 rounded-full border border-rose-200/50">
-              Fatura em PDF • Conversor Automático
-            </span>
-          </div>
-          <UploadZone
-            title="Fatura do Cartão"
-            id="card-file"
-            file={cardFile}
-            onChange={setCardFile}
-            acceptType="card"
-            description="Envie o PDF original da fatura Itaú (nacionais e internacionais)."
-            subDescription="O sistema converterá o PDF em Excel (.xlsx) com conferência de transações antes de conciliar."
-            badgeText="Fatura em PDF"
           />
         </div>
       </div>

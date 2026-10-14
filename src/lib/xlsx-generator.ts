@@ -143,36 +143,54 @@ function createZipStore(entries: ZipEntry[]): Uint8Array {
   return out
 }
 
-export type CellValue = string | number | boolean | null | undefined
+export type CellFormula = { f: string; v?: number | string }
+export type CellValue = string | number | boolean | CellFormula | null | undefined
 
 export interface ExcelSheet {
   name: string
-  headers: string[]
+  headers?: string[]
   rows: CellValue[][]
+  colWidths?: number[]
 }
 
 /**
  * Constrói a estrutura XML de uma planilha individual
  */
-function buildWorksheetXml(headers: string[], rows: CellValue[][]): string {
+function buildWorksheetXml(
+  headers: string[] | undefined,
+  rows: CellValue[][],
+  colWidths?: number[],
+): string {
   let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<sheetData>`
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`
 
-  // Linha 1: Cabeçalhos
-  if (headers.length > 0) {
-    xml += `<row r="1">`
+  if (colWidths && colWidths.length > 0) {
+    xml += `<cols>`
+    colWidths.forEach((w, idx) => {
+      xml += `<col min="${idx + 1}" max="${idx + 1}" width="${w}" customWidth="1"/>`
+    })
+    xml += `</cols>`
+  }
+
+  xml += `<sheetData>`
+
+  let currentRowNum = 1
+
+  // Se houver cabeçalhos explícitos
+  if (headers && headers.length > 0) {
+    xml += `<row r="${currentRowNum}">`
     headers.forEach((h, colIdx) => {
-      const cellRef = `${indexToCol(colIdx)}1`
+      const cellRef = `${indexToCol(colIdx)}${currentRowNum}`
       const escaped = escapeXml(h)
       xml += `<c r="${cellRef}" t="inlineStr"><is><t>${escaped}</t></is></c>`
     })
     xml += `</row>`
+    currentRowNum++
   }
 
-  // Linhas de dados (a partir da linha 2)
-  rows.forEach((row, rowIdx) => {
-    const rowNum = rowIdx + 2
+  // Linhas de dados
+  rows.forEach((row) => {
+    const rowNum = currentRowNum++
     xml += `<row r="${rowNum}">`
     row.forEach((cell, colIdx) => {
       const cellRef = `${indexToCol(colIdx)}${rowNum}`
@@ -180,8 +198,14 @@ function buildWorksheetXml(headers: string[], rows: CellValue[][]): string {
         // Célula vazia
         return
       }
-      if (typeof cell === 'number') {
-        // CÉLULA NUMÉRICA REAL (não texto): Excel calcula somas e médias nativamente
+      if (typeof cell === 'object' && cell !== null && 'f' in cell) {
+        // Fórmula do Excel
+        const formulaObj = cell as CellFormula
+        const fEscaped = escapeXml(formulaObj.f)
+        const vPart = formulaObj.v !== undefined ? `<v>${escapeXml(formulaObj.v)}</v>` : ''
+        xml += `<c r="${cellRef}"><f>${fEscaped}</f>${vPart}</c>`
+      } else if (typeof cell === 'number') {
+        // CÉLULA NUMÉRICA REAL (não texto): Excel calcula somas nativamente
         xml += `<c r="${cellRef}"><v>${cell}</v></c>`
       } else if (typeof cell === 'boolean') {
         xml += `<c r="${cellRef}" t="b"><v>${cell ? 1 : 0}</v></c>`
@@ -242,7 +266,10 @@ export function generateXlsxBlob(sheets: ExcelSheet[]): Blob {
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheets>`
   sheets.forEach((sheet, idx) => {
-    const escapedName = escapeXml(sheet.name || `Sheet${idx + 1}`)
+    const safeSheetName = (sheet.name || `Sheet${idx + 1}`)
+      .replace(/[\\/?*:[\]]/g, ' ')
+      .slice(0, 31)
+    const escapedName = escapeXml(safeSheetName)
     wbXml += `\n<sheet name="${escapedName}" sheetId="${idx + 1}" r:id="rId${idx + 1}"/>`
   })
   wbXml += `\n</sheets>
@@ -262,7 +289,11 @@ export function generateXlsxBlob(sheets: ExcelSheet[]): Blob {
 
   // 6. xl/worksheets/sheetN.xml
   sheets.forEach((sheet, idx) => {
-    const sheetXml = buildWorksheetXml(sheet.headers, sheet.rows)
+    // Normaliza nome da aba para não conter caracteres proibidos pelo Excel: \ / ? * : [ ]
+    const safeSheetName = (sheet.name || `Sheet${idx + 1}`)
+      .replace(/[\\/?*:[\]]/g, ' ')
+      .slice(0, 31)
+    const sheetXml = buildWorksheetXml(sheet.headers, sheet.rows, sheet.colWidths)
     entries.push({
       name: `xl/worksheets/sheet${idx + 1}.xml`,
       data: encoder.encode(sheetXml),

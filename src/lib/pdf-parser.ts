@@ -269,15 +269,28 @@ async function extractWithPdfJs(
       let lastY: number | null = null
       let currentLine = ''
 
-      for (const item of textContent.items) {
+      // Ordena itens pela coordenada vertical Y decrescente (topo para base) e X crescente (esquerda para direita)
+      // para garantir a ordem natural de leitura
+      const rawItems = (textContent.items || []).slice().sort((a: any, b: any) => {
+        const yA = a.transform ? Math.round(a.transform[5]) : 0
+        const yB = b.transform ? Math.round(b.transform[5]) : 0
+        if (Math.abs(yA - yB) > 3) {
+          return yB - yA // y decrescente
+        }
+        const xA = a.transform ? a.transform[4] : 0
+        const xB = b.transform ? b.transform[4] : 0
+        return xA - xB
+      })
+
+      for (const item of rawItems) {
         const text = item.str || ''
         const y = item.transform ? Math.round(item.transform[5]) : null
 
-        if (lastY !== null && y !== null && Math.abs(y - lastY) > 5) {
+        if (lastY !== null && y !== null && Math.abs(y - lastY) > 4) {
           if (currentLine.trim()) items.push(currentLine.trim())
           currentLine = text
         } else {
-          currentLine += (currentLine ? ' ' : '') + text
+          currentLine += (currentLine && text ? ' ' : '') + text
         }
         lastY = y
       }

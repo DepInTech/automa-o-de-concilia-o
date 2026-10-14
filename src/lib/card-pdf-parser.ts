@@ -1,6 +1,7 @@
 import type { BankType, CardRecord } from './types'
 import { extractPdfText } from './pdf-parser'
 import { normalizeMoneyValue, isFiscalIdentifierSequence } from './normalization'
+import { parseInvoiceByBank } from './invoice-bank-parser'
 
 export interface StructuredCardRecord extends CardRecord {
   numero?: string
@@ -529,9 +530,32 @@ export async function parseCardPdf(
   const allRecords: StructuredCardRecord[] = []
   const globalIdx = { current: 1 }
 
+  // Executa o parser por banco em paralelo com o texto total
+  const bankResult = parseInvoiceByBank(extraction.fullText)
+
   for (const page of extraction.pages) {
     const pageRecords = parseInvoicePageBlocks(page.lines, page.pageNumber, globalIdx)
     allRecords.push(...pageRecords)
+  }
+
+  // Se o parser especializado por banco (Santander / Itaú) encontrou mais transações
+  if (bankResult.transactions.length > allRecords.length) {
+    for (const t of bankResult.transactions) {
+      allRecords.push({
+        id: `pdf-rec-bank-${globalIdx.current++}`,
+        data: normalizeCardDate(t.data),
+        estabelecimento: t.descricao,
+        valor: t.valorBRL,
+        parcela: t.parcela,
+        cartaoTitular: t.portador,
+        categoria: t.categoria,
+        isInternacional:
+          t.observacao === 'Internacional' || (t.valorUSD !== null && t.valorUSD !== undefined),
+        moedaGlobal: t.valorUSD ? 'USD' : 'BRL',
+        cotacao: t.cotacao || undefined,
+        rawLine: t.rawLine,
+      })
+    }
   }
 
   // Se o método de blocos colunares por página não encontrou registros suficientes,
