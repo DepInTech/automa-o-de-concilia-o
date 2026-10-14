@@ -1,6 +1,6 @@
 import { Card, CardContent } from '@/components/ui/card'
 import { formatCurrency } from '@/lib/format'
-import type { ReconciliationResult } from '@/lib/types'
+import type { ReconciliationResult, SystemRecord, CardRecord, BankType } from '@/lib/types'
 import { calculateReconciliationMetrics } from '@/lib/reconciliation'
 import {
   CheckCircle2,
@@ -17,14 +17,25 @@ import {
 
 export function SummaryCards({
   results,
+  systemRecords,
+  cardRecords,
   systemRecordsCount,
   cardRecordsCount,
+  bank = 'itau',
 }: {
   results: ReconciliationResult[]
+  systemRecords?: SystemRecord[]
+  cardRecords?: CardRecord[]
   systemRecordsCount?: number
   cardRecordsCount?: number
+  bank?: BankType
 }) {
-  const metrics = calculateReconciliationMetrics(results, systemRecordsCount, cardRecordsCount)
+  const metrics = calculateReconciliationMetrics(
+    results,
+    systemRecords ?? systemRecordsCount,
+    cardRecords ?? cardRecordsCount,
+    bank,
+  )
   const isZeroDiff = Math.abs(metrics.diferencaTotal) < 0.005
 
   const formatDifferenceValue = (diff: number): string => {

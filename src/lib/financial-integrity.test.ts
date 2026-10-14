@@ -387,4 +387,161 @@ describe('Integridade Financeira e Imutabilidade das Fontes de Origem', () => {
     expect(sys.credito).toBe(250.0)
     expect(card.valor).toBe(250.0)
   })
+
+  it('12. Conservação: total da fatura antes == depois da conciliação registro a registro sem mutação', () => {
+    const cardRecords: CardRecord[] = [
+      { id: 'c1', data: '01/06/2026', estabelecimento: 'POSTO IPIRANGA', valor: 250.0 },
+      { id: 'c2', data: '02/06/2026', estabelecimento: 'KALUNGA COMERCIO', valor: 185.0 },
+      { id: 'c3', data: '03/06/2026', estabelecimento: 'RESTAURANTE CENTRAL', valor: 75.5 },
+      { id: 'c4', data: '04/06/2026', estabelecimento: 'ESTORNO COMPRA DUPLICADA', valor: -50.0 },
+    ]
+
+    const systemRecords: SystemRecord[] = [
+      { id: 's1', data: '01/06/2026', parceiro: 'POSTO IPIRANGA', credito: 250.0, debito: null },
+      { id: 's2', data: '02/06/2026', parceiro: 'KALUNGA PAPELARIA', credito: 0.0, debito: null },
+    ]
+
+    const sumBeforeCents = cardRecords.reduce((sum, c) => sum + toIntegerCents(c.valor), 0)
+    const totalBefore = roundToCents(sumBeforeCents / 100)
+
+    const results = reconcileData(systemRecords, cardRecords, 'itau')
+    const metrics = calculateReconciliationMetrics(results, systemRecords, cardRecords, 'itau')
+
+    expect(metrics.totalValorFatura).toBe(totalBefore)
+    expect(metrics.totalRegistrosFatura).toBe(cardRecords.length)
+
+    // Verifica que nenhum registro original sofreu mutação
+    expect(cardRecords[0].valor).toBe(250.0)
+    expect(cardRecords[1].valor).toBe(185.0)
+    expect(cardRecords[2].valor).toBe(75.5)
+    expect(cardRecords[3].valor).toBe(-50.0)
+  })
+
+  it('13. Cenário sintético da falha: par divergente de R$ 185 NÃO infla o total da fatura e ID nunca duplica', () => {
+    // Simula a classe do bug diagnosticado:
+    // Odoo tem parceiro X com valor R$ 0,00 e Fatura tem estabelecimento X com valor R$ 185,00
+    // Diferença é R$ 185,00. Esse lançamento deve ficar estritamente no par YELLOW
+    // e NUNCA aparecer duplicado na Fase 4 como RED-CARD.
+    const sysRecord: SystemRecord = {
+      id: 's-div-185',
+      data: '10/06/2026',
+      parceiro: 'SERVICO CLOUD BRASIL',
+      credito: 100.0,
+      total: 100.0,
+      debito: null,
+    }
+
+    const cardRecord: CardRecord = {
+      id: 'c-div-185',
+      data: '10/06/2026',
+      estabelecimento: 'SERVICO CLOUD BRASIL',
+      valor: 285.0, // Diferença = +185.00
+    }
+
+    const otherCard: CardRecord = {
+      id: 'c-other',
+      data: '11/06/2026',
+      estabelecimento: 'PAPELARIA CENTRAL',
+      valor: 50.0,
+    }
+
+    const sysList = [sysRecord]
+    const cardList = [cardRecord, otherCard]
+
+    const expectedTotalFatura = roundToCents(285.0 + 50.0)
+    const expectedTotalOdoo = 100.0
+
+    const results = reconcileData(sysList, cardList, 'itau')
+
+    // Deve haver 1 YELLOW (par divergente) e 1 RED-CARD (otherCard)
+    expect(results).toHaveLength(2)
+
+    const yellow = results.find((r) => r.status === 'YELLOW')
+    expect(yellow).toBeDefined()
+    expect(yellow?.cardRecordId).toBe('c-div-185')
+    expect(yellow?.systemRecordId).toBe('s-div-185')
+    expect(yellow?.diferenca).toBe(185.0)
+
+    // O card 'c-div-185' NUNCA deve reaparecer como RED-CARD
+    const duplicateRedCard = results.find((r) => r.id === 'RED-CARD-c-div-185')
+    expect(duplicateRedCard).toBeUndefined()
+
+    // Cada ID de cartão deve estar presente no máximo 1 vez em results
+    const cardIds = results.map((r) => r.cardRecordId).filter(Boolean)
+    expect(new Set(cardIds).size).toBe(cardIds.length)
+
+    // As métricas lendo as fontes originais mantêm rigorosamente os totais corretos
+    const metrics = calculateReconciliationMetrics(results, sysList, cardList, 'itau')
+    expect(metrics.totalValorFatura).toBe(expectedTotalFatura) // 335.0, NÃO 335.0 + 185.0 = 520.0
+    expect(metrics.totalValorSistema).toBe(expectedTotalOdoo)
+    expect(metrics.totalDiferencaDivergentes).toBe(185.0)
+  })
+
+  it('14. Idempotência: executar reconcileData duas vezes sobre o mesmo estado gera contagens, totais e IDs idênticos', () => {
+    const sysList: SystemRecord[] = [
+      { id: 's1', data: '01/06/2026', parceiro: 'ALFA ENGENHARIA', credito: 500.0, debito: null },
+      { id: 's2', data: '02/06/2026', parceiro: 'BETA SOFTWARE', credito: 300.0, debito: null },
+      { id: 's3', data: '03/06/2026', parceiro: 'GAMA LOCACOES', credito: 200.0, debito: null },
+    ]
+
+    const cardList: CardRecord[] = [
+      { id: 'c1', data: '01/06/2026', estabelecimento: 'ALFA ENGENHARIA', valor: 500.0 },
+      { id: 'c2', data: '02/06/2026', estabelecimento: 'BETA SOFTWARE', valor: 350.0 }, // Divergente
+      { id: 'c3', data: '04/06/2026', estabelecimento: 'DELTA TRANSPORTE', valor: 120.0 }, // Exclusivo fatura
+    ]
+
+    const run1 = reconcileData(sysList, cardList, 'itau')
+    const run2 = reconcileData(sysList, cardList, 'itau')
+
+    expect(run1.length).toBe(run2.length)
+    expect(run1.map((r) => r.id)).toEqual(run2.map((r) => r.id))
+    expect(run1.map((r) => r.status)).toEqual(run2.map((r) => r.status))
+    expect(run1.map((r) => r.diferenca)).toEqual(run2.map((r) => r.diferenca))
+
+    const metrics1 = calculateReconciliationMetrics(run1, sysList, cardList, 'itau')
+    const metrics2 = calculateReconciliationMetrics(run2, sysList, cardList, 'itau')
+
+    expect(metrics1.totalValorFatura).toBe(metrics2.totalValorFatura)
+    expect(metrics1.totalValorSistema).toBe(metrics2.totalValorSistema)
+    expect(metrics1.diferencaTotal).toBe(metrics2.diferencaTotal)
+    expect(metrics1.paresConciliados).toBe(metrics2.paresConciliados)
+    expect(metrics1.paresDivergentes).toBe(metrics2.paresDivergentes)
+  })
+
+  it('15. Independência: ordenar ou filtrar a lista de resultados não altera os totais das fontes originais', () => {
+    const sysList: SystemRecord[] = [
+      { id: 's1', data: '01/06/2026', parceiro: 'A CORP', credito: 100.0, debito: null },
+      { id: 's2', data: '02/06/2026', parceiro: 'B CORP', credito: 200.0, debito: null },
+    ]
+    const cardList: CardRecord[] = [
+      { id: 'c1', data: '01/06/2026', estabelecimento: 'A CORP', valor: 100.0 },
+      { id: 'c2', data: '02/06/2026', estabelecimento: 'B CORP', valor: 250.0 },
+    ]
+
+    const results = reconcileData(sysList, cardList, 'itau')
+
+    // Filtra apenas conciliados (GREEN) ou inverte ordem
+    const filteredResults = results.filter((r) => r.status === 'GREEN')
+    const reversedResults = [...results].reverse()
+
+    // As métricas calculadas sobre as fontes originais não são afetadas por filtros ou inversões de tela
+    const metricsFromFull = calculateReconciliationMetrics(results, sysList, cardList, 'itau')
+    const metricsFromFiltered = calculateReconciliationMetrics(
+      filteredResults,
+      sysList,
+      cardList,
+      'itau',
+    )
+    const metricsFromReversed = calculateReconciliationMetrics(
+      reversedResults,
+      sysList,
+      cardList,
+      'itau',
+    )
+
+    expect(metricsFromFiltered.totalValorFatura).toBe(metricsFromFull.totalValorFatura)
+    expect(metricsFromFiltered.totalValorSistema).toBe(metricsFromFull.totalValorSistema)
+    expect(metricsFromReversed.totalValorFatura).toBe(metricsFromFull.totalValorFatura)
+    expect(metricsFromReversed.totalValorSistema).toBe(metricsFromFull.totalValorSistema)
+  })
 })

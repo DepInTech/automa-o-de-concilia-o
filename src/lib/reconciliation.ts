@@ -625,10 +625,13 @@ export function reconcileData(
   // Regra do usuário: "Quando o algoritmo não conseguir estabelecer uma correspondência confiável,
   // deverá manter os registros separados e classificá-los como exclusivos da respectiva fonte,
   // sem inventar associações. Não utilizar o status 'Ambíguo', 'Cinza' ou qualquer categoria equivalente."
+  // Relação bijetora estrita: nenhum ID de fatura ou Odoo pode aparecer em mais de um resultado,
+  // e nenhuma transação que já tenha entrado em GREEN/YELLOW ou pré-marcada pode entrar na Fase 4.
 
   // 6a. Exclusivos do Sistema (RED / SOMENTE_SISTEMA)
   for (const s of normalizedSys) {
     if (matchedSystemIds.has(s.sys.id)) continue
+    matchedSystemIds.add(s.sys.id)
 
     results.push({
       id: `RED-SYS-${s.sys.id}`,
@@ -658,6 +661,7 @@ export function reconcileData(
   // 6b. Exclusivos da Fatura (RED / SOMENTE_FATURA)
   for (const c of normalizedCard) {
     if (matchedCardIds.has(c.card.id)) continue
+    matchedCardIds.add(c.card.id)
 
     results.push({
       id: `RED-CARD-${c.card.id}`,
@@ -838,8 +842,9 @@ export function generateAdherenceReport(results: ReconciliationResult[]): Adhere
  */
 export function calculateReconciliationMetrics(
   results: ReconciliationResult[],
-  totalSistemaOriginal?: number,
-  totalFaturaOriginal?: number,
+  systemSource?: SystemRecord[] | number,
+  cardSource?: CardRecord[] | number,
+  bank: BankType = 'itau',
 ): ReconciliationMetrics {
   const conciliated = results.filter((r) => r.status === 'GREEN')
   const exactMatches = conciliated.filter(
@@ -853,21 +858,57 @@ export function calculateReconciliationMetrics(
   const onlySys = results.filter((r) => r.classificacao === 'SOMENTE_SISTEMA')
   const onlyFat = results.filter((r) => r.classificacao === 'SOMENTE_FATURA')
 
-  // Totais separados e estritos calculados em centavos inteiros para precisão absoluta
-  const totalValorSistemaCents = results.reduce(
-    (sum, r) =>
-      sum + (r.credito !== null && r.credito !== undefined ? toIntegerCents(r.credito) : 0),
-    0,
-  )
-  const totalValorSistema = roundToCents(totalValorSistemaCents / 100)
+  // Determinação rigorosa da contagem e valores das fontes originais
+  const isSystemArray = Array.isArray(systemSource)
+  const isCardArray = Array.isArray(cardSource)
 
-  const totalValorFaturaCents = results.reduce(
-    (sum, r) =>
-      sum +
-      (r.valorFatura !== null && r.valorFatura !== undefined ? toIntegerCents(r.valorFatura) : 0),
-    0,
-  )
-  const totalValorFatura = roundToCents(totalValorFaturaCents / 100)
+  const totalRegistrosSistema: number = isSystemArray
+    ? (systemSource as SystemRecord[]).length
+    : typeof systemSource === 'number'
+      ? systemSource
+      : results.filter((r) => r.origem === 'SISTEMA' || r.origem === 'AMBOS').length
+
+  const totalRegistrosFatura: number = isCardArray
+    ? (cardSource as CardRecord[]).length
+    : typeof cardSource === 'number'
+      ? cardSource
+      : results.filter((r) => r.origem === 'FATURA' || r.origem === 'AMBOS').length
+
+  // Totais separados e estritos calculados em centavos inteiros para precisão absoluta:
+  // Se os arrays originais foram fornecidos, calcula EXCLUSIVAMENTE sobre os registros originais
+  // de cada fonte, preservando sinais, estornos e centavos inteiros.
+  let totalValorSistema: number
+  if (isSystemArray) {
+    const sumCents = (systemSource as SystemRecord[]).reduce((sum, s) => {
+      const val = getSystemValue(s, bank)
+      return sum + toIntegerCents(val)
+    }, 0)
+    totalValorSistema = roundToCents(sumCents / 100)
+  } else {
+    const totalValorSistemaCents = results.reduce(
+      (sum, r) =>
+        sum + (r.credito !== null && r.credito !== undefined ? toIntegerCents(r.credito) : 0),
+      0,
+    )
+    totalValorSistema = roundToCents(totalValorSistemaCents / 100)
+  }
+
+  let totalValorFatura: number
+  if (isCardArray) {
+    const sumCents = (cardSource as CardRecord[]).reduce((sum, c) => {
+      const val = getCardValue(c)
+      return sum + toIntegerCents(val)
+    }, 0)
+    totalValorFatura = roundToCents(sumCents / 100)
+  } else {
+    const totalValorFaturaCents = results.reduce(
+      (sum, r) =>
+        sum +
+        (r.valorFatura !== null && r.valorFatura !== undefined ? toIntegerCents(r.valorFatura) : 0),
+      0,
+    )
+    totalValorFatura = roundToCents(totalValorFaturaCents / 100)
+  }
 
   // Total conciliado em CADA fonte
   const totalValorConciliadoSistemaCents = conciliated.reduce(
@@ -911,14 +952,6 @@ export function calculateReconciliationMetrics(
   const totalDiferencaDivergentes = roundToCents(totalDiferencaDivergentesCents / 100)
 
   const diferencaTotal = computeStrictDifference(totalValorFatura, totalValorSistema)
-
-  const totalRegistrosSistema =
-    totalSistemaOriginal ??
-    results.filter((r) => r.origem === 'SISTEMA' || r.origem === 'AMBOS').length
-
-  const totalRegistrosFatura =
-    totalFaturaOriginal ??
-    results.filter((r) => r.origem === 'FATURA' || r.origem === 'AMBOS').length
 
   const percentualConciliacao =
     results.length > 0 ? Math.round((conciliated.length / results.length) * 1000) / 10 : 0

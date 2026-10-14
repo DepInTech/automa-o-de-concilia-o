@@ -382,8 +382,11 @@ export default function Index() {
         {/* Indicadores e Totais Separados */}
         <SummaryCards
           results={results}
+          systemRecords={systemRecords}
+          cardRecords={cardRecords}
           systemRecordsCount={systemRecords.length}
           cardRecordsCount={cardRecords.length}
+          bank={bank}
         />
 
         {/* Tabela de Resultados Lado a Lado com Exportação */}
