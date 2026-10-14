@@ -2130,9 +2130,9 @@ trailer << /Root 1 0 R >>
     it('51. Pipeline Real: Validação com planilhas de referência do usuário (efêmera em memória)', async () => {
       // Importa fatura XLSX via pipeline real
       const faturaUrl =
-        'https://dagtlwojkqyivnjgveda.supabase.co/storage/v1/object/public/message-attachments/b5409554-bdb8-4cc9-877a-6a630627ae10/faturaitau-1-76fba.xlsx'
+        'https://dagtlwojkqyivnjgveda.supabase.co/storage/v1/object/public/message-attachments/b5409554-bdb8-4cc9-877a-6a630627ae10/faturaitau-1-2e1d6.xlsx'
       const odooUrl =
-        'https://dagtlwojkqyivnjgveda.supabase.co/storage/v1/object/public/message-attachments/b5409554-bdb8-4cc9-877a-6a630627ae10/lancamento-de-diario-1-3ac0a.xlsx'
+        'https://dagtlwojkqyivnjgveda.supabase.co/storage/v1/object/public/message-attachments/b5409554-bdb8-4cc9-877a-6a630627ae10/lancamento-de-diario-1-41040.xlsx'
 
       try {
         const [fatRes, odooRes] = await Promise.all([fetch(faturaUrl), fetch(odooUrl)])
