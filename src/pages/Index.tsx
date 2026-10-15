@@ -387,6 +387,9 @@ export default function Index() {
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm text-xs font-semibold text-white/90 mb-2">
                 <span className="w-2 h-2 rounded-full bg-[#20BFA9] animate-pulse" />
                 Conciliação Bancária • {bankLabels[bank]}
+                <span className="ml-1 px-2 py-0.5 rounded-full bg-white/20 text-[10px] font-mono font-semibold text-white border border-white/30">
+                  v-test • build 0.0.123
+                </span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
                 Conciliação Bancária
@@ -472,6 +475,9 @@ export default function Index() {
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#F4F8F7] dark:bg-[#00796F]/20 border border-[#00796F]/20 text-[#004A46] dark:text-[#20BFA9] text-xs font-bold uppercase tracking-wider">
           <span className="w-2 h-2 rounded-full bg-[#00796F] dark:bg-[#20BFA9]" />
           Gestão Financeira • Grupo EPA
+          <span className="ml-1 px-2 py-0.5 rounded-full bg-[#00796F]/10 dark:bg-[#20BFA9]/20 text-[10px] font-mono font-semibold text-[#00796F] dark:text-[#20BFA9] border border-[#00796F]/20 dark:border-[#20BFA9]/30">
+            v-test • build 0.0.123
+          </span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-black text-[#163A38] dark:text-[#F1F5F4] tracking-tight">
           Conciliação Financeira & Conversor de Fatura
@@ -603,7 +609,7 @@ export default function Index() {
             </div>
           </div>
 
-          {/* SummaryCards no dashboard da home com os 4 cartões de indicadores e o resumo financeiro desativados */}
+          {/* SummaryCards no dashboard da home com os 4 cartões de indicadores e o resumo financeiro ativos */}
           <SummaryCards
             results={results}
             systemRecords={systemRecords}
@@ -612,8 +618,8 @@ export default function Index() {
             cardRecordsCount={cardRecords.length}
             bank={bank}
             activeFilter={activeFilter}
-            showIndicatorCards={false}
-            showFinancialSummarySection={false}
+            showIndicatorCards={true}
+            showFinancialSummarySection={true}
             onSelectFilter={(newFilter) => {
               setActiveFilter(newFilter)
               setStep('results')
